@@ -1,0 +1,10 @@
+export type Supplement = { name: string; purpose: string; evidence: "גבוהה" | "בינונית" | "מוגבלת"; whenToConsider: string; caution: string; source: string };
+
+export const supplements: Supplement[] = [
+  { name: "קריאטין מונוהידראט", purpose: "תמיכה במאמצים קצרים ועצימים וביכולת לבצע נפח אימון", evidence: "גבוהה", whenToConsider: "מתאים לשקילה למתאמנים בריאים לאחר בדיקת התאמה אישית.", caution: "במצב רפואי, תרופות או מחלת כליה יש להתייעץ עם איש מקצוע לפני שימוש.", source: "NIH ODS — Exercise and Athletic Performance" },
+  { name: "אומגה־3", purpose: "מקור ל-EPA/DHA; עשוי להשלים תזונה דלה בדגים", evidence: "בינונית", whenToConsider: "אפשר לשקול כאשר צריכת דגים שמנים נמוכה, תוך בדיקת התווית.", caution: "יש להתייעץ במקרה של תרופות נוגדות קרישה או לפני פעולה רפואית.", source: "NIH ODS — Omega-3 Fatty Acids" },
+  { name: "ויטמין D", purpose: "תמיכה בתפקודים הקשורים לעצמות ולמערכת החיסון כאשר יש חוסר", evidence: "בינונית", whenToConsider: "מומלץ להתבסס על בדיקת דם והמלצה מקצועית, ולא על ניחוש.", caution: "עודף עלול להזיק; אין להתחיל מינון גבוה ללא בדיקה והכוונה.", source: "NIH ODS — Vitamin D" },
+  { name: "אבקת חלבון", purpose: "דרך נוחה להשלים חלבון כאשר קשה להגיע ליעד ממזון", evidence: "בינונית", whenToConsider: "נוחות בלבד; אינה חובה אם היעד מושג מארוחות רגילות.", caution: "בדוק אלרגנים, רגישות ללקטוז ורכיבים נוספים במוצר.", source: "NIH ODS — Exercise and Athletic Performance" },
+  { name: "קפאין", purpose: "עשוי לשפר ערנות ומאמץ אצל חלק מהמתאמנים", evidence: "בינונית", whenToConsider: "להשתמש בזהירות ובהתאם לרגישות האישית ולשעת האימון.", caution: "עלול לפגוע בשינה ולהחמיר דופק, חרדה או רגישות; להימנע ללא ייעוץ במצבים מתאימים.", source: "NIH ODS — Exercise and Athletic Performance" },
+  { name: "מגנזיום", purpose: "מינרל חיוני; תוסף רלוונטי בעיקר כאשר יש חוסר או צורך שהוגדר מקצועית", evidence: "מוגבלת", whenToConsider: "עדיף להתחיל מהתזונה ולשקול בדיקה או ייעוץ במקרה של חשד לחוסר.", caution: "תוספים עלולים לגרום לתופעות במערכת העיכול ולהפריע לספיגת תרופות מסוימות.", source: "NIH ODS — Magnesium" },
+];
