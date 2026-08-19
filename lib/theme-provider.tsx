@@ -66,7 +66,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       <View
         style={[
           styles.flex,
-          { backgroundColor: SchemeColors[colorScheme].background, direction: "rtl" as const },
+          { backgroundColor: SchemeColors[colorScheme].background },
           Platform.OS === "web" ? themeVariables : null,
         ]}
       >

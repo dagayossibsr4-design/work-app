@@ -83,13 +83,14 @@ export function registerOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-      // Redirect to the frontend URL (Expo web on port 8081)
-      // Cookie is set with parent domain so it works across both 3000 and 8081 subdomains
-      const frontendUrl =
-        process.env.EXPO_WEB_PREVIEW_URL ||
-        process.env.EXPO_PACKAGER_PROXY_URL ||
-        "http://localhost:8081";
-      res.redirect(302, frontendUrl);
+      // Return to the same public origin that handled the callback.
+      // This is important on Render: never fall back to localhost or a stale Preview URL.
+      const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim();
+      const protocol = forwardedProto || req.protocol || "https";
+      const publicOrigin = `${protocol}://${req.get("host")}`;
+      const configuredOrigin = process.env.PUBLIC_APP_URL?.replace(/\/$/, "");
+      const frontendUrl = configuredOrigin || publicOrigin;
+      res.redirect(302, `${frontendUrl}/register?auth=success`);
     } catch (error) {
       console.error("[OAuth] Callback failed", error);
       res.status(500).json({ error: "OAuth callback failed" });

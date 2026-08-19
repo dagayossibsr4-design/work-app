@@ -1,10 +1,9 @@
-import { ThemedView } from "@/components/themed-view";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function OAuthCallback() {
@@ -96,7 +95,7 @@ export default function OAuthCallback() {
         if (error) {
           console.error("[OAuth] Error parameter found:", error);
           setStatus("error");
-          setErrorMessage(error || "OAuth error occurred");
+          setErrorMessage(localizeOAuthError(error));
           return;
         }
 
@@ -171,7 +170,7 @@ export default function OAuthCallback() {
             hasState: !!state,
           });
           setStatus("error");
-          setErrorMessage("Missing code or state parameter");
+          setErrorMessage("חסרים פרטי האימות. חזור למסך ההרשמה ונסה שוב.");
           return;
         }
 
@@ -220,13 +219,13 @@ export default function OAuthCallback() {
         } else {
           console.error("[OAuth] No session token in result:", result);
           setStatus("error");
-          setErrorMessage("No session token received");
+          setErrorMessage("לא התקבל אישור התחברות מהשרת. חזור למסך ההרשמה ונסה שוב.");
         }
       } catch (error) {
         console.error("[OAuth] Callback error:", error);
         setStatus("error");
         setErrorMessage(
-          error instanceof Error ? error.message : "Failed to complete authentication",
+          error instanceof Error ? localizeOAuthError(error.message) : "לא ניתן להשלים את החיבור כרגע.",
         );
       }
     };
@@ -235,37 +234,53 @@ export default function OAuthCallback() {
   }, [params.code, params.state, params.error, params.sessionToken, params.user, router]);
 
   return (
-    <SafeAreaView className="flex-1" edges={["top", "bottom", "left", "right"]}>
-      <ThemedView className="flex-1 items-center justify-center gap-4 p-5">
+    <SafeAreaView edges={["top", "bottom", "left", "right"]} style={styles.safeArea}>
+      <View style={styles.content}>
+        <Text style={styles.eyebrow}>חשבון אישי</Text>
         {status === "processing" && (
           <>
-            <ActivityIndicator size="large" />
-            <Text className="mt-4 text-base leading-6 text-center text-foreground">
-              Completing authentication...
-            </Text>
+            <ActivityIndicator size="large" color="#F5B72C" />
+            <Text style={styles.title}>מאמת את החשבון…</Text>
+            <Text style={styles.note}>אנחנו משלימים את החיבור ומחזירים אותך לאפליקציה.</Text>
           </>
         )}
         {status === "success" && (
           <>
-            <Text className="text-base leading-6 text-center text-foreground">
-              Authentication successful!
-            </Text>
-            <Text className="text-base leading-6 text-center text-foreground">
-              Redirecting...
-            </Text>
+            <Text style={styles.successTitle}>החיבור הצליח</Text>
+            <Text style={styles.note}>החשבון נשמר. מעבירים אותך למסך הראשי…</Text>
           </>
         )}
         {status === "error" && (
           <>
-            <Text className="mb-2 text-xl font-bold leading-7 text-error">
-              Authentication failed
-            </Text>
-            <Text className="text-base leading-6 text-center text-foreground">
-              {errorMessage}
-            </Text>
+            <Text style={styles.errorTitle}>לא הצלחנו להשלים את החיבור</Text>
+            <Text style={styles.note}>{errorMessage || "אירעה שגיאה זמנית. נסה שוב ממסך ההרשמה."}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הרשמה" onPress={() => router.replace("/register")} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
+              <Text style={styles.buttonText}>חזרה להרשמה</Text>
+            </Pressable>
           </>
         )}
-      </ThemedView>
+      </View>
     </SafeAreaView>
   );
 }
+
+function localizeOAuthError(message: string | null | undefined) {
+  const normalized = String(message ?? "").toLowerCase();
+  if (normalized.includes("access_denied") || normalized.includes("denied")) return "ההרשאה בוטלה. אפשר לנסות שוב בכל עת.";
+  if (normalized.includes("expired") || normalized.includes("invalid")) return "קישור האימות פג או אינו תקין. חזור למסך ההרשמה ונסה שוב.";
+  if (normalized.includes("network") || normalized.includes("fetch")) return "אין חיבור תקין לשרת. בדוק את האינטרנט ונסה שוב.";
+  return "לא ניתן להשלים את החיבור כרגע. חזור למסך ההרשמה ונסה שוב.";
+}
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: "#0B1224" },
+  content: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 12 },
+  eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "center" },
+  title: { color: "#F7F9FC", fontSize: 22, fontWeight: "900", textAlign: "center" },
+  successTitle: { color: "#65BDF6", fontSize: 24, fontWeight: "900", textAlign: "center" },
+  errorTitle: { color: "#FF879A", fontSize: 22, fontWeight: "900", textAlign: "center" },
+  note: { color: "#AAB7C8", fontSize: 13, lineHeight: 20, textAlign: "center", maxWidth: 340 },
+  button: { minHeight: 46, minWidth: 190, paddingHorizontal: 18, borderRadius: 12, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center", marginTop: 8 },
+  buttonText: { color: "#0B1224", fontWeight: "900" },
+  pressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
+});

@@ -20,6 +20,14 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const userAppState = mysqlTable("user_app_state", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  payload: json("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const garminConnections = mysqlTable("garmin_connections", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
@@ -126,6 +134,7 @@ export const garminAuditEvents = mysqlTable("garmin_audit_events", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type UserAppState = typeof userAppState.$inferSelect;
 export type GarminConnection = typeof garminConnections.$inferSelect;
 export type GarminCredential = typeof garminCredentials.$inferSelect;
 export type GarminSyncRun = typeof garminSyncRuns.$inferSelect;

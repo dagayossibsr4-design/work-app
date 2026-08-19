@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type ExerciseTemplate, type WorkoutId, type WorkoutTemplate } from "./workout-data";
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
@@ -38,6 +38,8 @@ export type WorkoutSession = {
   sets: SetLog[];
 };
 
+export type AccountState = { sessions: WorkoutSession[]; templates: WorkoutTemplate[]; recoveryLogs: RecoveryLog[]; cardioLogs: CardioLog[]; nutritionProfile: NutritionProfile };
+
 type WorkoutContextValue = {
   sessions: WorkoutSession[];
   recoveryLogs: RecoveryLog[];
@@ -72,6 +74,8 @@ type WorkoutContextValue = {
   updateExercise: (templateId: WorkoutId, exerciseId: string, patch: Partial<ExerciseTemplate>) => void;
   deleteExercise: (templateId: WorkoutId, exerciseId: string) => void;
   moveExercise: (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => void;
+  getAccountState: () => AccountState;
+  applyAccountState: (state: Partial<AccountState>) => void;
 };
 
 const SESSION_KEY = "workout-tracker-sessions-v1";
@@ -186,6 +190,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (hydrated) AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs)); }, [cardioLogs, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile)); }, [nutritionProfile, hydrated]);
 
+
   const startWorkout = (templateId: WorkoutId, copyPrevious = false) => {
     const template = templates.find((item) => item.id === templateId) ?? getTemplate(templateId);
     const fresh = createSession(template);
@@ -251,6 +256,14 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const updateNutritionProfile = (profile: NutritionProfile) => setNutritionProfile(profile);
   const updateExercise = (templateId: WorkoutId, exerciseId: string, patch: Partial<ExerciseTemplate>) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, ...patch } : exercise) } : template));
   const deleteExercise = (templateId: WorkoutId, exerciseId: string) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.filter((exercise) => exercise.id !== exerciseId) } : template));
+  const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile]);
+  const applyAccountState = useCallback((state: Partial<AccountState>) => {
+    if (Array.isArray(state.sessions)) setSessions(state.sessions);
+    if (Array.isArray(state.templates)) setTemplates(state.templates);
+    if (Array.isArray(state.recoveryLogs)) setRecoveryLogs(state.recoveryLogs);
+    if (Array.isArray(state.cardioLogs)) setCardioLogs(state.cardioLogs);
+    if (state.nutritionProfile) setNutritionProfile((current) => ({ ...current, ...state.nutritionProfile }));
+  }, []);
   const moveExercise = (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => setTemplates((current) => current.map((template) => {
     if (template.id !== templateId) return template;
     const index = template.exercises.findIndex((exercise) => exercise.id === exerciseId);
@@ -264,7 +277,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({
     sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated,
     startWorkout, startWorkoutFromTemplate, updateSet, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
-    updateTemplate, addCustomTemplate, addExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addSetToActiveExercise, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, updateExercise, deleteExercise, moveExercise,
+    updateTemplate, addCustomTemplate, addExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addSetToActiveExercise, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState,
   }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, hydrated]);
   return <WorkoutContext.Provider value={value}>{children}</WorkoutContext.Provider>;
 }

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, userAppState, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,15 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function getUserAppState(userId: number): Promise<Record<string, unknown> | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select({ payload: userAppState.payload }).from(userAppState).where(eq(userAppState.userId, userId)).limit(1);
+  return result[0]?.payload ?? null;
+}
+
+export async function saveUserAppState(userId: number, payload: Record<string, unknown>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(userAppState).values({ userId, payload }).onDuplicateKeyUpdate({ set: { payload, updatedAt: new Date() } });
+}

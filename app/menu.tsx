@@ -3,10 +3,10 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 
 const sections = [
-  { title: "אימון יומי", items: [["היום", "/(tabs)"], ["אימונים", "/(tabs)/workouts"], ["היסטוריה", "/(tabs)/history"]] },
+  { title: "אימון יומי", items: [["היום", "/(tabs)"], ["אימונים", "/(tabs)/workouts"], ["יומן אימונים ולוח", "/(tabs)/schedule"], ["היסטוריה", "/(tabs)/history"]] },
   { title: "תזונה", items: [["מחשבון קלורי ומאקרו", "/(tabs)/macro-calculator"], ["ניהול ארוחות", "/(tabs)/meal-plan"], ["מאגר מזון והמרות", "/(tabs)/food-library"], ["תזונה והעדפות", "/(tabs)/nutrition"]] },
-  { title: "מעקב וניתוח", items: [["פרופיל אישי והתקדמות", "/(tabs)/profile"], ["סיכום שבועי", "/(tabs)/weekly-summary"], ["שינה והתאוששות", "/(tabs)/recovery"], ["אירובי", "/(tabs)/cardio"], ["ניתוח התקדמות", "/(tabs)/analysis"]] },
-  { title: "הגדרות וחיבורים", items: [["עריכת תבניות", "/(tabs)/editor"], ["Garmin Connect", "/(tabs)/garmin"], ["הגדרות", "/settings"], ["איך משתמשים באפליקציה", "/guide"], ["TRT וסטרואידים — מידע בטוח", "/hormone-health"], ["יומן מעקב אישי ותוספים", "/hormone-tracking"], ["פרטיות ומידע משפטי", "/legal"]] },
+  { title: "מעקב וניתוח", items: [["לוח בקרה · אימונים ותזונה", "/dashboard"], ["פרופיל אישי והתקדמות", "/(tabs)/profile"], ["סיכום שבועי", "/(tabs)/weekly-summary"], ["שינה והתאוששות", "/(tabs)/recovery"], ["אירובי", "/(tabs)/cardio"], ["ניתוח התקדמות", "/(tabs)/analysis"]] },
+  { title: "הגדרות וחיבורים", items: [["הרשמה / התחברות", "/register"], ["עריכת תבניות", "/(tabs)/editor"], ["Garmin Connect", "/(tabs)/garmin"], ["הגדרות", "/settings"], ["איך משתמשים באפליקציה", "/guide"], ["TRT וסטרואידים — מידע בטוח", "/hormone-health"], ["יומן מעקב אישי ותוספים", "/hormone-tracking"], ["פרטיות ומידע משפטי", "/legal"]] },
 ] as const;
 
 export default function MenuScreen() {

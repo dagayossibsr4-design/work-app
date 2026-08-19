@@ -1,0 +1,83 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
+import { ScreenContainer } from "@/components/screen-container";
+import { useWorkoutStore } from "@/lib/workout-store";
+import type { WorkoutId, WorkoutTemplate } from "@/lib/workout-data";
+
+const SCHEDULE_KEY = "workout-schedule-overrides-v1";
+const CYCLE_START = "2026-08-13";
+const cycle: Array<{ kind: "workout" | "cardio" | "rest"; templateId?: WorkoutId; label: string; focus: string }> = [
+  { kind: "workout", templateId: "pull1", label: "PULL 1", focus: "גב, כתף אחורית ויד קדמית" },
+  { kind: "rest", label: "חופש מוחלט", focus: "מנוחה והתאוששות מלאה" },
+  { kind: "workout", templateId: "push1", label: "PUSH 1", focus: "חזה, כתפיים, יד אחורית ובטן" },
+  { kind: "workout", templateId: "legs1", label: "LEGS 1", focus: "ארבע־ראשי ובטן" },
+  { kind: "workout", templateId: "pull2", label: "PULL 2", focus: "גב, כתף אחורית ויד קדמית" },
+  { kind: "cardio", label: "אירובי בלבד", focus: "אירובי והתאוששות פעילה" },
+  { kind: "workout", templateId: "push2", label: "PUSH 2", focus: "חזה Rest-Pause, כתפיים ויד אחורית" },
+  { kind: "workout", templateId: "legs2", label: "LEGS 2", focus: "המסטרינג, ישבן ובטן" },
+  { kind: "rest", label: "חופש מוחלט", focus: "מנוחה והתאוששות מלאה" },
+];
+const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+
+type Override = { label?: string; focus?: string; kind?: "workout" | "cardio" | "rest"; templateId?: WorkoutId };
+
+type ScheduledDay = { date: string; dayName: string; label: string; focus: string; kind: Override["kind"]; templateId?: WorkoutId };
+
+function addDays(date: string, amount: number) {
+  const result = new Date(`${date}T12:00:00`);
+  result.setDate(result.getDate() + amount);
+  return result.toISOString().slice(0, 10);
+}
+function formatDate(date: string) { return new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit" }).format(new Date(`${date}T12:00:00`)); }
+function dayIndex(date: string) { return Math.max(0, Math.round((new Date(`${date}T12:00:00`).getTime() - new Date(`${CYCLE_START}T12:00:00`).getTime()) / 86400000)); }
+
+export default function ScheduleScreen() {
+  const router = useRouter();
+  const { templates, updateTemplate } = useWorkoutStore();
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [weekStart, setWeekStart] = useState(() => {
+    const initialDate = new Date(`${new Date().toISOString().slice(0, 10)}T12:00:00`);
+    return addDays(new Date().toISOString().slice(0, 10), -initialDate.getDay());
+  });
+  const [overrides, setOverrides] = useState<Record<string, Override>>({});
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => { AsyncStorage.getItem(SCHEDULE_KEY).then((value) => { if (value) setOverrides(JSON.parse(value)); }); }, []);
+  useEffect(() => { AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(overrides)); }, [overrides]);
+
+  const week = useMemo<ScheduledDay[]>(() => Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(weekStart, index);
+    const base = cycle[dayIndex(date) % cycle.length];
+    const override = overrides[date] ?? {};
+    return { date, dayName: dayNames[index], label: override.label ?? base.label, focus: override.focus ?? base.focus, kind: override.kind ?? base.kind, templateId: override.templateId ?? base.templateId };
+  }), [overrides, weekStart]);
+  const selected = week.find((day) => day.date === selectedDate) ?? week[0];
+  const template = selected?.templateId ? templates.find((item) => item.id === selected.templateId) : undefined;
+
+  const patchSelected = (patch: Override) => setOverrides((current) => ({ ...current, [selected.date]: { ...current[selected.date], ...patch } }));
+  const chooseTemplate = (next: WorkoutTemplate) => patchSelected({ kind: "workout", templateId: next.id, label: next.name, focus: next.focus });
+  const updateExerciseName = (exerciseId: string, name: string) => { if (template) updateTemplate(template.id, { exercises: template.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, name } : exercise) }); };
+  const updateTarget = (exerciseId: string, setIndex: number, target: string) => { if (template) updateTemplate(template.id, { exercises: template.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, sets: exercise.sets.map((set, index) => index === setIndex ? { ...set, target } : set) } : exercise) }); };
+  const addSet = (exerciseId: string) => { if (template) updateTemplate(template.id, { exercises: template.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, sets: [...exercise.sets, { target: "8–12" }] } : exercise) }); };
+  const removeSet = (exerciseId: string, setIndex: number) => { if (template) updateTemplate(template.id, { exercises: template.exercises.map((exercise) => exercise.id === exerciseId && exercise.sets.length > 1 ? { ...exercise, sets: exercise.sets.filter((_, index) => index !== setIndex) } : exercise) }); };
+
+  return <ScreenContainer className="px-5 pt-5" containerClassName="bg-background">
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <View style={styles.heading}><Text style={styles.eyebrow}>יומן אימונים · לוח</Text><Text style={styles.title}>לוח האימונים שלי</Text><Text style={styles.subtitle}>Pull → Push → Legs · לפי הלוז שהעלית</Text></View>
+      <View style={styles.weekHeader}><Pressable onPress={() => { const previous = addDays(weekStart, -7); setWeekStart(previous); setSelectedDate(previous); }} style={styles.navButton}><Text style={styles.navText}>‹</Text></Pressable><View><Text style={styles.weekTitle}>שבוע מתוכנן</Text><Text style={styles.weekRange}>{formatDate(week[0].date)} – {formatDate(week[6].date)}</Text></View><Pressable onPress={() => { const next = addDays(weekStart, 7); setWeekStart(next); setSelectedDate(next); }} style={styles.navButton}><Text style={styles.navText}>›</Text></Pressable></View>
+      <View style={styles.days}>{week.map((day) => <Pressable key={day.date} onPress={() => { setSelectedDate(day.date); setWeekStart(addDays(day.date, -new Date(`${day.date}T12:00:00`).getDay())); setEditing(false); }} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio]}><Text style={styles.dayName}>{day.dayName}</Text><Text style={[styles.dayDate, selected.date === day.date && styles.dayDateActive]}>{formatDate(day.date)}</Text><Text style={[styles.dayLabel, selected.date === day.date && styles.dayLabelActive]}>{day.label}</Text><Text style={[styles.dayFocus, selected.date === day.date && styles.dayFocusActive]} numberOfLines={2}>{day.focus}</Text></Pressable>)}</View>
+      <View style={styles.detailCard}><View style={styles.detailHeader}><View><Text style={styles.detailLabel}>{selected.dayName} · {formatDate(selected.date)}</Text><Text style={styles.detailTitle}>{selected.label}</Text></View><Text style={styles.statusBadge}>{selected.kind === "rest" ? "מנוחה" : selected.kind === "cardio" ? "אירובי" : "אימון כוח"}</Text></View><Text style={styles.detailFocus}>{selected.focus}</Text>
+        {selected.kind === "workout" && template ? <>
+          <View style={styles.actionRow}><Pressable onPress={() => setEditing((value) => !value)} style={[styles.primarySmall, editing && styles.primarySmallActive]}><Text style={styles.primarySmallText}>{editing ? "סיום עריכה" : "עריכת האימון"}</Text></Pressable><Pressable onPress={() => router.push("/(tabs)/workouts" as never)} style={styles.secondarySmall}><Text style={styles.secondarySmallText}>פתח לוח אימון</Text></Pressable></View>
+          <View style={styles.templateSummary}><Text style={styles.templateSummaryTitle}>{template.name}</Text><Text style={styles.templateSummaryMeta}>{template.exercises.length} תרגילים · {template.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} סטים</Text></View>
+          {editing ? <View style={styles.editorBox}><Text style={styles.editorTitle}>עריכת תרגילים, סטים וחזרות</Text>{template.exercises.map((exercise) => <View key={exercise.id} style={styles.exerciseBox}><TextInput value={exercise.name} onChangeText={(value) => updateExerciseName(exercise.id, value)} style={styles.exerciseInput} textAlign="right"/><View style={styles.sets}><Text style={styles.setsLabel}>סטים וחזרות יעד</Text>{exercise.sets.map((set, index) => <View key={`${exercise.id}-${index}`} style={styles.setRow}><TextInput value={set.target} onChangeText={(value) => updateTarget(exercise.id, index, value)} style={styles.setInput} textAlign="right"/><Text style={styles.setNumber}>סט {index + 1}</Text><Pressable onPress={() => removeSet(exercise.id, index)} disabled={exercise.sets.length <= 1} style={[styles.removeSet, exercise.sets.length <= 1 && styles.disabled]}><Text style={styles.removeText}>×</Text></Pressable></View>)}<Pressable onPress={() => addSet(exercise.id)} style={styles.addSet}><Text style={styles.addSetText}>+ הוסף סט</Text></Pressable></View></View>)}</View> : <View style={styles.exercisePreview}>{template.exercises.slice(0, 5).map((exercise) => <Text key={exercise.id} style={styles.exerciseText}>• {exercise.name} · {exercise.sets.length} סטים</Text>)}{template.exercises.length > 5 ? <Text style={styles.moreText}>+ עוד {template.exercises.length - 5} תרגילים</Text> : null}</View>}
+        </> : <View style={styles.restMessage}><Text style={styles.restTitle}>{selected.kind === "cardio" ? "יום אירובי והתאוששות פעילה" : "יום מנוחה"}</Text><Text style={styles.restText}>{selected.kind === "cardio" ? "אפשר לעבור למסך האירובי ולתעד זמן, מרחק וקלוריות." : "אין תרגילי כוח מתוכננים ביום זה."}</Text>{selected.kind === "cardio" ? <Pressable onPress={() => router.push("/(tabs)/cardio" as never)} style={styles.primarySmall}><Text style={styles.primarySmallText}>פתח אירובי</Text></Pressable> : null}</View>}
+        <View style={styles.changeBox}><Text style={styles.changeTitle}>שינוי סוג האימון ליום זה</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.templatePills}>{templates.slice(0, 8).map((item) => <Pressable key={item.id} onPress={() => chooseTemplate(item)} style={[styles.templatePill, selected.templateId === item.id && styles.templatePillActive]}><Text style={[styles.templatePillText, selected.templateId === item.id && styles.templatePillTextActive]}>{item.name}</Text></Pressable>)}</ScrollView><View style={styles.changeActions}><Pressable onPress={() => patchSelected({ kind: "cardio", label: "אירובי בלבד", focus: "אירובי והתאוששות פעילה", templateId: undefined })} style={styles.changeButton}><Text style={styles.changeButtonText}>אירובי בלבד</Text></Pressable><Pressable onPress={() => patchSelected({ kind: "rest", label: "חופש מוחלט", focus: "מנוחה והתאוששות מלאה", templateId: undefined })} style={styles.changeButton}><Text style={styles.changeButtonText}>חופש מוחלט</Text></Pressable></View></View>
+      </View>
+    </ScrollView>
+  </ScreenContainer>;
+}
+
+const styles = StyleSheet.create({ content: { gap: 14, paddingBottom: 40 }, heading: { alignItems: "flex-end", gap: 5 }, eyebrow: { color: "#F5B72C", fontWeight: "900", fontSize: 12 }, title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900", textAlign: "right" }, subtitle: { color: "#AAB7C8", fontSize: 12, textAlign: "right" }, weekHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", backgroundColor: "#16233A", borderColor: "#8A6B20", borderWidth: 1, borderRadius: 16, padding: 10 }, weekTitle: { color: "#F7F9FC", fontSize: 16, fontWeight: "900", textAlign: "center" }, weekRange: { color: "#AAB7C8", fontSize: 11, textAlign: "center", marginTop: 3 }, navButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#253653", alignItems: "center", justifyContent: "center" }, navText: { color: "#F5B72C", fontSize: 28, lineHeight: 30 }, days: { gap: 8 }, dayCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 14, padding: 12, alignItems: "flex-end", gap: 3 }, dayCardActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" }, dayRest: { borderColor: "#715B6A" }, dayCardio: { borderColor: "#3D806D" }, dayName: { color: "#AAB7C8", fontSize: 10, fontWeight: "800" }, dayDate: { color: "#7E8DA4", fontSize: 10 }, dayDateActive: { color: "#3B2D05" }, dayLabel: { color: "#F7F9FC", fontSize: 16, fontWeight: "900" }, dayLabelActive: { color: "#0B1224" }, dayFocus: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, dayFocusActive: { color: "#3B2D05" }, detailCard: { backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 18, padding: 15, gap: 12 }, detailHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "flex-start" }, detailLabel: { color: "#F5D27A", fontSize: 11, textAlign: "right" }, detailTitle: { color: "#F7F9FC", fontSize: 22, fontWeight: "900", textAlign: "right", marginTop: 4 }, statusBadge: { color: "#0B1224", backgroundColor: "#F5B72C", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5, fontSize: 10, fontWeight: "900" }, detailFocus: { color: "#D9E2EF", textAlign: "right", lineHeight: 18 }, actionRow: { flexDirection: "row-reverse", gap: 8 }, primarySmall: { flex: 1, backgroundColor: "#F5B72C", borderRadius: 11, paddingVertical: 11, alignItems: "center" }, primarySmallActive: { backgroundColor: "#F7D46B" }, primarySmallText: { color: "#0B1224", fontSize: 11, fontWeight: "900" }, secondarySmall: { flex: 1, borderColor: "#5E7CA5", borderWidth: 1, borderRadius: 11, paddingVertical: 11, alignItems: "center" }, secondarySmallText: { color: "#D9E2EF", fontSize: 11, fontWeight: "800" }, templateSummary: { backgroundColor: "#0B1224", borderRadius: 12, padding: 11, gap: 3 }, templateSummaryTitle: { color: "#F5B72C", fontWeight: "900", textAlign: "right" }, templateSummaryMeta: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, exercisePreview: { gap: 7 }, exerciseText: { color: "#D9E2EF", fontSize: 12, textAlign: "right" }, moreText: { color: "#F5D27A", fontSize: 11, textAlign: "right", fontWeight: "800" }, editorBox: { gap: 10 }, editorTitle: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" }, exerciseBox: { backgroundColor: "#0B1224", borderRadius: 12, padding: 10, gap: 8 }, exerciseInput: { color: "#F7F9FC", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 8, padding: 9, minHeight: 38 }, sets: { gap: 6 }, setsLabel: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, setRow: { flexDirection: "row-reverse", alignItems: "center", gap: 6 }, setInput: { flex: 1, backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 8, padding: 8, color: "#F7F9FC", textAlign: "right" }, setNumber: { color: "#AAB7C8", fontSize: 10, width: 34, textAlign: "right" }, removeSet: { width: 28, height: 28, borderRadius: 8, backgroundColor: "#432330", alignItems: "center", justifyContent: "center" }, removeText: { color: "#F16B7A", fontSize: 18 }, addSet: { borderColor: "#8A6B20", borderWidth: 1, borderRadius: 8, paddingVertical: 7, alignItems: "center" }, addSetText: { color: "#F5D27A", fontSize: 10, fontWeight: "900" }, restMessage: { backgroundColor: "#0B1224", borderRadius: 12, padding: 12, gap: 8 }, restTitle: { color: "#F5B72C", fontWeight: "900", textAlign: "right" }, restText: { color: "#AAB7C8", fontSize: 11, textAlign: "right" }, changeBox: { borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, gap: 8 }, changeTitle: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, templatePills: { flexDirection: "row", gap: 7 }, templatePill: { borderColor: "#2C3B55", borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 7 }, templatePillActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" }, templatePillText: { color: "#AAB7C8", fontSize: 10, fontWeight: "800" }, templatePillTextActive: { color: "#0B1224" }, changeActions: { flexDirection: "row-reverse", gap: 8 }, changeButton: { flex: 1, borderColor: "#5E7CA5", borderWidth: 1, borderRadius: 9, paddingVertical: 8, alignItems: "center" }, changeButtonText: { color: "#D9E2EF", fontSize: 10, fontWeight: "800" }, disabled: { opacity: 0.25 } });

@@ -1,5 +1,6 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { getUserAppState, saveUserAppState } from "./db";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
@@ -34,6 +35,10 @@ export const appRouter = router({
     const content = response.choices[0]?.message?.content;
     const text = typeof content === "string" ? content : Array.isArray(content) ? content.filter((part) => part.type === "text").map((part) => part.text).join("\n") : "";
     return JSON.parse(text) as { name: string; brand: string; calories: number; protein: number; carbohydrates: number; fats: number; servingGrams: number; confidence: number; note: string };
+  }),
+  appState: router({
+    get: protectedProcedure.query(({ ctx }) => getUserAppState(ctx.user.id)),
+    save: protectedProcedure.input(z.object({ payload: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) => saveUserAppState(ctx.user.id, input.payload)),
   }),
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),

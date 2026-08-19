@@ -15,6 +15,13 @@
       "when": 1786905513309,
       "tag": "0001_familiar_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787169351310,
+      "tag": "0002_dark_magneto",
+      "breakpoints": true
     }
   ]
 }

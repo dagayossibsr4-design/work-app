@@ -30,7 +30,7 @@ export function ScreenContainer({
   ...props
 }: ScreenContainerProps) {
   const colors = useColors();
-  const backgroundStyle = { backgroundColor: colors.background, direction: "rtl" as const };
+  const backgroundStyle = { backgroundColor: colors.background };
 
   return (
     <View
