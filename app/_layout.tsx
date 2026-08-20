@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { I18nManager, Platform } from "react-native";
 import { ThemeProvider } from "@/lib/theme-provider";
-import { EntryAnimation } from "@/components/entry-animation";
 import { WorkoutProvider } from "@/lib/workout-store";
 import { AccountSync } from "@/components/account-sync";
 import { trpc, createTRPCClient } from "@/lib/trpc";
@@ -20,7 +19,7 @@ if (Platform.OS !== "web") {
 export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient());
   const [trpcClient] = useState(() => createTRPCClient());
-  const [booted, setBooted] = useState(false);
+
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#0B1224" }}>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
@@ -29,8 +28,7 @@ export default function RootLayout() {
             <WorkoutProvider>
               <AccountSync />
               <StatusBar style="light" />
-              {booted ? <Stack screenOptions={{ headerShown: false }} /> : null}
-              <EntryAnimation onFinished={() => setBooted(true)} />
+              <Stack screenOptions={{ headerShown: false }} />
             </WorkoutProvider>
           </ThemeProvider>
         </QueryClientProvider>
