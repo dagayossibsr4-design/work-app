@@ -1,84 +1,147 @@
-import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
-
-import { ScreenContainer } from "@/components/screen-container";
-import { BrandMark } from "@/components/ui/brand-mark";
-import { startOAuthLogin } from "@/constants/oauth";
-import { useAuth } from "@/hooks/use-auth";
+import React, { useState } from "react";
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, ScrollView } from "react-native";
+import { useRouter } from "expo-router";
+import { supabase } from "@/lib/supabase";
 
 export default function RegisterScreen() {
-  const { user, loading } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
-  const continueWithAccount = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      await startOAuthLogin();
-    } catch {
-      setError("לא ניתן לפתוח כרגע את מסך הרישום. נסה שוב בעוד רגע.");
-    } finally {
-      setBusy(false);
+  async function handleAuth() {
+    if (!email || !password) {
+      setMessage({ text: "נא למלא אימייל וסיסמה", isError: true });
+      return;
     }
-  };
+
+    setLoading(true);
+    setMessage(null);
+
+    if (isLogin) {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (error) {
+        setMessage({ text: "שגיאת התחברות: " + error.message, isError: true });
+      } else {
+        router.replace("/(tabs)");
+      }
+    } else {
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (error) {
+        setMessage({ text: "שגיאת הרשמה: " + error.message, isError: true });
+      } else {
+        setMessage({ text: "נרשמת בהצלחה! מועבר לאפליקציה...", isError: false });
+        setTimeout(() => {
+          router.replace("/(tabs)");
+        }, 1000);
+      }
+    }
+    setLoading(false);
+  }
 
   return (
-    <ScreenContainer className="px-5 pt-5">
-      <View style={styles.content}>
-        <BrandMark />
-        <Text style={styles.eyebrow}>חשבון אישי</Text>
-        <Text style={styles.title}>{user ? `שלום, ${user.name ?? "משתמש"}` : "יצירת חשבון"}</Text>
-        <Text style={styles.subtitle}>
-          התחבר או הירשם כדי לשמור את הנתונים שלך תחת חשבון אישי ולהמשיך בין מכשירים.
-        </Text>
-
-        {loading ? (
-          <View style={styles.loading}><ActivityIndicator color="#F5B72C" /><Text style={styles.note}>בודק את מצב החשבון…</Text></View>
-        ) : user ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>אתה מחובר</Text>
-            <Text style={styles.note}>{user.email ?? "החשבון שלך פעיל"}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הבית" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
-              <Text style={styles.primaryText}>חזרה למסך הבית</Text>
-            </Pressable>
+    <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.card}>
+        <View style={styles.header}>
+          <View style={styles.logoBadge}>
+            <Text style={styles.logoText}>W</Text>
           </View>
-        ) : (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>איך זה עובד?</Text>
-            <Text style={styles.note}>לחיצה על הכפתור תפתח אימות מאובטח. לאחר ההרשמה תחזור אוטומטית לאפליקציה, והאימונים, התבניות, ההתאוששות, האירובי ויעדי התזונה יישמרו תחת המשתמש שלך.</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="הירשם או התחבר" onPress={() => void continueWithAccount()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
-              {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>הירשם / התחבר</Text>}
-            </Pressable>
-            {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
+          <Text style={styles.appTitle}>יומן האימונים</Text>
+          <Text style={styles.appSubtitle}>מדדים. עקביות. התקדמות.</Text>
+        </View>
+
+        <Text style={styles.title}>{isLogin ? "התחברות לחשבון" : "יצירת חשבון חדש"}</Text>
+
+        {message && (
+          <View style={[styles.msgBox, message.isError ? styles.errorBox : styles.successBox]}>
+            <Text style={[styles.msgText, message.isError ? styles.errorText : styles.successText]}>
+              {message.text}
+            </Text>
           </View>
         )}
 
-        <Pressable accessibilityRole="button" accessibilityLabel="המשך בלי חשבון" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
-          <Text style={styles.secondaryText}>המשך בלי חשבון</Text>
-        </Pressable>
-        <Text style={styles.privacy}>בלי חשבון: הנתונים נשמרים במכשיר בלבד. עם חשבון: נתוני הליבה מסונכרנים לפי המשתמש ונגישים ממכשירים נוספים. נתוני התזונה המקומיים יעברו בהדרגה לסנכרון מלא.</Text>
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>כתובת אימייל</Text>
+          <TextInput
+            placeholder="your@email.com"
+            placeholderTextColor="#64748b"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            style={styles.input}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>סיסמה</Text>
+          <TextInput
+            placeholder="לפחות 6 תווים"
+            placeholderTextColor="#64748b"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            style={styles.input}
+          />
+        </View>
+
+        <TouchableOpacity style={styles.button} onPress={handleAuth} disabled={loading}>
+          {loading ? (
+            <ActivityIndicator color="#0f172a" />
+          ) : (
+            <Text style={styles.buttonText}>{isLogin ? "התחבר למערכת" : "צור חשבון חדש"}</Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={() => { setIsLogin(!isLogin); setMessage(null); }} 
+          style={styles.switchButton}
+        >
+          <Text style={styles.switchText}>
+            {isLogin ? "אין לך חשבון? לחץ כאן להרשמה" : "יש לך כבר חשבון? לחץ כאן להתחברות"}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => router.replace("/(tabs)")} style={styles.skipButton}>
+          <Text style={styles.skipText}>המשך ללא חשבון (מצב מקומי)</Text>
+        </TouchableOpacity>
       </View>
-    </ScreenContainer>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: 14, paddingBottom: 35 },
-  eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" },
-  title: { color: "#F7F9FC", fontSize: 32, fontWeight: "900", textAlign: "right" },
-  subtitle: { color: "#AAB7C8", fontSize: 14, lineHeight: 21, textAlign: "right" },
-  card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 16, gap: 12 },
-  cardTitle: { color: "#F7F9FC", fontSize: 18, fontWeight: "900", textAlign: "right" },
-  note: { color: "#AAB7C8", fontSize: 12, lineHeight: 19, textAlign: "right" },
-  loading: { alignItems: "center", gap: 9, paddingVertical: 28 },
-  primary: { minHeight: 48, backgroundColor: "#F5B72C", borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
-  primaryText: { color: "#0B1224", fontSize: 14, fontWeight: "900" },
-  secondary: { minHeight: 46, backgroundColor: "#1D2D48", borderColor: "#52759C", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
-  secondaryText: { color: "#D9E2EF", fontWeight: "800" },
-  error: { color: "#FF879A", fontSize: 11, lineHeight: 17, textAlign: "right" },
-  privacy: { color: "#7E8DA4", fontSize: 10, lineHeight: 16, textAlign: "right" },
-  disabled: { opacity: 0.65 },
-  pressed: { opacity: 0.74, transform: [{ scale: 0.98 }] },
+  container: { flexGrow: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0b132b", padding: 20 },
+  card: { width: "100%", maxWidth: 420, backgroundColor: "#1c2541", borderRadius: 16, padding: 24, borderWidth: 1, borderColor: "#334155" },
+  header: { alignItems: "center", marginBottom: 24 },
+  logoBadge: { width: 56, height: 56, borderRadius: 14, backgroundColor: "#f59e0b", justifyContent: "center", alignItems: "center", marginBottom: 12 },
+  logoText: { fontSize: 30, fontWeight: "bold", color: "#0b132b" },
+  appTitle: { fontSize: 22, fontWeight: "bold", color: "#ffffff" },
+  appSubtitle: { fontSize: 13, color: "#94a3b8", marginTop: 4 },
+  title: { fontSize: 20, fontWeight: "bold", color: "#ffffff", textAlign: "center", marginBottom: 20 },
+  inputGroup: { marginBottom: 16 },
+  label: { color: "#cbd5e1", fontSize: 13, marginBottom: 6, textAlign: "right" },
+  input: { backgroundColor: "#0f172a", color: "#ffffff", padding: 14, borderRadius: 10, borderWidth: 1, borderColor: "#334155", textAlign: "right", fontSize: 15 },
+  button: { backgroundColor: "#f59e0b", padding: 15, borderRadius: 10, alignItems: "center", marginTop: 10 },
+  buttonText: { color: "#0b132b", fontWeight: "bold", fontSize: 16 },
+  switchButton: { marginTop: 18, alignItems: "center" },
+  switchText: { color: "#38bdf8", fontSize: 14 },
+  skipButton: { marginTop: 22, alignItems: "center" },
+  skipText: { color: "#64748b", fontSize: 13, textDecorationLine: "underline" },
+  msgBox: { padding: 12, borderRadius: 8, marginBottom: 16 },
+  errorBox: { backgroundColor: "rgba(239, 68, 68, 0.15)", borderWidth: 1, borderColor: "#ef4444" },
+  successBox: { backgroundColor: "rgba(34, 197, 94, 0.15)", borderWidth: 1, borderColor: "#22c55e" },
+  msgText: { textAlign: "center", fontSize: 14 },
+  errorText: { color: "#f87171" },
+  successText: { color: "#4ade80" },
 });
