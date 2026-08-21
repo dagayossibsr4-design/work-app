@@ -1,12 +1,12 @@
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { getTemplate, type WorkoutId, type WorkoutTemplate } from "@/lib/workout-data";
 import { exerciseLibrary } from "@/lib/exercise-library";
-import { calculateVolume, useWorkoutStore } from "@/lib/workout-store";
+import { calculateVolume, sortWorkoutSessionsNewestFirst, useWorkoutStore } from "@/lib/workout-store";
 import { calculateFivePercentProgress } from "@/lib/workout-progression";
 import { calculateProjectedVolume } from "@/lib/workout-volume";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
@@ -52,7 +52,7 @@ export default function HomeScreen() {
   const filteredCustomExercises = exerciseLibrary.filter((item) => `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(customSearch.toLowerCase())).slice(0, 14);
   const filteredReplacementExercises = exerciseLibrary.filter((item) => `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(replacementSearch.toLowerCase())).slice(0, 8);
   const completedSets = sessions.reduce((sum, session) => sum + session.sets.filter((set) => set.completed).length, 0);
-  const last = sessions[0];
+  const last = useMemo(() => sortWorkoutSessionsNewestFirst(sessions)[0], [sessions]);
   const previousSessionForPreview = previewTemplate ? sessions.find((session) => session.templateId === previewTemplate.id && Boolean(session.finishedAt)) : undefined;
   const projectedPreviewVolume = previewTemplate ? calculateProjectedVolume(previewTemplate, previousSessionForPreview) : 0;
   const previousPreviewVolume = previousSessionForPreview ? calculateVolume(previousSessionForPreview) : null;

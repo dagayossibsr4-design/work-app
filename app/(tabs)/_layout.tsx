@@ -12,11 +12,11 @@ export default function TabLayout() {
   return <Tabs screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.muted, tabBarButton: HapticTab, tabBarStyle: { height: 62 + bottomPadding, paddingTop: 8, paddingBottom: bottomPadding, backgroundColor: colors.background, borderTopColor: colors.border }, tabBarLabelStyle: { fontSize: 11 } }}>
     <Tabs.Screen name="index" options={{ title: "היום", tabBarAccessibilityLabel: "מסך היום", tabBarIcon: ({ color }) => <IconSymbol name="house.fill" size={23} color={color} /> }} />
     <Tabs.Screen name="workouts" options={{ title: "אימונים", tabBarAccessibilityLabel: "מסך האימונים", tabBarIcon: ({ color }) => <IconSymbol name="fitness.center" size={23} color={color} /> }} />
+    <Tabs.Screen name="schedule" options={{ title: "לוח אימונים", tabBarAccessibilityLabel: "לוח האימונים", tabBarIcon: ({ color }) => <IconSymbol name="calendar.fill" size={23} color={color} /> }} />
     <Tabs.Screen name="nutrition" options={{ title: "תזונה", tabBarAccessibilityLabel: "מסך התזונה", tabBarIcon: ({ color }) => <IconSymbol name="restaurant.fill" size={23} color={color} /> }} />
     <Tabs.Screen name="settings" options={{ title: "הגדרות", tabBarAccessibilityLabel: "מסך ההגדרות", tabBarIcon: ({ color }) => <IconSymbol name="settings.fill" size={23} color={color} /> }} />
     <Tabs.Screen name="profile" options={{ href: null }} />
     <Tabs.Screen name="history" options={{ href: null }} />
-    <Tabs.Screen name="schedule" options={{ href: null }} />
     <Tabs.Screen name="analysis" options={{ href: null }} />
     <Tabs.Screen name="editor" options={{ href: null }} />
     <Tabs.Screen name="garmin" options={{ href: null }} />

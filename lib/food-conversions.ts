@@ -11,22 +11,22 @@ export const conversionFoods: ConversionFood[] = [
   { id: "tuna-water", name: "טונה במים", group: "חלבון", calories: 116, protein: 26, carbohydrates: 0, fats: 0.8 },
   { id: "salmon-cooked", name: "סלמון", group: "חלבון", calories: 206, protein: 22, carbohydrates: 0, fats: 12 },
   { id: "eggs", name: "ביצים", group: "חלבון", calories: 143, protein: 13, carbohydrates: 1.1, fats: 9.5 },
-  { id: "cottage", name: "קוטג׳ 5%", group: "חלבון", calories: 95, protein: 11, carbohydrates: 1.5, fats: 5 },
+  { id: "cottage", name: "קוטג׳ 5% לפי תווית", group: "חלבון", calories: 95, protein: 11, carbohydrates: 1.5, fats: 5 },
   { id: "greek-yogurt", name: "יוגורט יווני", group: "חלבון", calories: 73, protein: 9.9, carbohydrates: 3.9, fats: 2 },
-  { id: "protein-powder", name: "אבקת חלבון", group: "חלבון", calories: 390, protein: 70, carbohydrates: 8, fats: 8 },
+  { id: "protein-powder", name: "אבקת חלבון Dymatize", group: "חלבון", calories: 389, protein: 65.2, carbohydrates: 8.4, fats: 8.4 },
   { id: "protein-pudding", name: "מעדן חלבון", group: "חלבון", calories: 70, protein: 10, carbohydrates: 3.4, fats: 1.5 },
   { id: "tofu", name: "טופו", group: "חלבון", calories: 144, protein: 17.3, carbohydrates: 2.8, fats: 8.7 },
   { id: "rice-cooked", name: "אורז מבושל", group: "פחמימה", calories: 130, protein: 2.7, carbohydrates: 28.2, fats: 0.3 },
   { id: "potato-cooked", name: "תפוח אדמה מבושל", group: "פחמימה", calories: 87, protein: 1.9, carbohydrates: 20.1, fats: 0.1 },
   { id: "sweet-potato-cooked", name: "בטטה מבושלת", group: "פחמימה", calories: 86, protein: 1.6, carbohydrates: 20.1, fats: 0.1 },
-  { id: "bread-whole", name: "לחם מלא", group: "פחמימה", calories: 247, protein: 13, carbohydrates: 41, fats: 4.2 },
+  { id: "bread-whole", name: "לחם מלא לפי תווית", group: "פחמימה", calories: 233, protein: 10.8, carbohydrates: 35.2, fats: 2.9 },
   { id: "pasta-cooked", name: "פסטה מבושלת", group: "פחמימה", calories: 157, protein: 5.8, carbohydrates: 30.9, fats: 0.9 },
-  { id: "oats", name: "שיבולת שועל", group: "פחמימה", calories: 389, protein: 16.9, carbohydrates: 66.3, fats: 6.9 },
+  { id: "oats", name: "שיבולת שועל Quaker", group: "פחמימה", calories: 374, protein: 11, carbohydrates: 69, fats: 8 },
   { id: "quinoa-cooked", name: "קינואה מבושלת", group: "פחמימה", calories: 120, protein: 4.4, carbohydrates: 21.3, fats: 1.9 },
   { id: "couscous-cooked", name: "קוסקוס מבושל", group: "פחמימה", calories: 112, protein: 3.8, carbohydrates: 23.2, fats: 0.2 },
   { id: "corn", name: "תירס", group: "פחמימה", calories: 96, protein: 3.4, carbohydrates: 21, fats: 1.5 },
   { id: "banana", name: "בננה", group: "פחמימה", calories: 89, protein: 1.1, carbohydrates: 22.8, fats: 0.3 },
-  { id: "tahini", name: "טחינה", group: "שומן", calories: 595, protein: 17, carbohydrates: 21, fats: 53 },
+  { id: "tahini", name: "טחינה לפי תווית", group: "שומן", calories: 699, protein: 20.5, carbohydrates: 13.3, fats: 62.8 },
   { id: "egg-yolk", name: "חלמון", group: "שומן", calories: 322, protein: 15.9, carbohydrates: 3.6, fats: 26.5 },
   { id: "avocado", name: "אבוקדו", group: "שומן", calories: 160, protein: 2, carbohydrates: 8.5, fats: 14.7 },
   { id: "almonds", name: "שקדים", group: "שומן", calories: 579, protein: 21.2, carbohydrates: 21.6, fats: 49.9 },
@@ -47,10 +47,17 @@ const aliases: Record<string, string[]> = {
 
 export function sourceForFood(name: string) { return conversionFoods.find((food) => (aliases[food.id] ?? []).some((alias) => name.includes(alias))) ?? null; }
 export function alternativesFor(source: ConversionFood) { return conversionFoods.filter((food) => food.group === source.group && food.id !== source.id); }
-export function recommendSwap(source: ConversionFood, target: ConversionFood, grams: number) {
+export type ConversionMacro = "protein" | "carbohydrates" | "fats";
+
+export function gramsForMacroTarget(target: ConversionFood, macro: ConversionMacro, targetGrams: number) {
+  return target[macro] > 0 ? Math.round((targetGrams / target[macro]) * 100) : 0;
+}
+
+export function recommendSwap(source: ConversionFood, target: ConversionFood, grams: number, sourceMacroAtQuantity?: number) {
   const preserve = source.group === "חלבון" ? "protein" : source.group === "פחמימה" ? "carbohydrates" : "fats";
   const sourceValue = source[preserve]; const targetValue = target[preserve];
-  const newGrams = sourceValue > 0 && targetValue > 0 ? grams * sourceValue / targetValue : grams;
+  const sourceMacro = sourceMacroAtQuantity ?? (grams * sourceValue / 100);
+  const newGrams = sourceMacro > 0 && targetValue > 0 ? sourceMacro / (targetValue / 100) : grams;
   const factor = newGrams / 100;
   return { grams: Math.round(newGrams), calories: Math.round(target.calories * factor), protein: Math.round(target.protein * factor * 10) / 10, carbohydrates: Math.round(target.carbohydrates * factor * 10) / 10, fats: Math.round(target.fats * factor * 10) / 10, preserved: preserve === "protein" ? "חלבון" : preserve === "carbohydrates" ? "פחמימות" : "שומן" };
 }

@@ -35,10 +35,6 @@ function scaleFood(food: Parameters<typeof mealFoodTotals>[0], factor: number) {
   return {
     ...food,
     quantity: nextQuantity,
-    calories: Math.round(current.calories * factor),
-    protein: Math.round(current.protein * factor * 10) / 10,
-    carbohydrates: Math.round(current.carbohydrates * factor * 10) / 10,
-    fats: Math.round(current.fats * factor * 10) / 10,
   };
 }
 

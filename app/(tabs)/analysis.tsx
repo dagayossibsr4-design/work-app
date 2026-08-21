@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { ScreenContainer } from "@/components/screen-container";
@@ -20,9 +21,11 @@ import {
 import { useWorkoutStore } from "@/lib/workout-store";
 import { detectPerformanceDeclines, type DeclineAlert } from "@/lib/performance-decline";
 import { calculateRecoveryScore, recoveryLabel, recoveryTrend } from "@/lib/recovery-analysis";
+import { categoryForTemplate, categoryLabel, changePercent, compareWorkoutSessions, sessionsForTemplate } from "@/lib/session-comparison";
 
 export default function AnalysisScreen() {
   const { sessions, templates, recoveryLogs, cardioLogs } = useWorkoutStore();
+  const { templateId: comparisonTemplateId, baselineId: comparisonBaselineId, currentId: comparisonCurrentId, category: comparisonCategory } = useLocalSearchParams<{ templateId?: string; baselineId?: string; currentId?: string; category?: string }>();
   const comparisons = buildComparisons(sessions, templates);
   const sessionTrends = buildSessionTrends(sessions, templates);
   const exerciseTrends = buildExerciseTrends(sessions, templates);
@@ -54,6 +57,8 @@ export default function AnalysisScreen() {
         {declineAlerts.length > 0 && <View style={styles.alertCard}><Text style={styles.alertTitle}>התרעת עומס</Text><Text style={styles.alertIntro}>המערכת מזהה ירידה מתמשכת בביצועים בכמה תרגילים. מומלץ לשקול הורדת עומס זמנית ולבחון את האימון הבא.</Text>{declineAlerts.map((alert) => <AlertRow key={alert.exerciseId} alert={alert} />)}</View>}
         <View style={styles.summaryCard}><Text style={styles.summaryTitle}>התמונה הכוללת</Text><Text style={styles.summaryText}>{sessions.length ? `תיעדת ${sessions.length} אימונים, ${completedSets} סטים ו־${totalReps} חזרות. הנפח הכולל הוא ${Math.round(totalVolume)} ק״ג.` : "עדיין אין נתוני ביצוע. ההשוואה האישית תתעדכן אחרי שתסיים אימונים."}</Text><View style={styles.summaryRow}><Mini value={String(sessions.length)} label="אימונים" /><Mini value={String(completedSets)} label="סטים שהושלמו" /><Mini value={bestWeight ? `${bestWeight}` : "—"} label="משקל שיא" /><Mini value={totalVolume ? `${Math.round(totalVolume)}` : "—"} label="נפח כולל" /></View></View>
         <AnalysisFilters rangeDays={rangeDays} templateFilter={templateFilter} templateOptions={templateOptions} onRange={setRangeDays} onTemplate={setTemplateFilter} />
+        <SessionComparisonSelector sessions={sessions} templates={templates} initialTemplateId={comparisonTemplateId} initialBaselineId={comparisonBaselineId} initialCurrentId={comparisonCurrentId} />
+        <CategoryComparisonSelector sessions={sessions} templates={templates} initialCategory={comparisonCategory} />
         <TrendChart trends={filteredSessionTrends} />
         <LoadSummary trends={filteredLoadTrends} />
         <SmartLoadSummary snapshots={smartLoadSnapshots.filter((row) => (!cutoff || new Date(row.date).getTime() >= cutoff) && (templateFilter === "הכול" || row.templateName === templateFilter))} />
@@ -71,6 +76,68 @@ export default function AnalysisScreen() {
 
 function AnalysisFilters({ rangeDays, templateFilter, templateOptions, onRange, onTemplate }: { rangeDays: number; templateFilter: string; templateOptions: [string, string][]; onRange: (value: number) => void; onTemplate: (value: string) => void }) {
   return <View style={styles.filterCard}><Text style={styles.cardTitle}>מיקוד הניתוח</Text><Text style={styles.chartSubtitle}>בחר טווח זמן וסדרת אימון להצגת עומסים והתקדמות</Text><View style={styles.filterRow}>{[[0, "הכול"], [30, "30 יום"], [90, "90 יום"]].map(([value, label]) => <Pressable key={String(value)} accessibilityRole="button" accessibilityState={{ selected: rangeDays === value }} onPress={() => onRange(Number(value))} style={[styles.filterChip, rangeDays === value && styles.filterChipActive]}><Text style={styles.filterText}>{label}</Text></Pressable>)}</View><View style={styles.filterRow}>{[["הכול", "כל הסדרות"], ...templateOptions].map(([value, label]) => <Pressable key={String(value)} accessibilityRole="button" accessibilityState={{ selected: templateFilter === value }} onPress={() => onTemplate(String(value))} style={[styles.filterChip, templateFilter === value && styles.filterChipActive]}><Text style={styles.filterText}>{label}</Text></Pressable>)}</View></View>;
+}
+
+function SessionComparisonSelector({ sessions, templates, initialTemplateId, initialBaselineId, initialCurrentId }: { sessions: import("@/lib/workout-store").WorkoutSession[]; templates: import("@/lib/workout-data").WorkoutTemplate[]; initialTemplateId?: string; initialBaselineId?: string; initialCurrentId?: string }) {
+  const available = Array.from(new Map(sessions.map((session) => [session.templateId, templates.find((template) => template.id === session.templateId)?.name ?? session.templateId])).entries());
+  const [selectedTemplate, setSelectedTemplate] = useState("");
+  const selectedId = available.some(([id]) => id === selectedTemplate) ? selectedTemplate : available.some(([id]) => id === initialTemplateId) ? initialTemplateId! : available[0]?.[0] ?? "";
+  const matching = sessionsForTemplate(sessions, selectedId);
+  const [baselineId, setBaselineId] = useState("");
+  const [currentId, setCurrentId] = useState("");
+  const baseline = matching.find((session) => session.id === baselineId) ?? matching.find((session) => session.id === initialBaselineId) ?? matching[0];
+  const current = matching.find((session) => session.id === currentId) ?? matching.find((session) => session.id === initialCurrentId) ?? matching[matching.length - 1];
+  const comparison = baseline && current ? compareWorkoutSessions(baseline, current) : null;
+  if (!available.length) return <View style={styles.card}><Text style={styles.cardTitle}>השוואה בין שני אימונים</Text><Text style={styles.emptyText}>סיים לפחות שני אימונים מאותו סוג כדי להשוות ביניהם כאן.</Text></View>;
+  return <View style={styles.filterCard}>
+    <Text style={styles.cardTitle}>השוואה בין שני אימונים מאותו סוג</Text>
+    <Text style={styles.chartSubtitle}>בחר סוג אימון ושני תאריכים. הכלי עובד עבור כל תכניות הכוח וכל סוגי האירובי.</Text>
+    <View style={styles.filterRow}>{available.map(([id, name]) => <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: selectedId === id }} onPress={() => { setSelectedTemplate(id); setBaselineId(""); setCurrentId(""); }} style={[styles.filterChip, selectedId === id && styles.filterChipActive]}><Text style={styles.filterText}>{name}</Text></Pressable>)}</View>
+    {matching.length < 2 ? <Text style={styles.emptyText}>יש כרגע {matching.length} אימון מסוג זה. אחרי שתתעד אותו שוב ניתן יהיה להשוות בין שני תאריכים.</Text> : <>
+      <Text style={styles.chartSubtitle}>אימון קודם</Text><View style={styles.filterRow}>{matching.map((session) => <Pressable key={`base-${session.id}`} accessibilityRole="button" accessibilityState={{ selected: baseline?.id === session.id }} onPress={() => setBaselineId(session.id)} style={[styles.filterChip, baseline?.id === session.id && styles.filterChipActive]}><Text style={styles.filterText}>{dateLabel(session.startedAt)}</Text></Pressable>)}</View>
+      <Text style={styles.chartSubtitle}>אימון להשוואה</Text><View style={styles.filterRow}>{matching.map((session) => <Pressable key={`current-${session.id}`} accessibilityRole="button" accessibilityState={{ selected: current?.id === session.id }} onPress={() => setCurrentId(session.id)} style={[styles.filterChip, current?.id === session.id && styles.filterChipActive]}><Text style={styles.filterText}>{dateLabel(session.startedAt)}</Text></Pressable>)}</View>
+      {comparison && <SessionComparisonResult comparison={comparison} baselineDate={baseline!.startedAt} currentDate={current!.startedAt} />}
+    </>}
+  </View>;
+}
+
+function SessionComparisonResult({ comparison, baselineDate, currentDate, baselineName, currentName }: { comparison: import("@/lib/session-comparison").WorkoutSessionComparison; baselineDate: string; currentDate: string; baselineName?: string; currentName?: string }) {
+  const deltaText = (from: number, to: number) => `${changePercent(from, to) >= 0 ? "+" : ""}${changePercent(from, to).toFixed(1)}%`;
+  const pace = (minutes: number, distance: number) => distance ? `${(minutes / distance).toFixed(1)} דק׳/ק״מ` : "—";
+  return <View style={styles.card}>
+    <Text style={styles.cardTitle}>{baselineName && currentName ? `${baselineName} מול ${currentName}` : "השוואת ביצועים"}</Text><Text style={styles.chartSubtitle}>{dateLabel(baselineDate)} מול {dateLabel(currentDate)}</Text>
+    {comparison.isCardio ? <><View style={styles.summaryRow}><Mini value={`${comparison.baselineMinutes} → ${comparison.currentMinutes}`} label="זמן (דק׳)" /><Mini value={`${comparison.baselineDistance.toFixed(1)} → ${comparison.currentDistance.toFixed(1)}`} label="מרחק (ק״מ)" /><Mini value={`${pace(comparison.baselineMinutes, comparison.baselineDistance)} → ${pace(comparison.currentMinutes, comparison.currentDistance)}`} label="קצב" /></View><Text style={styles.chartSubtitle}>שינוי זמן {deltaText(comparison.baselineMinutes, comparison.currentMinutes)} · שינוי מרחק {deltaText(comparison.baselineDistance, comparison.currentDistance)}</Text></> : <><View style={styles.summaryRow}><Mini value={`${Math.round(comparison.baselineVolume)} → ${Math.round(comparison.currentVolume)}`} label="נפח (ק״ג)" /><Mini value={deltaText(comparison.baselineVolume, comparison.currentVolume)} label="שינוי בנפח" /><Mini value={String(comparison.rows.length)} label="תרגילים" /></View>{comparison.rows.map((row) => <View key={row.exerciseId} style={styles.exerciseRow}><View style={styles.exerciseDelta}><Text style={[styles.deltaValue, { color: row.currentVolume >= row.baselineVolume ? "#42D392" : "#FF6B81" }]}>{deltaText(row.baselineVolume, row.currentVolume)}</Text><Text style={styles.deltaDetail}>{Math.round(row.baselineVolume)} → {Math.round(row.currentVolume)} ק״ג</Text></View><View style={styles.exerciseInfo}><Text style={styles.exerciseName}>{row.exerciseId}</Text><Text style={styles.exerciseMeta}>שיא משקל {row.baselineBestWeight} → {row.currentBestWeight} ק״ג · חזרות {row.baselineReps} → {row.currentReps}</Text></View></View>)}</>}
+  </View>;
+}
+
+function CategoryComparisonSelector({ sessions, templates, initialCategory }: { sessions: import("@/lib/workout-store").WorkoutSession[]; templates: import("@/lib/workout-data").WorkoutTemplate[]; initialCategory?: string }) {
+  const available = Array.from(new Map(sessions.map((session) => [session.templateId, templates.find((template) => template.id === session.templateId)?.name ?? session.templateId])).entries());
+  const categories = Array.from(new Set(available.map(([id]) => categoryForTemplate(id)))).filter((category) => available.filter(([id]) => categoryForTemplate(id) === category).length >= 2);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const activeCategory = categories.includes(selectedCategory as import("@/lib/session-comparison").WorkoutCategory) ? selectedCategory as import("@/lib/session-comparison").WorkoutCategory : categories.includes(initialCategory as import("@/lib/session-comparison").WorkoutCategory) ? initialCategory as import("@/lib/session-comparison").WorkoutCategory : categories[0];
+  const series = available.filter(([id]) => categoryForTemplate(id) === activeCategory);
+  const [leftTemplate, setLeftTemplate] = useState("");
+  const [rightTemplate, setRightTemplate] = useState("");
+  const leftId = series.some(([id]) => id === leftTemplate) ? leftTemplate : series[0]?.[0] ?? "";
+  const rightId = series.some(([id]) => id === rightTemplate) && rightTemplate !== leftId ? rightTemplate : series.find(([id]) => id !== leftId)?.[0] ?? leftId;
+  const leftSessions = sessionsForTemplate(sessions, leftId);
+  const rightSessions = sessionsForTemplate(sessions, rightId);
+  const [leftSessionId, setLeftSessionId] = useState("");
+  const [rightSessionId, setRightSessionId] = useState("");
+  const leftSession = leftSessions.find((session) => session.id === leftSessionId) ?? leftSessions[leftSessions.length - 1];
+  const rightSession = rightSessions.find((session) => session.id === rightSessionId) ?? rightSessions[rightSessions.length - 1];
+  const comparison = leftSession && rightSession ? compareWorkoutSessions(leftSession, rightSession) : null;
+  if (!categories.length) return <View style={styles.card}><Text style={styles.cardTitle}>השוואה בין סדרות באותה קטגוריה</Text><Text style={styles.emptyText}>השלם אימונים בשתי סדרות מאותה קטגוריה, למשל PUSH 1 ו־PUSH 2, כדי להשוות ביניהן.</Text></View>;
+  return <View style={styles.filterCard}>
+    <Text style={styles.cardTitle}>השוואה בין שתי סדרות באותה קטגוריה</Text>
+    <Text style={styles.chartSubtitle}>לדוגמה: PUSH 1 מול PUSH 2. כל צד יכול להציג תאריך אחר מאותה סדרה.</Text>
+    <View style={styles.filterRow}>{categories.map((category) => <Pressable key={category} accessibilityRole="button" accessibilityState={{ selected: activeCategory === category }} onPress={() => { setSelectedCategory(category); setLeftTemplate(""); setRightTemplate(""); setLeftSessionId(""); setRightSessionId(""); }} style={[styles.filterChip, activeCategory === category && styles.filterChipActive]}><Text style={styles.filterText}>{categoryLabel(category)}</Text></Pressable>)}</View>
+    <Text style={styles.chartSubtitle}>סדרה ראשונה</Text><View style={styles.filterRow}>{series.map(([id, name]) => <Pressable key={`left-${id}`} accessibilityRole="button" accessibilityState={{ selected: leftId === id }} onPress={() => { setLeftTemplate(id); setLeftSessionId(""); }} style={[styles.filterChip, leftId === id && styles.filterChipActive]}><Text style={styles.filterText}>{name}</Text></Pressable>)}</View>
+    <Text style={styles.chartSubtitle}>סדרה שנייה</Text><View style={styles.filterRow}>{series.map(([id, name]) => <Pressable key={`right-${id}`} accessibilityRole="button" accessibilityState={{ selected: rightId === id }} onPress={() => { setRightTemplate(id); setRightSessionId(""); }} style={[styles.filterChip, rightId === id && styles.filterChipActive]}><Text style={styles.filterText}>{name}</Text></Pressable>)}</View>
+    <Text style={styles.chartSubtitle}>תאריך בסדרה הראשונה</Text><View style={styles.filterRow}>{leftSessions.map((session) => <Pressable key={`left-date-${session.id}`} accessibilityRole="button" accessibilityState={{ selected: leftSession?.id === session.id }} onPress={() => setLeftSessionId(session.id)} style={[styles.filterChip, leftSession?.id === session.id && styles.filterChipActive]}><Text style={styles.filterText}>{dateLabel(session.startedAt)}</Text></Pressable>)}</View>
+    <Text style={styles.chartSubtitle}>תאריך בסדרה השנייה</Text><View style={styles.filterRow}>{rightSessions.map((session) => <Pressable key={`right-date-${session.id}`} accessibilityRole="button" accessibilityState={{ selected: rightSession?.id === session.id }} onPress={() => setRightSessionId(session.id)} style={[styles.filterChip, rightSession?.id === session.id && styles.filterChipActive]}><Text style={styles.filterText}>{dateLabel(session.startedAt)}</Text></Pressable>)}</View>
+    {comparison && <SessionComparisonResult comparison={comparison} baselineDate={leftSession!.startedAt} currentDate={rightSession!.startedAt} baselineName={series.find(([id]) => id === leftId)?.[1]} currentName={series.find(([id]) => id === rightId)?.[1]} />}
+  </View>;
 }
 
 function TrendChart({ trends }: { trends: SessionTrend[] }) {

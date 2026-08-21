@@ -11,6 +11,10 @@ export type MealFood = {
   carbohydrates: number;
   fats: number;
   weightMode?: WeightMode;
+  /** משקל הבסיס שאליו שייכים ערכי המאקרו שנשמרו ברכיב. */
+  servingGrams?: number;
+  /** ערכים שהוזנו ידנית עבור הכמות השמורה בכרטיס. */
+  manualNutrition?: boolean;
 };
 export type Meal = { id: string; title: string; foods: MealFood[] };
 
@@ -68,12 +72,13 @@ const rawDefaultMeals: Meal[] = [
       {
         id: "protein-powder-2",
         name: "אבקת חלבון",
-        quantity: "43 גרם (1.2 כפות)",
-        reference: "לפי תווית המוצר",
-        calories: 168,
+        quantity: "46 גרם",
+        reference: "תווית Dymatize + מדידה אישית · 46 גרם אבקה = 30 ג׳ חלבון",
+        servingGrams: 46,
+        calories: 179,
         protein: 30,
-        carbohydrates: 3.6,
-        fats: 3.6,
+        carbohydrates: 3.9,
+        fats: 3.9,
       },
       {
         id: "oats-2",
@@ -208,29 +213,65 @@ const rawDefaultMeals: Meal[] = [
 ];
 
 function sourceForMealFood(food: MealFood) {
-  return foodItems.find(
+  const normalizedName = food.name.trim().toLowerCase();
+  const byName = foodItems.find(
+    (item) =>
+      item.name.trim().toLowerCase() === normalizedName ||
+      (item.aliases ?? []).some(
+        (alias) => alias.trim().toLowerCase() === normalizedName,
+      ),
+  );
+  // שם התווית המוצג למשתמש הוא מקור האמת במיגרציה: בגרסאות ישנות
+  // נשמר לעתים מזהה של חזה עוף תחת השם "מעדן חלבון".
+  if (byName) return byName;
+  const byId = foodItems.find(
     (item) => food.id === item.id || food.id.startsWith(`${item.id}-`),
   );
+  return byId;
 }
 
 export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
   return meals.map((meal) => ({
     ...meal,
     foods: meal.foods.map((food) => {
+      if (food.manualNutrition) {
+        const gramsMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/);
+        const currentGrams = gramsMatch ? Number(gramsMatch[1]) : undefined;
+        return {
+          ...food,
+          servingGrams: food.servingGrams ?? currentGrams ?? 100,
+        };
+      }
       const source = sourceForMealFood(food);
       if (source) {
+        const explicitGrams = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/)?.[1];
+        const preserveCommercialPortion = source.sourceType === "מסחרי" && Boolean(explicitGrams) && food.protein > 0;
+        if (preserveCommercialPortion) {
+          const portionGrams = Number(explicitGrams);
+          return {
+            ...food,
+            name: source.name,
+            quantity: `${portionGrams} גרם`,
+            reference: source.reference,
+            servingGrams: portionGrams,
+            weightMode: food.weightMode ?? "cooked",
+            ...macrosForGrams(source, portionGrams),
+          };
+
+        }
         return {
           ...food,
           name: source.name,
           quantity: "100 גרם",
           reference: source.reference,
           weightMode: food.weightMode ?? "cooked",
+          servingGrams: 100,
           ...macrosForGrams(source, 100),
         };
       }
       const gramsMatch = food.quantity.match(/^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*גרם/);
       const savedGrams = gramsMatch ? Number(gramsMatch[1]) : 0;
-      if (!savedGrams || savedGrams === 100) return food;
+      if (!savedGrams || savedGrams === 100) return { ...food, servingGrams: food.servingGrams ?? 100 };
       const factor = 100 / savedGrams;
       return {
         ...food,
@@ -248,10 +289,23 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
 export const defaultMeals: Meal[] = normalizeMealsTo100Grams(rawDefaultMeals);
 
 export function mealFoodTotals(food: MealFood) {
-  const baseMatch = food.quantity.match(/([0-9]+(?:\\.[0-9]+)?)\\s*גרם/);
-  const baseGrams = baseMatch ? Number(baseMatch[1]) : null;
-  const currentMatch = food.quantity.match(/^\\s*([0-9]+(?:\\.[0-9]+)?)/);
-  const currentGrams = currentMatch ? Number(currentMatch[1]) : null;
+  const quantityMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/);
+  const currentGrams = quantityMatch ? Number(quantityMatch[1]) : null;
+  if (food.manualNutrition) {
+    const baseGrams = food.servingGrams ?? currentGrams;
+    const factor = baseGrams && currentGrams ? currentGrams / baseGrams : 1;
+    return {
+      calories: Math.round(food.calories * factor),
+      protein: Math.round(food.protein * factor * 10) / 10,
+      carbohydrates: Math.round(food.carbohydrates * factor * 10) / 10,
+      fats: Math.round(food.fats * factor * 10) / 10,
+    };
+  }
+  const source = sourceForMealFood(food);
+  if (source && currentGrams) {
+    return macrosForGrams(source, currentGrams);
+  }
+  const baseGrams = food.servingGrams ?? currentGrams;
   const factor = baseGrams && currentGrams ? currentGrams / baseGrams : 1;
   return {
     calories: Math.round(food.calories * factor),

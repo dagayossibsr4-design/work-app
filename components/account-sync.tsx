@@ -1,8 +1,21 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkoutStore, type AccountState } from "@/lib/workout-store";
+
+const LOCAL_KEYS = [
+  "meal-plan-state",
+  "meal-plan-eaten-history",
+  "meal-plan-favorite",
+  "meal-plan-profiles",
+  "meal-plan-versions",
+  "nutrition-water-history",
+  "nutrition-water-events",
+  "nutrition-daily-history",
+  "workout-schedule-overrides-v1",
+  "weekly-goals-v1",
+] as const;
 
 /** Synchronizes the core workout state for the authenticated user. */
 export function AccountSync() {
@@ -12,13 +25,14 @@ export function AccountSync() {
   const saveRemoteState = trpc.appState.save.useMutation();
   const remoteApplied = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const localKeys = ["meal-plan-state", "meal-plan-eaten-history", "meal-plan-favorite", "meal-plan-profiles", "meal-plan-versions", "nutrition-water-history", "nutrition-water-events", "nutrition-daily-history", "workout-schedule-overrides-v1", "weekly-goals-v1"] as const;
 
-  const saveSnapshot = async () => {
-    const pairs = await AsyncStorage.multiGet([...localKeys]);
-    const localStorage = Object.fromEntries(pairs.filter(([, value]) => value !== null)) as Record<string, string>;
+  const saveSnapshot = useCallback(async () => {
+    const pairs = await AsyncStorage.multiGet([...LOCAL_KEYS]);
+    const localStorage = Object.fromEntries(
+      pairs.filter(([, value]) => value !== null),
+    ) as Record<string, string>;
     saveRemoteState.mutate({ payload: { ...getAccountState(), localStorage } });
-  };
+  }, [getAccountState, saveRemoteState]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -27,7 +41,9 @@ export function AccountSync() {
     }
     if (!remoteState.isSuccess || remoteApplied.current) return;
     if (remoteState.data) {
-      const remote = remoteState.data as Partial<AccountState> & { localStorage?: Record<string, string> };
+      const remote = remoteState.data as Partial<AccountState> & {
+        localStorage?: Record<string, string>;
+      };
       applyAccountState(remote);
       if (remote.localStorage) void AsyncStorage.multiSet(Object.entries(remote.localStorage));
     }
@@ -41,13 +57,13 @@ export function AccountSync() {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [getAccountState, hydrated, isAuthenticated, saveRemoteState]);
+  }, [hydrated, isAuthenticated, saveSnapshot]);
 
   useEffect(() => {
     if (!isAuthenticated || !hydrated || !remoteApplied.current) return;
     const timer = setInterval(() => { void saveSnapshot(); }, 4000);
     return () => clearInterval(timer);
-  }, [getAccountState, hydrated, isAuthenticated, saveRemoteState]);
+  }, [hydrated, isAuthenticated, saveSnapshot]);
 
   return null;
 }

@@ -22,6 +22,7 @@ const MAPPING = {
   "restaurant.fill": "restaurant",
   "settings.fill": "settings",
   "history.fill": "history",
+  "calendar.fill": "calendar-today",
   "analytics.fill": "analytics",
   plus: "add",
   "dumbbell.fill": "fitness-center",
