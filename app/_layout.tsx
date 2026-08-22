@@ -1,5 +1,6 @@
+import React from "react";
 import { Stack } from "expo-router";
-import { WorkoutProvider } from "@/context/workout-context";
+import { WorkoutProvider } from "../lib/workout-store";
 
 export default function RootLayout() {
   return (
