@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type ExerciseTemplate, type WorkoutId, type WorkoutTemplate } from "./workout-data";
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
+import { supabase } from "./supabase";
 
 function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
   return saved.map((template) => {
@@ -133,45 +134,6 @@ function demoSet(exerciseId: string, setNumber: number, weight: number, reps: nu
   };
 }
 
-function createDemoLegsSessions(): WorkoutSession[] {
-  const today = "2026-08-16";
-  const wednesday = "2026-08-12";
-  const build = (date: string, values: Array<[string, number, number]>): WorkoutSession => {
-    const counters: Record<string, number> = {};
-    return {
-      id: `demo-legs-${date}`,
-      templateId: "legs1" as WorkoutId,
-      startedAt: `${date}T18:00:00.000Z`,
-      finishedAt: `${date}T19:25:00.000Z`,
-      sets: values.map(([exerciseId, weight, reps]) => {
-        counters[exerciseId] = (counters[exerciseId] ?? 0) + 1;
-        return demoSet(exerciseId, counters[exerciseId], weight, reps, date);
-      }),
-    };
-  };
-  const todayValues: Array<[string, number, number]> = [
-    ["סקוואט חופשי", 120, 6], ["סקוואט חופשי", 100, 10], ["סקוואט חופשי", 90, 15],
-    ["לג פרס", 262.5, 8], ["לג פרס", 282.5, 8], ["לג פרס", 292.5, 7],
-    ["כפיפת ברכיים בשכיבה", 70, 10], ["כפיפת ברכיים בשכיבה", 65, 12], ["כפיפת ברכיים בשכיבה", 50, 10],
-    ["כפיפת ברכיים בעמידה", 40, 16], ["כפיפת ברכיים בעמידה", 30, 22],
-    ["פשיטת ברכיים במכונה", 120, 9], ["פשיטת ברכיים במכונה", 110, 12], ["פשיטת ברכיים במכונה", 95, 20],
-    ["מקרבי ירך במכונה", 90, 11], ["מקרבי ירך במכונה", 80, 10],
-    ["מרחיקי ירך במכונה", 90, 9], ["מרחיקי ירך במכונה", 70, 12],
-    ["תאומים בישיבה", 30, 12], ["תאומים בישיבה", 30, 11],
-  ];
-  const previousValues: Array<[string, number, number]> = [
-    ["סקוואט חופשי", 115, 6], ["סקוואט חופשי", 95, 10], ["סקוואט חופשי", 85, 14],
-    ["לג פרס", 250, 8], ["לג פרס", 270, 8], ["לג פרס", 280, 7],
-    ["כפיפת ברכיים בשכיבה", 65, 10], ["כפיפת ברכיים בשכיבה", 60, 12], ["כפיפת ברכיים בשכיבה", 45, 10],
-    ["כפיפת ברכיים בעמידה", 35, 15], ["כפיפת ברכיים בעמידה", 27.5, 20],
-    ["פשיטת ברכיים במכונה", 110, 9], ["פשיטת ברכיים במכונה", 100, 12], ["פשיטת ברכיים במכונה", 90, 18],
-    ["מקרבי ירך במכונה", 85, 11], ["מקרבי ירך במכונה", 75, 10],
-    ["מרחיקי ירך במכונה", 85, 9], ["מרחיקי ירך במכונה", 65, 12],
-    ["תאומים בישיבה", 27.5, 12], ["תאומים בישיבה", 27.5, 10],
-  ];
-  return [build(today, todayValues), build(wednesday, previousValues)];
-}
-
 type ImportedSet = [exerciseId: string, weight: number, reps: number, note?: string];
 
 export function createImportedWorkoutSessions(): WorkoutSession[] {
@@ -285,32 +247,99 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(SESSION_KEY), AsyncStorage.getItem(TEMPLATE_KEY), AsyncStorage.getItem(RECOVERY_KEY), AsyncStorage.getItem(CARDIO_KEY), AsyncStorage.getItem(NUTRITION_KEY)]).then(([sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue]) => {
-      if (sessionValue) {
-        const savedSessions = (JSON.parse(sessionValue) as WorkoutSession[])
-          .filter((session) => !session.id.startsWith("demo-legs-"))
-          .map((session) => ({
-            ...session,
-            sets: session.sets.map((set) => set.exerciseId === "לחיצת רגליים" ? { ...set, exerciseId: "לג פרס" } : set),
-          }));
-        setSessions(mergeImportedWorkoutSessions(savedSessions));
-      } else {
-        setSessions(createImportedWorkoutSessions());
+    async function loadData() {
+      try {
+        const [sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue] = await Promise.all([
+          AsyncStorage.getItem(SESSION_KEY),
+          AsyncStorage.getItem(TEMPLATE_KEY),
+          AsyncStorage.getItem(RECOVERY_KEY),
+          AsyncStorage.getItem(CARDIO_KEY),
+          AsyncStorage.getItem(NUTRITION_KEY),
+        ]);
+
+        if (sessionValue) {
+          const savedSessions = (JSON.parse(sessionValue) as WorkoutSession[])
+            .filter((session) => !session.id.startsWith("demo-legs-"))
+            .map((session) => ({
+              ...session,
+              sets: session.sets.map((set) => set.exerciseId === "לחיצת רגליים" ? { ...set, exerciseId: "לג פרס" } : set),
+            }));
+          setSessions(mergeImportedWorkoutSessions(savedSessions));
+        } else {
+          setSessions(createImportedWorkoutSessions());
+        }
+
+        if (templateValue) setTemplates(hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]));
+        if (recoveryValue) setRecoveryLogs(JSON.parse(recoveryValue));
+        if (cardioValue) setCardioLogs(JSON.parse(cardioValue));
+        if (nutritionValue) {
+          const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile;
+          setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] }));
+        }
+
+        // טעינה וסנכרון מהענן של Supabase
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          const { data: profile } = await supabase
+            .from("user_profiles")
+            .select("account_state")
+            .eq("id", session.user.id)
+            .maybeSingle();
+
+          if (profile?.account_state) {
+            const remoteState = profile.account_state as Partial<AccountState>;
+            if (Array.isArray(remoteState.sessions)) setSessions(mergeImportedWorkoutSessions(remoteState.sessions));
+            if (Array.isArray(remoteState.templates)) setTemplates(hydrateWorkoutTemplates(remoteState.templates));
+            if (Array.isArray(remoteState.recoveryLogs)) setRecoveryLogs(remoteState.recoveryLogs);
+            if (Array.isArray(remoteState.cardioLogs)) setCardioLogs(remoteState.cardioLogs);
+            if (remoteState.nutritionProfile) setNutritionProfile((current) => ({ ...current, ...remoteState.nutritionProfile }));
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load workout store data", e);
+      } finally {
+        setHydrated(true);
       }
-      if (templateValue) setTemplates(hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]));
-      if (recoveryValue) setRecoveryLogs(JSON.parse(recoveryValue));
-      if (cardioValue) setCardioLogs(JSON.parse(cardioValue));
-      if (nutritionValue) { const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile; setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] })); }
-      setHydrated(true);
-    }).catch(() => setHydrated(true));
+    }
+
+    loadData();
   }, []);
 
+  // שמירה מקומית
   useEffect(() => { if (hydrated) AsyncStorage.setItem(SESSION_KEY, JSON.stringify(sessions)); }, [sessions, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates)); }, [templates, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryLogs)); }, [recoveryLogs, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs)); }, [cardioLogs, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile)); }, [nutritionProfile, hydrated]);
 
+  // סנכרון אוטומטי לענן של Supabase
+  useEffect(() => {
+    if (!hydrated) return;
+    const syncTimeout = setTimeout(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          const accountState: AccountState = {
+            sessions,
+            templates,
+            recoveryLogs,
+            cardioLogs,
+            nutritionProfile,
+          };
+          await supabase.from("user_profiles").upsert({
+            id: session.user.id,
+            email: session.user.email,
+            account_state: accountState,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch (err) {
+        console.error("Cloud sync error:", err);
+      }
+    }, 1500);
+
+    return () => clearTimeout(syncTimeout);
+  }, [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, hydrated]);
 
   const startWorkout = (templateId: WorkoutId, copyPrevious = false) => {
     const template = templates.find((item) => item.id === templateId) ?? getTemplate(templateId);
