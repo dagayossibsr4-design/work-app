@@ -8,14 +8,14 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: "#0b1329", // צבע רקע כחול כהה
+          backgroundColor: "#0b1329",
           borderTopColor: "#1e293b",
-          height: 65,
-          paddingBottom: 8,
+          height: 75,
+          paddingBottom: 18,
           paddingTop: 8,
         },
-        tabBarActiveTintColor: "#f59e0b", // צבע מוזהב לטאב פעיל
-        tabBarInactiveTintColor: "#64748b", // צבע אפור לטאב לא פעיל
+        tabBarActiveTintColor: "#f59e0b",
+        tabBarInactiveTintColor: "#64748b",
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: "600",
@@ -68,7 +68,6 @@ export default function TabLayout() {
         }}
       />
 
-      {/* הסתרת כל השאר */}
       <Tabs.Screen name="analysis" options={{ href: null }} />
       <Tabs.Screen name="cardio" options={{ href: null }} />
       <Tabs.Screen name="editor" options={{ href: null }} />
