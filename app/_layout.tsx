@@ -1,40 +1,39 @@
-import "../global.css";
-import { Stack } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
-import { I18nManager, Platform } from "react-native";
-import { ThemeProvider } from "@/lib/theme-provider";
-import { EntryAnimation } from "@/components/entry-animation";
-import { WorkoutProvider } from "@/lib/workout-store";
-import { AccountSync } from "@/components/account-sync";
-import { trpc, createTRPCClient } from "@/lib/trpc";
-
-if (Platform.OS !== "web") {
-  // Keep Android RTL support enabled without forcing a second native mirror.
-  // Screens and navigation use explicit direction styles for deterministic layout.
-  I18nManager.allowRTL(true);
-}
+import { useEffect } from "react";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { useAuth } from "@/hooks/use-auth";
+import { View, ActivityIndicator } from "react-native";
 
 export default function RootLayout() {
-  const [queryClient] = useState(() => new QueryClient());
-  const [trpcClient] = useState(() => createTRPCClient());
-  const [booted, setBooted] = useState(false);
+  const { user, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === "register";
+
+    if (user && inAuthGroup) {
+      // משתמש מחובר שנמצא במסך רישום מועבר ישירות לטאבים
+      router.replace("/(tabs)");
+    } else if (!user && !inAuthGroup) {
+      // אם אין משתמש, מעביר למסך הרישום
+      router.replace("/register");
+    }
+  }, [user, loading, segments]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0f172a" }}>
+        <ActivityIndicator size="large" color="#f59e0b" />
+      </View>
+    );
+  }
+
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#0B1224" }}>
-      <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider>
-            <WorkoutProvider>
-              <AccountSync />
-              <StatusBar style="light" />
-              {booted ? <Stack screenOptions={{ headerShown: false }} /> : null}
-              <EntryAnimation onFinished={() => setBooted(true)} />
-            </WorkoutProvider>
-          </ThemeProvider>
-        </QueryClientProvider>
-      </trpc.Provider>
-    </GestureHandlerRootView>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="register" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    </Stack>
   );
 }

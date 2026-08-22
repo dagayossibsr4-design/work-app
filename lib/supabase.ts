@@ -1,26 +1,30 @@
-import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createClient } from "@supabase/supabase-js";
+import { Platform } from "react-native";
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-
-const isWeb = typeof window !== 'undefined';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
 
 const customStorage = {
-  getItem: (key: string) => {
-    if (isWeb) {
+  getItem: async (key: string) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       return window.localStorage.getItem(key);
     }
-    return null;
+    return AsyncStorage.getItem(key);
   },
-  setItem: (key: string, value: string) => {
-    if (isWeb) {
+  setItem: async (key: string, value: string) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       window.localStorage.setItem(key, value);
+      return;
     }
+    return AsyncStorage.setItem(key, value);
   },
-  removeItem: (key: string) => {
-    if (isWeb) {
+  removeItem: async (key: string) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       window.localStorage.removeItem(key);
+      return;
     }
+    return AsyncStorage.removeItem(key);
   },
 };
 
