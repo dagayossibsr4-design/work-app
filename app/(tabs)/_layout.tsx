@@ -7,69 +7,15 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: {
-          backgroundColor: "#0b1329",
-          borderTopColor: "#1e293b",
-          height: 65,
-          paddingBottom: 8,
-          paddingTop: 8,
-        },
-        tabBarActiveTintColor: "#f59e0b",
-        tabBarInactiveTintColor: "#64748b",
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: "600",
-        },
+        tabBarStyle: { height: 60 },
       }}
     >
-      {/* 5 הטאבים הראשיים */}
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "היום",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="workouts"
-        options={{
-          title: "אימונים",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="barbell" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="schedule"
-        options={{
-          title: "לוח אימונים",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="nutrition"
-        options={{
-          title: "תזונה",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="restaurant" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "הגדרות",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-sharp" size={size} color={color} />
-          ),
-        }}
-      />
-
-      {/* הסתרת כל שאר הקבצים */}
+      <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="workouts" options={{ title: "Workouts" }} />
+      <Tabs.Screen name="schedule" options={{ title: "Schedule" }} />
+      <Tabs.Screen name="nutrition" options={{ title: "Nutrition" }} />
+      <Tabs.Screen name="settings" options={{ title: "Settings" }} />
+      
       <Tabs.Screen name="analysis" options={{ href: null }} />
       <Tabs.Screen name="cardio" options={{ href: null }} />
       <Tabs.Screen name="editor" options={{ href: null }} />
