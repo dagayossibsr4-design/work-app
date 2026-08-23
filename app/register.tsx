@@ -11,12 +11,9 @@ import {
 import { useRouter } from "expo-router";
 import { useWorkoutStore } from "../lib/workout-store";
 
-const SUPABASE_URL = "https://sovkcnzxystytgczpzic.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_RloyhngS45WwfOTnuBCk-Q_v4yYW048";
-
 export default function RegisterScreen() {
   const router = useRouter();
-  const { setAccountName, syncAccount } = useWorkoutStore();
+  const store = useWorkoutStore() as any;
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -38,11 +35,23 @@ export default function RegisterScreen() {
     try {
       const uniqueAccountKey = `${cleanUser}_${cleanPass}`;
 
-      if (setAccountName) await setAccountName(uniqueAccountKey);
-      if (syncAccount) await syncAccount(uniqueAccountKey);
+      // הפעלת כל פונקציות הרישום והאימות של ה-Store
+      if (typeof store.setAccountName === "function") {
+        await store.setAccountName(uniqueAccountKey);
+      }
+      if (typeof store.setRegistered === "function") {
+        await store.setRegistered(true);
+      }
+      if (typeof store.setIsRegistered === "function") {
+        await store.setIsRegistered(true);
+      }
+      if (typeof store.syncAccount === "function") {
+        await store.syncAccount(uniqueAccountKey);
+      }
 
+      // מעבר חלק למסך הראשי
       if (Platform.OS === "web") {
-        window.location.href = "/";
+        window.location.replace("/(tabs)");
       } else {
         router.replace("/(tabs)");
       }
