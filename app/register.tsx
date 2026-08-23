@@ -9,40 +9,78 @@ import {
   Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { supabase } from "../lib/supabase";
 import { useWorkoutStore } from "../lib/workout-store";
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { setAccountName, syncAccount } = useWorkoutStore();
-  const [username, setUsername] = useState("");
+  
+  const [isLoginMode, setIsLoginMode] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
 
-  const handleLoginOrRegister = async () => {
-    const trimmed = username.trim();
-    if (!trimmed) {
-      setErrorMsg("נא להזין שם משתמש או מזהה");
+  const handleAuth = async () => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
+      setErrorMsg("נא להזין דוא\"ל וסיסמה");
       return;
     }
 
     setLoading(true);
     setErrorMsg("");
+    setSuccessMsg("");
 
     try {
-      if (setAccountName) {
-        await setAccountName(trimmed);
-      }
-      if (syncAccount) {
-        await syncAccount(trimmed);
-      }
+      if (isLoginMode) {
+        // התחברות לחשבון קיים
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: password,
+        });
 
-      if (Platform.OS === "web") {
-        window.location.href = "/";
+        if (error) throw error;
+
+        if (data?.user) {
+          if (setAccountName) await setAccountName(data.user.id);
+          if (syncAccount) await syncAccount(data.user.id);
+
+          if (Platform.OS === "web") {
+            window.location.href = "/";
+          } else {
+            router.replace("/(tabs)");
+          }
+        }
       } else {
-        router.replace("/(tabs)");
+        // הרשמת חשבון חדש
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: password,
+        });
+
+        if (error) throw error;
+
+        if (data?.user) {
+          if (setAccountName) await setAccountName(data.user.id);
+          if (syncAccount) await syncAccount(data.user.id);
+
+          if (data.session) {
+            if (Platform.OS === "web") {
+              window.location.href = "/";
+            } else {
+              router.replace("/(tabs)");
+            }
+          } else {
+            setSuccessMsg("נשלח אימייל אימות. נא לאשר את החשבון ולהתחבר.");
+            setIsLoginMode(true);
+          }
+        }
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || "שגיאה בחיבור לחשבון, נסה שוב");
+      setErrorMsg(err?.message || "שגיאה בביצוע הפעולה, נסה שוב");
     } finally {
       setLoading(false);
     }
@@ -55,31 +93,64 @@ export default function RegisterScreen() {
           <Text style={styles.logoText}>W</Text>
         </View>
         <Text style={styles.title}>יומן האימונים</Text>
-        <Text style={styles.subtitle}>התחברות וסנכרון ענן</Text>
+        <Text style={styles.subtitle}>
+          {isLoginMode ? "התחברות לחשבון אישי" : "פתיחת חשבון חדש"}
+        </Text>
 
-        <Text style={styles.label}>שם משתמש / מזהה אישי</Text>
+        <Text style={styles.label}>כתובת דוא"ל</Text>
         <TextInput
           style={styles.input}
-          placeholder="הזן שם משתמש..."
+          placeholder="your@email.com"
           placeholderTextColor="#64748b"
-          value={username}
-          onChangeText={setUsername}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoCorrect={false}
+        />
+
+        <Text style={styles.label}>סיסמה</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="הזן סיסמה..."
+          placeholderTextColor="#64748b"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
           autoCapitalize="none"
           autoCorrect={false}
         />
 
         {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
+        {successMsg ? <Text style={styles.successText}>{successMsg}</Text> : null}
 
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={handleLoginOrRegister}
+          onPress={handleAuth}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#0f172a" />
           ) : (
-            <Text style={styles.primaryButtonText}>התחבר / פתח חשבון</Text>
+            <Text style={styles.primaryButtonText}>
+              {isLoginMode ? "התחבר" : "הירשם ופתח חשבון"}
+            </Text>
           )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.switchButton}
+          onPress={() => {
+            setIsLoginMode(!isLoginMode);
+            setErrorMsg("");
+            setSuccessMsg("");
+          }}
+        >
+          <Text style={styles.switchButtonText}>
+            {isLoginMode
+              ? "אין לך חשבון עדיין? הירשם כאן"
+              : "כבר יש לך חשבון? התחבר כאן"}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -157,6 +228,12 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     textAlign: "center",
   },
+  successText: {
+    color: "#10b981",
+    fontSize: 13,
+    marginBottom: 14,
+    textAlign: "center",
+  },
   primaryButton: {
     width: "100%",
     backgroundColor: "#f59e0b",
@@ -170,5 +247,14 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 16,
     fontWeight: "700",
+  },
+  switchButton: {
+    marginTop: 18,
+    padding: 8,
+  },
+  switchButtonText: {
+    color: "#f59e0b",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
