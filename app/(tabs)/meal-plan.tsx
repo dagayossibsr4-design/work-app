@@ -33,7 +33,7 @@ import {
   type Meal,
 } from "@/lib/meal-plan";
 import { requestNutritionCloudSave } from "@/lib/nutrition-persistence";
-import { useWorkoutStore as useNutritionStore } from "../lib/workout-store";
+import { useWorkoutStore as useNutritionStore } from "@/lib/workout-store";
 import {
   convertMealFoodWeight,
   cookingConversionInfo,
