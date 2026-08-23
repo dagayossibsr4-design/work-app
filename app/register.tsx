@@ -1,84 +1,174 @@
-import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
-
-import { ScreenContainer } from "@/components/screen-container";
-import { BrandMark } from "@/components/ui/brand-mark";
-import { startOAuthLogin } from "@/constants/oauth";
-import { useAuth } from "@/hooks/use-auth";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Platform,
+} from "react-native";
+import { useRouter } from "expo-router";
+import { useWorkoutStore } from "../lib/workout-store";
 
 export default function RegisterScreen() {
-  const { user, loading } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const router = useRouter();
+  const { setAccountName, syncAccount } = useWorkoutStore();
+  const [username, setUsername] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const continueWithAccount = async () => {
-    setBusy(true);
-    setError("");
+  const handleLoginOrRegister = async () => {
+    const trimmed = username.trim();
+    if (!trimmed) {
+      setErrorMsg("נא להזין שם משתמש או מזהה");
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg("");
+
     try {
-      await startOAuthLogin();
-    } catch {
-      setError("לא ניתן לפתוח כרגע את מסך הרישום. נסה שוב בעוד רגע.");
+      if (setAccountName) {
+        await setAccountName(trimmed);
+      }
+      if (syncAccount) {
+        await syncAccount(trimmed);
+      }
+
+      if (Platform.OS === "web") {
+        window.location.href = "/";
+      } else {
+        router.replace("/(tabs)");
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || "שגיאה בחיבור לחשבון, נסה שוב");
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   };
 
   return (
-    <ScreenContainer className="px-5 pt-5">
-      <View style={styles.content}>
-        <BrandMark />
-        <Text style={styles.eyebrow}>חשבון אישי</Text>
-        <Text style={styles.title}>{user ? `שלום, ${user.name ?? "משתמש"}` : "יצירת חשבון"}</Text>
-        <Text style={styles.subtitle}>
-          התחבר או הירשם כדי לשמור את הנתונים שלך תחת חשבון אישי ולהמשיך בין מכשירים.
-        </Text>
+    <View style={styles.container}>
+      <View style={styles.card}>
+        <View style={styles.logoBadge}>
+          <Text style={styles.logoText}>W</Text>
+        </View>
+        <Text style={styles.title}>יומן האימונים</Text>
+        <Text style={styles.subtitle}>התחברות וסנכרון ענן</Text>
 
-        {loading ? (
-          <View style={styles.loading}><ActivityIndicator color="#F5B72C" /><Text style={styles.note}>בודק את מצב החשבון…</Text></View>
-        ) : user ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>אתה מחובר</Text>
-            <Text style={styles.note}>{user.email ?? "החשבון שלך פעיל"}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הבית" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
-              <Text style={styles.primaryText}>חזרה למסך הבית</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>איך זה עובד?</Text>
-            <Text style={styles.note}>לחיצה על הכפתור תפתח אימות מאובטח. לאחר ההרשמה תחזור אוטומטית לאפליקציה, והאימונים, התבניות, ההתאוששות, האירובי ויעדי התזונה יישמרו תחת המשתמש שלך.</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="הירשם או התחבר" onPress={() => void continueWithAccount()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
-              {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>הירשם / התחבר</Text>}
-            </Pressable>
-            {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
-          </View>
-        )}
+        <Text style={styles.label}>שם משתמש / מזהה אישי</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="הזן שם משתמש..."
+          placeholderTextColor="#64748b"
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
 
-        <Pressable accessibilityRole="button" accessibilityLabel="המשך בלי חשבון" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
-          <Text style={styles.secondaryText}>המשך בלי חשבון</Text>
-        </Pressable>
-        <Text style={styles.privacy}>בלי חשבון: הנתונים נשמרים במכשיר בלבד. עם חשבון: נתוני הליבה מסונכרנים לפי המשתמש ונגישים ממכשירים נוספים. נתוני התזונה המקומיים יעברו בהדרגה לסנכרון מלא.</Text>
+        {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
+
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={handleLoginOrRegister}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#0f172a" />
+          ) : (
+            <Text style={styles.primaryButtonText}>התחבר / פתח חשבון</Text>
+          )}
+        </TouchableOpacity>
       </View>
-    </ScreenContainer>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: 14, paddingBottom: 35 },
-  eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" },
-  title: { color: "#F7F9FC", fontSize: 32, fontWeight: "900", textAlign: "right" },
-  subtitle: { color: "#AAB7C8", fontSize: 14, lineHeight: 21, textAlign: "right" },
-  card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 16, gap: 12 },
-  cardTitle: { color: "#F7F9FC", fontSize: 18, fontWeight: "900", textAlign: "right" },
-  note: { color: "#AAB7C8", fontSize: 12, lineHeight: 19, textAlign: "right" },
-  loading: { alignItems: "center", gap: 9, paddingVertical: 28 },
-  primary: { minHeight: 48, backgroundColor: "#F5B72C", borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
-  primaryText: { color: "#0B1224", fontSize: 14, fontWeight: "900" },
-  secondary: { minHeight: 46, backgroundColor: "#1D2D48", borderColor: "#52759C", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
-  secondaryText: { color: "#D9E2EF", fontWeight: "800" },
-  error: { color: "#FF879A", fontSize: 11, lineHeight: 17, textAlign: "right" },
-  privacy: { color: "#7E8DA4", fontSize: 10, lineHeight: 16, textAlign: "right" },
-  disabled: { opacity: 0.65 },
-  pressed: { opacity: 0.74, transform: [{ scale: 0.98 }] },
+  container: {
+    flex: 1,
+    backgroundColor: "#070b14",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#0f172a",
+    borderRadius: 20,
+    padding: 28,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+    alignItems: "center",
+  },
+  logoBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: "#f59e0b",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  logoText: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: "#0f172a",
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#f8fafc",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#94a3b8",
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  label: {
+    alignSelf: "flex-start",
+    fontSize: 13,
+    color: "#cbd5e1",
+    marginBottom: 8,
+    fontWeight: "600",
+  },
+  input: {
+    width: "100%",
+    backgroundColor: "#1e293b",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: "#f8fafc",
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: "#334155",
+    marginBottom: 16,
+    textAlign: "right",
+  },
+  errorText: {
+    color: "#ef4444",
+    fontSize: 13,
+    marginBottom: 14,
+    textAlign: "center",
+  },
+  primaryButton: {
+    width: "100%",
+    backgroundColor: "#f59e0b",
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  primaryButtonText: {
+    color: "#0f172a",
+    fontSize: 16,
+    fontWeight: "700",
+  },
 });
