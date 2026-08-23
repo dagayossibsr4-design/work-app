@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import {
   ActivityIndicator,
   Animated,
@@ -38,7 +38,6 @@ import {
   weightModeLabels,
   type WeightMode,
 } from "@/lib/cooking-weight";
-import { useAuth } from "@/hooks/use-auth";
 import { todayKey, upsertSnapshot } from "@/lib/weekly-nutrition";
 import {
   alternativesFor,
@@ -97,11 +96,15 @@ type DailyMealSnapshot = {
   meals: Meal[];
   eaten: Record<string, boolean>;
 };
+
 export default function MealPlanScreen() {
-  const { nutritionProfile, updateNutritionProfile } = useWorkoutStore();
-  const { user } = useAuth();
+  const standalone = usePathname() === "/meals";
+  const store = useWorkoutStore() as any;
+  const { nutritionProfile, updateNutritionProfile } = store;
+  const user = { name: store.accountName || store.userDisplayName || "משתמש" };
+  
   const mealFoods = useMemo(() => [...(nutritionProfile.customFoods ?? []), ...foodItems], [nutritionProfile.customFoods]);
-  const mealConversionFoods = useMemo(() => [...conversionFoods, ...(nutritionProfile.customFoods ?? []).filter((food) => food.group !== "ירק ופרי").map((food) => ({ id: food.id, name: food.name, group: food.group as ConversionGroup, calories: food.calories, protein: food.protein, carbohydrates: food.carbohydrates, fats: food.fats }))], [nutritionProfile.customFoods]);
+  const mealConversionFoods = useMemo(() => [...conversionFoods, ...(nutritionProfile.customFoods ?? []).filter((food: any) => food.group !== "ירק ופרי").map((food: any) => ({ id: food.id, name: food.name, group: food.group as ConversionGroup, calories: food.calories, protein: food.protein, carbohydrates: food.carbohydrates, fats: food.fats }))], [nutritionProfile.customFoods]);
   const [meals, setMeals] = useState<Meal[]>(defaultMeals);
   const [pending, setPending] = useState<PendingSwap | null>(null);
   const [eaten, setEaten] = useState<Record<string, boolean>>({});
@@ -321,41 +324,30 @@ export default function MealPlanScreen() {
   }, [nutritionProfile.goal]);
   useEffect(() => {
     if (hydrated) {
-      AsyncStorage.setItem(
-        "meal-plan-state",
-        JSON.stringify({
+      const nextMealsState = JSON.stringify({
           meals,
           eaten:
             selectedDate === todayKey()
               ? eaten
               : (eatenHistory[todayKey()] ?? {}),
           appliedTarget,
-        }),
-      ).catch(() => undefined);
-      AsyncStorage.setItem(
-        "meal-plan-eaten-history",
-        JSON.stringify({ ...eatenHistory, [selectedDate]: eaten }),
-      ).catch(() => undefined);
-      AsyncStorage.setItem(
-        "meal-plan-day-history",
-        JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(meals), eaten } }),
-      ).catch(() => undefined);
-      AsyncStorage.setItem(
-        "meal-plan-profiles",
-        JSON.stringify(menuProfiles),
-      ).catch(() => undefined);
-      AsyncStorage.setItem(
-        "meal-plan-versions",
-        JSON.stringify(versionsByGoal),
-      ).catch(() => undefined);
-      AsyncStorage.setItem(
-        "nutrition-water-history",
-        JSON.stringify(waterHistory),
-      ).catch(() => undefined);
-      AsyncStorage.setItem(
-        "nutrition-water-events",
-        JSON.stringify(waterEvents),
-      ).catch(() => undefined);
+      });
+      const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
+      const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(meals), eaten } });
+      
+      void AsyncStorage.multiSet([
+        ["meal-plan-state", nextMealsState],
+        ["meal-plan-eaten-history", nextEatenHistory],
+        ["meal-plan-day-history", nextDayHistory],
+        ["meal-plan-profiles", JSON.stringify(menuProfiles)],
+        ["meal-plan-versions", JSON.stringify(versionsByGoal)],
+        ["nutrition-water-history", JSON.stringify(waterHistory)],
+        ["nutrition-water-events", JSON.stringify(waterEvents)],
+      ]).then(() => {
+        if (typeof store.syncAccount === "function" && store.accountName) {
+            store.syncAccount(store.accountName);
+        }
+      }).catch(() => undefined);
     }
   }, [
     meals,
@@ -1320,24 +1312,20 @@ export default function MealPlanScreen() {
         contentContainerStyle={styles.content}
       >
         <View style={styles.header}>
-          <Pressable
-            onPress={() => router.push("/menu")}
-            style={styles.menuButton}
-          >
-            <Text style={styles.menuText}>☰ תפריט</Text>
-          </Pressable>
+          {standalone ? <Pressable onPress={() => router.back()} style={styles.menuButton}><Text style={styles.menuText}>‹ חזרה</Text></Pressable> : <Pressable onPress={() => router.push("/menu")} style={styles.menuButton}><Text style={styles.menuText}>☰ תפריט</Text></Pressable>}
           <Text style={styles.eyebrow}>תזונה יומית</Text>
-          <Text style={styles.title}>תפריט {meals.length} ארוחות</Text>
+          <Text style={styles.title}>{standalone ? "הארוחות שלי" : `תפריט ${meals.length} ארוחות`}</Text>
           <Text style={styles.subtitle}>
             יעד פעיל: {mealPlanGoalLabel(activeGoal)} ·{" "}
             {targetCalories || "לא הוגדר"} קק״ל · לפי המחשבון הקלורי
           </Text>
-          <Pressable onPress={() => router.push("/scroll-test")} style={styles.scrollTestButton}>
-            <Text style={styles.scrollTestButtonText}>בדיקת גלילה</Text>
-          </Pressable>
-          <Pressable onPress={() => router.push("/nutrition-calendar" as never)} style={styles.scrollTestButton}>
-            <Text style={styles.scrollTestButtonText}>לוח תזונה: יום · שבוע · חודש</Text>
-          </Pressable>
+          
+          <View style={styles.actionRow}>
+            <Pressable onPress={saveFavorite} style={styles.savePermanentBtn}>
+              <Text style={styles.savePermanentText}>{favoriteBusy === "save" ? "שומר..." : "💾 שמור וקבע תפריט זה לצמיתות"}</Text>
+            </Pressable>
+          </View>
+
           <View style={styles.datePicker}>
             <Pressable
               onPress={() => changeSelectedDate(-1)}
@@ -2229,7 +2217,7 @@ export default function MealPlanScreen() {
                                   setEditingQuantityKey(null);
                                   Keyboard.dismiss();
                                 } else {
-                                  const numericQuantity = food.quantity.match(/^\\s*([0-9]+(?:\\.[0-9]+)?)/)?.[1] ?? "100";
+                                  const numericQuantity = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? "100";
                                   setQuantityDraft(numericQuantity);
                                   setEditingQuantityKey(quantityEditKey);
                                 }
@@ -2801,11 +2789,11 @@ export default function MealPlanScreen() {
             unit="ג׳"
           />
         </View>
-        </ScrollView>
-
+      </ScrollView>
     </ScreenContainer>
   );
 }
+
 function buildCalendarCells(monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
   const firstDay = new Date(year, month - 1, 1).getDay();
@@ -3046,6 +3034,9 @@ const nutritionEditStyles = StyleSheet.create({
   pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
 });
 const styles = StyleSheet.create({
+  actionRow: { marginTop: 10 },
+  savePermanentBtn: { backgroundColor: "#22C55E", borderRadius: 12, paddingVertical: 12, alignItems: "center" },
+  savePermanentText: { color: "#0B1224", fontWeight: "900", fontSize: 13, writingDirection: "rtl" },
   mealPlanScroll: { flex: 1, minHeight: 0 },
   content: {
     flexGrow: 1,
