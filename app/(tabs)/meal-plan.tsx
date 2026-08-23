@@ -103,8 +103,8 @@ export default function MealPlanScreen() {
   const { nutritionProfile, updateNutritionProfile } = store;
   const user = { name: store.accountName || store.userDisplayName || "משתמש" };
   
-  const mealFoods = useMemo(() => [...(nutritionProfile.customFoods ?? []), ...foodItems], [nutritionProfile.customFoods]);
-  const mealConversionFoods = useMemo(() => [...conversionFoods, ...(nutritionProfile.customFoods ?? []).filter((food: any) => food.group !== "ירק ופרי").map((food: any) => ({ id: food.id, name: food.name, group: food.group as ConversionGroup, calories: food.calories, protein: food.protein, carbohydrates: food.carbohydrates, fats: food.fats }))], [nutritionProfile.customFoods]);
+  const mealFoods = useMemo(() => [...(nutritionProfile?.customFoods ?? []), ...foodItems], [nutritionProfile?.customFoods]);
+  const mealConversionFoods = useMemo(() => [...conversionFoods, ...(nutritionProfile?.customFoods ?? []).filter((food: any) => food.group !== "ירק ופרי").map((food: any) => ({ id: food.id, name: food.name, group: food.group as ConversionGroup, calories: food.calories, protein: food.protein, carbohydrates: food.carbohydrates, fats: food.fats }))], [nutritionProfile?.customFoods]);
   const [meals, setMeals] = useState<Meal[]>(defaultMeals);
   const [pending, setPending] = useState<PendingSwap | null>(null);
   const [eaten, setEaten] = useState<Record<string, boolean>>({});
@@ -130,9 +130,7 @@ export default function MealPlanScreen() {
   const [appliedTarget, setAppliedTarget] = useState("");
   const [rebalanceMessage, setRebalanceMessage] = useState("");
   const [hasFavorite, setHasFavorite] = useState(false);
-  const [favoriteBusy, setFavoriteBusy] = useState<"save" | "load" | null>(
-    null,
-  );
+  const [favoriteBusy, setFavoriteBusy] = useState<"save" | "load" | null>(null);
   const [favoriteStatus, setFavoriteStatus] = useState<{
     type: "success" | "error";
     message: string;
@@ -146,7 +144,7 @@ export default function MealPlanScreen() {
   const [menuProfiles, setMenuProfiles] = useState<MenuProfiles>(() =>
     createMenuProfiles(nutritionProfile),
   );
-  const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
+  const [activeGoal, setActiveGoal] = useState(nutritionProfile?.goal || "ניטרלי");
   const [versionsByGoal, setVersionsByGoal] = useState<MealPlanVersions>(
     emptyMealPlanVersions,
   );
@@ -155,9 +153,7 @@ export default function MealPlanScreen() {
   const [versionTransitionBusy, setVersionTransitionBusy] = useState(false);
   const [expandedFoodId, setExpandedFoodId] = useState<string | null>(null);
   const [weightInfoFoodId, setWeightInfoFoodId] = useState<string | null>(null);
-  const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(
-    null,
-  );
+  const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState("");
   const [editingNutritionKey, setEditingNutritionKey] = useState<string | null>(null);
   const [nutritionDraft, setNutritionDraft] = useState<NutritionDraft>({ calories: "", protein: "", carbohydrates: "", fats: "" });
@@ -173,21 +169,19 @@ export default function MealPlanScreen() {
   const [selectedMealFoodKey, setSelectedMealFoodKey] = useState<string | null>(null);
   const mealPlanScrollRef = useRef<ScrollView>(null);
   const [conversionSearch, setConversionSearch] = useState("");
-  const [favoriteConversionIds, setFavoriteConversionIds] = useState<string[]>(
-    [],
-  );
-  const [animatedFavoriteId, setAnimatedFavoriteId] = useState<string | null>(
-    null,
-  );
+  const [favoriteConversionIds, setFavoriteConversionIds] = useState<string[]>([]);
+  const [animatedFavoriteId, setAnimatedFavoriteId] = useState<string | null>(null);
   const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
   const [mealConversionId, setMealConversionId] = useState<string | null>(null);
   const [mealConversionSelection, setMealConversionSelection] = useState<Record<string, ConversionFood | null>>({});
   const manualMealEditRef = useRef(false);
+
   useEffect(() => {
     if (Platform.OS === "android") {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
   }, []);
+
   const activeWater = waterHistory[selectedDate] ?? { consumed: 0, goal: 2000 };
   const waterProgress = activeWater.goal > 0
     ? Math.min(activeWater.consumed / activeWater.goal, 1)
@@ -195,6 +189,7 @@ export default function MealPlanScreen() {
   const activeWaterEvents = [...(waterEvents[selectedDate] ?? [])].sort((a, b) => b.at.localeCompare(a.at));
   const favoriteScale = useRef(new Animated.Value(1)).current;
   const mealPlanOpacity = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     AsyncStorage.getItem("conversion-favorites")
       .then((value) => {
@@ -202,6 +197,7 @@ export default function MealPlanScreen() {
       })
       .catch(() => undefined);
   }, []);
+
   useEffect(() => {
     if (hydrated)
       AsyncStorage.setItem(
@@ -209,6 +205,7 @@ export default function MealPlanScreen() {
         JSON.stringify(favoriteConversionIds),
       ).catch(() => undefined);
   }, [favoriteConversionIds, hydrated]);
+
   useEffect(() => {
     Promise.all([
       AsyncStorage.getItem("meal-plan-state"),
@@ -314,14 +311,15 @@ export default function MealPlanScreen() {
             const savedProfiles = JSON.parse(profiles) as MenuProfiles;
             setMenuProfiles(savedProfiles);
             const savedActive =
-              savedProfiles[nutritionProfile.goal] ?? savedProfiles.ניטרלי;
+              savedProfiles[nutritionProfile?.goal] ?? savedProfiles.ניטרלי;
             setActiveGoal(savedActive.goal);
           }
           setHydrated(true);
         },
       )
       .catch(() => setHydrated(true));
-  }, [nutritionProfile.goal]);
+  }, [nutritionProfile?.goal]);
+
   useEffect(() => {
     if (hydrated) {
       const nextMealsState = JSON.stringify({
@@ -362,8 +360,10 @@ export default function MealPlanScreen() {
     waterHistory,
     waterEvents,
   ]);
-  const activeProfile = menuProfiles[activeGoal];
-  const targetCalories = Number(activeProfile.calories) || 0;
+
+  const activeProfile = menuProfiles[activeGoal] || menuProfiles.ניטרלי;
+  const targetCalories = Number(activeProfile?.calories) || 0;
+
   const commitProfile = (next: MenuProfile) => {
     setMenuProfiles((current) => ({ ...current, [next.goal]: next }));
     updateNutritionProfile({
@@ -376,10 +376,12 @@ export default function MealPlanScreen() {
       autoMacroField: next.autoField,
     });
   };
+
   const patchActiveProfile = (patch: Partial<MenuProfile>) =>
     commitProfile({ ...activeProfile, ...patch });
   const completeActiveProfile = () =>
     commitProfile(completeMenuProfile(activeProfile));
+
   const buildProfileFromWeight = () => {
     const result = buildBodyweightTargets(
       Number(bodyWeight),
@@ -402,6 +404,7 @@ export default function MealPlanScreen() {
         `היעדים נבנו לפי ${bodyWeight} ק״ג במצב ${mealPlanGoalLabel(activeGoal)}.`,
     );
   };
+
   useEffect(() => {
     setWaterGoalDraft(String(activeWater.goal));
   }, [selectedDate, activeWater.goal]);
@@ -457,6 +460,7 @@ export default function MealPlanScreen() {
       `יעד ${mealPlanGoalLabel(activeProfile.goal)} נשמר בהצלחה.`,
     );
   };
+
   const saveVersion = () => {
     triggerFavoriteHaptic();
     const name =
@@ -479,6 +483,7 @@ export default function MealPlanScreen() {
       `הגרסה "${name}" נשמרה תחת ${mealPlanGoalLabel(activeGoal)}.`,
     );
   };
+
   const loadVersion = (version: MealPlanVersion) => {
     if (versionTransitionBusy) return;
     triggerFavoriteHaptic();
@@ -505,6 +510,7 @@ export default function MealPlanScreen() {
       }).start(() => setVersionTransitionBusy(false));
     });
   };
+
   const toggleVersionFavorite = (versionId: string) => {
     setVersionsByGoal((current) => ({
       ...current,
@@ -515,28 +521,34 @@ export default function MealPlanScreen() {
     }));
     setRebalanceMessage("הגרסה המועדפת עודכנה.");
   };
-  const favoriteVersion = versionsByGoal[activeGoal].find(
+
+  const favoriteVersion = versionsByGoal[activeGoal]?.find(
     (version) => version.favorite,
   );
+
   const loadFavoriteVersion = () => {
     if (favoriteVersion) loadVersion(favoriteVersion);
     else setRebalanceMessage("עדיין לא סומנה גרסה מועדפת למצב הזה.");
   };
+
   const selectGoal = (goal: MenuProfile["goal"]) => {
     setActiveGoal(goal);
     const next = menuProfiles[goal];
-    updateNutritionProfile({
-      ...nutritionProfile,
-      goal,
-      calorieTarget: next.calories,
-      proteinTarget: next.protein,
-      carbohydratesTarget: next.carbohydrates,
-      fatsTarget: next.fats,
-      autoMacroField: next.autoField,
-    });
+    if (next) {
+      updateNutritionProfile({
+        ...nutritionProfile,
+        goal,
+        calorieTarget: next.calories,
+        proteinTarget: next.protein,
+        carbohydratesTarget: next.carbohydrates,
+        fatsTarget: next.fats,
+        autoMacroField: next.autoField,
+      });
+    }
   };
+
   useEffect(() => {
-    if (!hydrated || nutritionProfile.goal !== activeGoal) return;
+    if (!hydrated || nutritionProfile?.goal !== activeGoal || !activeProfile) return;
     const syncedProfile: MenuProfile = {
       ...activeProfile,
       calories: nutritionProfile.calorieTarget ?? activeProfile.calories,
@@ -561,15 +573,17 @@ export default function MealPlanScreen() {
     activeGoal,
     activeProfile,
     hydrated,
-    nutritionProfile.goal,
-    nutritionProfile.calorieTarget,
-    nutritionProfile.proteinTarget,
-    nutritionProfile.carbohydratesTarget,
-    nutritionProfile.fatsTarget,
+    nutritionProfile?.goal,
+    nutritionProfile?.calorieTarget,
+    nutritionProfile?.proteinTarget,
+    nutritionProfile?.carbohydratesTarget,
+    nutritionProfile?.fatsTarget,
   ]);
-  const targetKey = `${activeProfile.goal}:${targetCalories}:${activeProfile.protein}:${activeProfile.carbohydrates}:${activeProfile.fats}`;
+
+  const targetKey = activeProfile ? `${activeProfile.goal}:${targetCalories}:${activeProfile.protein}:${activeProfile.carbohydrates}:${activeProfile.fats}` : "";
   const currentPlanTotals = useMemo(() => dailyMealTotals(meals), [meals]);
   const targetAligned =
+    activeProfile &&
     (!activeProfile.protein ||
       Math.abs(currentPlanTotals.protein - Number(activeProfile.protein)) <=
         2) &&
@@ -579,6 +593,7 @@ export default function MealPlanScreen() {
       ) <= 2) &&
     (!activeProfile.fats ||
       Math.abs(currentPlanTotals.fats - Number(activeProfile.fats)) <= 2);
+
   useEffect(() => {
     if (manualMealEditRef.current) {
       manualMealEditRef.current = false;
@@ -587,7 +602,8 @@ export default function MealPlanScreen() {
     if (
       !hydrated ||
       !targetCalories ||
-      (appliedTarget === targetKey && targetAligned)
+      (appliedTarget === targetKey && targetAligned) ||
+      !activeProfile
     )
       return;
     setMeals((current) =>
@@ -605,12 +621,12 @@ export default function MealPlanScreen() {
     targetKey,
     appliedTarget,
     targetAligned,
-    activeProfile.protein,
-    activeProfile.carbohydrates,
-    activeProfile.fats,
+    activeProfile,
   ]);
+
   const toggleEaten = (id: string) =>
     setEaten((current) => ({ ...current, [id]: !current[id] }));
+
   const selectMealDate = (nextDate: string) => {
     const currentSnapshot = { meals: cloneMeals(meals), eaten };
     const nextSnapshot = mealHistoryByDate[nextDate];
@@ -624,24 +640,29 @@ export default function MealPlanScreen() {
     }
     setViewMode("eaten");
   };
+
   const changeSelectedDate = (offset: number) => {
     selectMealDate(shiftDateKey(selectedDate, offset));
   };
+
   const openCalendar = () => {
     setCalendarDraftDate(selectedDate);
     setCalendarMonthKey(selectedDate.slice(0, 7));
     setCalendarOpen(true);
   };
+
   const confirmCalendarDate = () => {
     selectMealDate(calendarDraftDate);
     setCalendarOpen(false);
   };
+
   const calendarCells = useMemo(
     () => buildCalendarCells(calendarMonthKey),
     [calendarMonthKey],
   );
+
   const rebalanceToTarget = () => {
-    if (!targetCalories) {
+    if (!targetCalories || !activeProfile) {
       setRebalanceMessage("יש להגדיר יעד קלורי במחשבון לפני האיזון מחדש.");
       return;
     }
@@ -656,15 +677,18 @@ export default function MealPlanScreen() {
     setAppliedTarget(targetKey);
     setRebalanceMessage(`הכמויות אוזנו מחדש ליעד של ${targetCalories} קק״ל.`);
   };
+
   const resetToOriginal = () => {
     setMeals(JSON.parse(JSON.stringify(defaultMeals)) as Meal[]);
     setAppliedTarget(targetKey);
     setRebalanceMessage("התפריט חזר לתפריט המקורי. סימוני נאכל נשמרו.");
   };
+
   const wait = (ms: number) =>
     new Promise((resolve) => setTimeout(resolve, ms));
+
   const exportPdf = async () => {
-    if (pdfBusy) return;
+    if (pdfBusy || !activeProfile) return;
     setPdfBusy(true);
     setShareStatus(null);
     const html = buildMealPlanHtml(
@@ -715,8 +739,9 @@ export default function MealPlanScreen() {
       setPdfBusy(false);
     }
   };
+
   const shareMealPlan = async () => {
-    if (shareBusy) return;
+    if (shareBusy || !activeProfile) return;
     setShareBusy(true);
     setShareStatus(null);
     const lines = [
@@ -746,6 +771,7 @@ export default function MealPlanScreen() {
       setShareBusy(false);
     }
   };
+
   const saveFavorite = async () => {
     if (favoriteBusy) return;
     setFavoriteBusy("save");
@@ -776,6 +802,7 @@ export default function MealPlanScreen() {
       setFavoriteBusy(null);
     }
   };
+
   const loadFavorite = async () => {
     if (favoriteBusy) return;
     setFavoriteBusy("load");
@@ -809,6 +836,7 @@ export default function MealPlanScreen() {
       setFavoriteBusy(null);
     }
   };
+
   const totals = useMemo(() => dailyMealTotals(meals), [meals]);
   const displayedMeals = useMemo(
     () =>
@@ -843,6 +871,7 @@ export default function MealPlanScreen() {
         ),
     [meals, eaten],
   );
+
   useEffect(() => {
     if (!hydrated || selectedDate !== todayKey()) return;
     AsyncStorage.getItem("nutrition-daily-history")
@@ -862,22 +891,26 @@ export default function MealPlanScreen() {
       })
       .catch(() => undefined);
   }, [consumed, hydrated, selectedDate]);
+
   const targets = {
     calories: targetCalories || totals.calories,
-    protein: Number(activeProfile.protein) || 0,
-    carbohydrates: Number(activeProfile.carbohydrates) || 0,
-    fats: Number(activeProfile.fats) || 0,
+    protein: Number(activeProfile?.protein) || 0,
+    carbohydrates: Number(activeProfile?.carbohydrates) || 0,
+    fats: Number(activeProfile?.fats) || 0,
   };
+
   const macroDistribution = useMemo(
     () => calculateMacroDistribution(displayedTotals),
     [displayedTotals],
   );
+
   const triggerFavoriteHaptic = () => {
     if (Platform.OS !== "web")
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
         () => undefined,
       );
   };
+
   const toggleConversionFavorite = (targetId: string) => {
     triggerFavoriteHaptic();
     const willFavorite = !favoriteConversionIds.includes(targetId);
@@ -906,6 +939,7 @@ export default function MealPlanScreen() {
     ]).start(() => setAnimatedFavoriteId(null));
     setTimeout(() => setFavoriteNotice(null), 1800);
   };
+
   const chooseSwap = (
     mealIndex: number,
     foodIndex: number,
@@ -932,6 +966,7 @@ export default function MealPlanScreen() {
         ),
       });
   };
+
   const confirmSwap = () => {
     if (!pending) return;
     setMeals((current) =>
@@ -958,6 +993,7 @@ export default function MealPlanScreen() {
     );
     setPending(null);
   };
+
   const toggleMeal = (mealId: string) => {
     LayoutAnimation.configureNext(
       LayoutAnimation.create(
@@ -972,6 +1008,7 @@ export default function MealPlanScreen() {
         : [...current, mealId],
     );
   };
+
   const addMeal = () => {
     const mealNumber = meals.length + 1;
     const mealId = `meal-${Date.now()}`;
@@ -998,6 +1035,7 @@ export default function MealPlanScreen() {
     setViewMode("planned");
     setRebalanceMessage(`נוספה ${nextMeal.title}. אפשר לערוך את השם והמזונות.`);
   };
+
   const deleteMeal = (meal: Meal) => {
     if (meals.length <= 1) {
       setRebalanceMessage("חייבת להישאר לפחות ארוחה אחת בתפריט.");
@@ -1008,6 +1046,7 @@ export default function MealPlanScreen() {
     if (editingMealId === meal.id) cancelMealEdit();
     setRebalanceMessage(`${meal.title} נמחקה ונשמרה בתאריך הנוכחי.`);
   };
+
   const moveMeal = (mealId: string, direction: -1 | 1) => {
     setMeals((current) => {
       const index = current.findIndex((meal) => meal.id === mealId);
@@ -1019,10 +1058,12 @@ export default function MealPlanScreen() {
       return next;
     });
   };
+
   const updateMealTitle = (mealId: string, title: string) =>
     setMeals((current) =>
       current.map((meal) => (meal.id === mealId ? { ...meal, title } : meal)),
     );
+
   const beginMealEdit = (meal: Meal) => {
     setMealEditBackup(JSON.parse(JSON.stringify(meal)) as Meal);
     setEditingMealId(meal.id);
@@ -1034,6 +1075,7 @@ export default function MealPlanScreen() {
     setSelectedAddFoodKey(null);
     setSelectedMealFoodKey(null);
   };
+
   const openMealFoodGroup = (meal: Meal, group: FoodGroup) => {
     setMealEditBackup((current) => current ?? (JSON.parse(JSON.stringify(meal)) as Meal));
     setEditingMealId(meal.id);
@@ -1044,6 +1086,7 @@ export default function MealPlanScreen() {
     setSelectedMealFoodKey(null);
     setAddFoodGroupFilter(group);
   };
+
   const updateMealFoodQuantity = (
     mealId: string,
     foodId: string,
@@ -1063,6 +1106,7 @@ export default function MealPlanScreen() {
       ),
     );
   };
+
   const saveMealFoodQuantity = (
     mealId: string,
     foodId: string,
@@ -1078,10 +1122,12 @@ export default function MealPlanScreen() {
       : 0;
     updateMealFoodQuantity(mealId, foodId, `${normalized} גרם`);
   };
+
   const resetMealFoodQuantity = (mealId: string, foodId: string) => {
     setQuantityDraft("100");
     updateMealFoodQuantity(mealId, foodId, "100 גרם");
   };
+
   const openManualNutritionEditor = (mealId: string, food: Meal["foods"][number]) => {
     const totals = mealFoodTotals(food);
     const key = `${mealId}:${food.id}`;
@@ -1100,6 +1146,7 @@ export default function MealPlanScreen() {
     setEditingQuantityKey(null);
     setActiveSwapKey(null);
   };
+
   const saveManualNutrition = (mealId: string, foodId: string) => {
     const parseValue = (value: string) => {
       const parsed = Number(value.replace(",", "."));
@@ -1127,6 +1174,7 @@ export default function MealPlanScreen() {
     Keyboard.dismiss();
     setRebalanceMessage("ערכי התזונה נשמרו ידנית והסיכומים עודכנו.");
   };
+
   const restoreNutritionLabel = (mealId: string, foodId: string) => {
     setMeals((current) => current.map((meal) => meal.id !== mealId ? meal : normalizeMealsTo100Grams([{
       ...meal,
@@ -1135,6 +1183,7 @@ export default function MealPlanScreen() {
     setEditingNutritionKey(null);
     setRebalanceMessage("ערכי התווית המקוריים שוחזרו לכרטיס.");
   };
+
   const updateMealFoodWeightMode = (
     mealId: string,
     foodId: string,
@@ -1177,6 +1226,7 @@ export default function MealPlanScreen() {
     setQuantityDraft(String(nextGrams));
     updateMealFoodQuantity(mealId, foodId, `${nextGrams} גרם`);
   };
+
   const removeMealFood = (mealId: string, foodId: string) => {
     const meal = meals.find((item) => item.id === mealId);
     if (!meal || meal.foods.length <= 1) {
@@ -1189,6 +1239,7 @@ export default function MealPlanScreen() {
     setEditingQuantityKey(null);
     setRebalanceMessage(`הוסר ${removed?.name ?? "הרכיב"} מהארוחה.`);
   };
+
   const addFoodToMeal = (mealId: string, item: (typeof mealFoods)[number]) => {
     const grams = 100;
     const macros = macrosForGrams(item, grams);
@@ -1217,12 +1268,14 @@ export default function MealPlanScreen() {
     setPressedAddFoodGroup(null);
     setRebalanceMessage(`נוסף ${item.name} ל${meals.find((meal) => meal.id === mealId)?.title ?? "ארוחה"}.`);
   };
+
   const saveMealEdit = () => {
     setEditingMealId(null);
     setMealEditBackup(null);
     setMealFoodSearch("");
     setRebalanceMessage("השינויים בארוחה נשמרו.");
   };
+
   const cancelMealEdit = () => {
     if (mealEditBackup)
       setMeals((current) =>
@@ -1237,6 +1290,7 @@ export default function MealPlanScreen() {
     setSelectedAddFoodKey(null);
     setSelectedMealFoodKey(null);
   };
+
   const filteredMealFoods = mealFoods
     .filter((item) => !addFoodGroupFilter || item.group === addFoodGroupFilter)
     .filter((item) =>
@@ -1245,12 +1299,14 @@ export default function MealPlanScreen() {
       ),
     )
     .slice(0, 10);
+
   const openSwap = (mealId: string, foodId: string, group: ConversionGroup) => {
     setActiveSwapKey(`${mealId}:${foodId}`);
     setSwapGroup(group);
     setConversionSearch("");
     setExpandedFoodId(null);
   };
+
   const openMealConversion = (meal: Meal) => {
     const defaults: Record<string, ConversionFood | null> = {};
     (['חלבון', 'פחמימה', 'שומן'] as ConversionGroup[]).forEach((group) => {
@@ -1260,6 +1316,7 @@ export default function MealPlanScreen() {
     setMealConversionSelection(defaults);
     setMealConversionId(meal.id);
   };
+
   const applyMealConversion = () => {
     if (!mealConversionId) return;
     const meal = meals.find((item) => item.id === mealConversionId);
@@ -1291,6 +1348,15 @@ export default function MealPlanScreen() {
     setMealConversionId(null);
     setRebalanceMessage(`${meal.title} הומרה לפי יעדי המאקרו המקוריים: חלבון, פחמימה ושומן.`);
   };
+
+  if (!hydrated) {
+    return (
+      <ScreenContainer className="items-center justify-center bg-background">
+        <ActivityIndicator size="large" color="#F5B72C" />
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer className="px-5 pt-5" containerClassName="bg-background">
       <ScrollView
@@ -1316,7 +1382,7 @@ export default function MealPlanScreen() {
           <Text style={styles.eyebrow}>תזונה יומית</Text>
           <Text style={styles.title}>{standalone ? "הארוחות שלי" : `תפריט ${meals.length} ארוחות`}</Text>
           <Text style={styles.subtitle}>
-            יעד פעיל: {mealPlanGoalLabel(activeGoal)} ·{" "}
+            יעד פעיל: {activeProfile ? mealPlanGoalLabel(activeGoal) : "לא מוגדר"} ·{" "}
             {targetCalories || "לא הוגדר"} קק״ל · לפי המחשבון הקלורי
           </Text>
           
@@ -1451,6 +1517,8 @@ export default function MealPlanScreen() {
             </View>
           </View>
         </Modal>
+        
+        {activeProfile ? (
         <View style={styles.profileEditor}>
           <Text style={styles.profileTitle}>הגדרת יעד בתוך התפריט</Text>
           <Text style={styles.profileHint}>
@@ -1636,6 +1704,8 @@ export default function MealPlanScreen() {
             </Text>
           )}
         </View>
+        ) : null}
+        
         <View style={styles.waterCard}>
           <View style={styles.waterHeader}>
             <View style={styles.waterHeaderCopy}>
