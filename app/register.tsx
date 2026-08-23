@@ -9,82 +9,45 @@ import {
   Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
-import * as SupabaseModule from "../lib/supabase";
 import { useWorkoutStore } from "../lib/workout-store";
+
+const SUPABASE_URL = "https://sovkcnzxystytgczpzic.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_RloyhngS45WwfOTnuBCk-Q_v4yYW048";
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { setAccountName, syncAccount } = useWorkoutStore();
-  
-  const supabaseClient = (SupabaseModule as any).supabase || (SupabaseModule as any).default;
 
-  const [isLoginMode, setIsLoginMode] = useState(true);
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
 
-  const handleAuth = async () => {
-    const cleanEmail = email.trim();
-    if (!cleanEmail || !password) {
-      setErrorMsg('נא להזין דוא"ל וסיסמה');
+  const handleConnect = async () => {
+    const cleanUser = username.trim().toLowerCase();
+    const cleanPass = password.trim();
+
+    if (!cleanUser || !cleanPass) {
+      setErrorMsg("נא להזין שם משתמש וסיסמה");
       return;
     }
 
     setLoading(true);
     setErrorMsg("");
-    setSuccessMsg("");
 
     try {
-      if (!supabaseClient || !supabaseClient.auth) {
-        throw new Error("שגיאת תצורת חיבור לסנכרון");
-      }
+      const uniqueAccountKey = `${cleanUser}_${cleanPass}`;
 
-      if (isLoginMode) {
-        const { data, error } = await supabaseClient.auth.signInWithPassword({
-          email: cleanEmail,
-          password: password,
-        });
+      if (setAccountName) await setAccountName(uniqueAccountKey);
+      if (syncAccount) await syncAccount(uniqueAccountKey);
 
-        if (error) throw error;
-
-        if (data?.user) {
-          if (setAccountName) await setAccountName(data.user.id);
-          if (syncAccount) await syncAccount(data.user.id);
-
-          if (Platform.OS === "web") {
-            window.location.href = "/";
-          } else {
-            router.replace("/(tabs)");
-          }
-        }
+      if (Platform.OS === "web") {
+        window.location.href = "/";
       } else {
-        const { data, error } = await supabaseClient.auth.signUp({
-          email: cleanEmail,
-          password: password,
-        });
-
-        if (error) throw error;
-
-        if (data?.user) {
-          if (setAccountName) await setAccountName(data.user.id);
-          if (syncAccount) await syncAccount(data.user.id);
-
-          if (data.session) {
-            if (Platform.OS === "web") {
-              window.location.href = "/";
-            } else {
-              router.replace("/(tabs)");
-            }
-          } else {
-            setSuccessMsg("נשלח אימייל אימות. נא לאשר את החשבון ולהתחבר.");
-            setIsLoginMode(true);
-          }
-        }
+        router.replace("/(tabs)");
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || "שגיאה בביצוע הפעולה, נסה שוב");
+      setErrorMsg("שגיאה בסנכרון הנתונים, נסה שוב");
     } finally {
       setLoading(false);
     }
@@ -97,23 +60,20 @@ export default function RegisterScreen() {
           <Text style={styles.logoText}>W</Text>
         </View>
         <Text style={styles.title}>יומן האימונים</Text>
-        <Text style={styles.subtitle}>
-          {isLoginMode ? "התחברות לחשבון אישי" : "פתיחת חשבון חדש"}
-        </Text>
+        <Text style={styles.subtitle}>כניסה וסנכרון בין מכשירים</Text>
 
-        <Text style={styles.label}>כתובת דוא"ל</Text>
+        <Text style={styles.label}>שם משתמש</Text>
         <TextInput
           style={styles.input}
-          placeholder="your@email.com"
+          placeholder="הזן שם משתמש..."
           placeholderTextColor="#64748b"
-          value={email}
-          onChangeText={setEmail}
+          value={username}
+          onChangeText={setUsername}
           autoCapitalize="none"
-          keyboardType="email-address"
           autoCorrect={false}
         />
 
-        <Text style={styles.label}>סיסמה</Text>
+        <Text style={styles.label}>סיסמה / קוד אישי</Text>
         <TextInput
           style={styles.input}
           placeholder="הזן סיסמה..."
@@ -126,35 +86,17 @@ export default function RegisterScreen() {
         />
 
         {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-        {successMsg ? <Text style={styles.successText}>{successMsg}</Text> : null}
 
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={handleAuth}
+          onPress={handleConnect}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#0f172a" />
           ) : (
-            <Text style={styles.primaryButtonText}>
-              {isLoginMode ? "התחבר" : "הירשם ופתח חשבון"}
-            </Text>
+            <Text style={styles.primaryButtonText}>התחבר / פתח חשבון מסונכרן</Text>
           )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.switchButton}
-          onPress={() => {
-            setIsLoginMode(!isLoginMode);
-            setErrorMsg("");
-            setSuccessMsg("");
-          }}
-        >
-          <Text style={styles.switchButtonText}>
-            {isLoginMode
-              ? "אין לך חשבון עדיין? הירשם כאן"
-              : "כבר יש לך חשבון? התחבר כאן"}
-          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -232,12 +174,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     textAlign: "center",
   },
-  successText: {
-    color: "#10b981",
-    fontSize: 13,
-    marginBottom: 14,
-    textAlign: "center",
-  },
   primaryButton: {
     width: "100%",
     backgroundColor: "#f59e0b",
@@ -251,14 +187,5 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 16,
     fontWeight: "700",
-  },
-  switchButton: {
-    marginTop: 18,
-    padding: 8,
-  },
-  switchButtonText: {
-    color: "#f59e0b",
-    fontSize: 14,
-    fontWeight: "600",
   },
 });
