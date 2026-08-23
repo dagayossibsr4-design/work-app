@@ -3,6 +3,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type ExerciseTemplate, type WorkoutId, type WorkoutTemplate } from "./workout-data";
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
+import { defaultMeals, type Meal } from "./meal-plan";
+
+const SUPABASE_URL = "https://sovkcnzxystytgczpzic.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_RloyhngS45WwfOTnuBCk-Q_v4yYW048";
 
 function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
   return saved.map((template) => {
@@ -91,17 +95,31 @@ export function splitSessionsForWorkoutDate(sessions: WorkoutSession[], date: st
   };
 }
 
-export type AccountState = { sessions: WorkoutSession[]; templates: WorkoutTemplate[]; recoveryLogs: RecoveryLog[]; cardioLogs: CardioLog[]; nutritionProfile: NutritionProfile };
+export type AccountState = {
+  sessions: WorkoutSession[];
+  templates: WorkoutTemplate[];
+  recoveryLogs: RecoveryLog[];
+  cardioLogs: CardioLog[];
+  nutritionProfile: NutritionProfile;
+  meals: Meal[];
+  accountName: string;
+};
 
 type WorkoutContextValue = {
   sessions: WorkoutSession[];
   recoveryLogs: RecoveryLog[];
   cardioLogs: CardioLog[];
   nutritionProfile: NutritionProfile;
+  meals: Meal[];
   templates: WorkoutTemplate[];
   activeSession: WorkoutSession | null;
   activeTemplate: WorkoutTemplate | null;
   hydrated: boolean;
+  accountName: string;
+  setAccountName: (name: string) => Promise<void>;
+  syncAccount: (name?: string) => Promise<void>;
+  backupToCloud: () => Promise<void>;
+  updateMeals: (meals: Meal[]) => void;
   startWorkout: (templateId: WorkoutId, copyPrevious?: boolean) => void;
   startWorkoutOnDate: (templateId: WorkoutId, date: string, copyPrevious?: boolean) => void;
   startWorkoutFromTemplate: (template: WorkoutTemplate) => void;
@@ -142,6 +160,9 @@ const TEMPLATE_KEY = "workout-tracker-templates-v1";
 const RECOVERY_KEY = "workout-tracker-recovery-v1";
 const CARDIO_KEY = "workout-tracker-cardio-v1";
 const NUTRITION_KEY = "workout-tracker-nutrition-v1";
+const MEALS_KEY = "workout-tracker-meals-v1";
+const ACCOUNT_KEY = "workout-tracker-account-name-v1";
+
 const cloneTemplates = () => JSON.parse(JSON.stringify(workoutTemplates)) as WorkoutTemplate[];
 
 function demoSet(exerciseId: string, setNumber: number, weight: number, reps: number, date: string, note?: string, restSeconds?: number): SetLog {
@@ -155,45 +176,6 @@ function demoSet(exerciseId: string, setNumber: number, weight: number, reps: nu
     note,
     restSeconds,
   };
-}
-
-function createDemoLegsSessions(): WorkoutSession[] {
-  const today = "2026-08-16";
-  const wednesday = "2026-08-12";
-  const build = (date: string, values: Array<[string, number, number]>): WorkoutSession => {
-    const counters: Record<string, number> = {};
-    return {
-      id: `demo-legs-${date}`,
-      templateId: "legs1" as WorkoutId,
-      startedAt: `${date}T18:00:00.000Z`,
-      finishedAt: `${date}T19:25:00.000Z`,
-      sets: values.map(([exerciseId, weight, reps]) => {
-        counters[exerciseId] = (counters[exerciseId] ?? 0) + 1;
-        return demoSet(exerciseId, counters[exerciseId], weight, reps, date);
-      }),
-    };
-  };
-  const todayValues: Array<[string, number, number]> = [
-    ["סקוואט חופשי", 120, 6], ["סקוואט חופשי", 100, 10], ["סקוואט חופשי", 90, 15],
-    ["לג פרס", 262.5, 8], ["לג פרס", 282.5, 8], ["לג פרס", 292.5, 7],
-    ["כפיפת ברכיים בשכיבה", 70, 10], ["כפיפת ברכיים בשכיבה", 65, 12], ["כפיפת ברכיים בשכיבה", 50, 10],
-    ["כפיפת ברכיים בעמידה", 40, 16], ["כפיפת ברכיים בעמידה", 30, 22],
-    ["פשיטת ברכיים במכונה", 120, 9], ["פשיטת ברכיים במכונה", 110, 12], ["פשיטת ברכיים במכונה", 95, 20],
-    ["מקרבי ירך במכונה", 90, 11], ["מקרבי ירך במכונה", 80, 10],
-    ["מרחיקי ירך במכונה", 90, 9], ["מרחיקי ירך במכונה", 70, 12],
-    ["תאומים בישיבה", 30, 12], ["תאומים בישיבה", 30, 11],
-  ];
-  const previousValues: Array<[string, number, number]> = [
-    ["סקוואט חופשי", 115, 6], ["סקוואט חופשי", 95, 10], ["סקוואט חופשי", 85, 14],
-    ["לג פרס", 250, 8], ["לג פרס", 270, 8], ["לג פרס", 280, 7],
-    ["כפיפת ברכיים בשכיבה", 65, 10], ["כפיפת ברכיים בשכיבה", 60, 12], ["כפיפת ברכיים בשכיבה", 45, 10],
-    ["כפיפת ברכיים בעמידה", 35, 15], ["כפיפת ברכיים בעמידה", 27.5, 20],
-    ["פשיטת ברכיים במכונה", 110, 9], ["פשיטת ברכיים במכונה", 100, 12], ["פשיטת ברכיים במכונה", 90, 18],
-    ["מקרבי ירך במכונה", 85, 11], ["מקרבי ירך במכונה", 75, 10],
-    ["מרחיקי ירך במכונה", 85, 9], ["מרחיקי ירך במכונה", 65, 12],
-    ["תאומים בישיבה", 27.5, 12], ["תאומים בישיבה", 27.5, 10],
-  ];
-  return [build(today, todayValues), build(wednesday, previousValues)];
 }
 
 type ImportedSet = [exerciseId: string, weight: number, reps: number, note?: string, restSeconds?: number];
@@ -319,12 +301,88 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [recoveryLogs, setRecoveryLogs] = useState<RecoveryLog[]>([]);
   const [cardioLogs, setCardioLogs] = useState<CardioLog[]>([]);
   const [nutritionProfile, setNutritionProfile] = useState<NutritionProfile>({ goal: "ניטרלי", weightKg: "", heightCm: "", age: "", sex: "זכר", activity: "בינונית", proteinPerKg: "1.8", fatPerKg: "0.8", calorieTarget: "2500", proteinTarget: "240", carbohydratesTarget: "150", fatsTarget: "", autoMacroField: "fats", customFoods: [] });
+  const [meals, setMeals] = useState<Meal[]>(defaultMeals);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(cloneTemplates);
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
+  const [accountName, setAccountNameState] = useState<string>("");
   const [hydrated, setHydrated] = useState(false);
 
+  // סנכרון וגיבוי מלא לענן ב-Supabase
+  const backupToCloud = useCallback(async () => {
+    if (!accountName) return;
+    try {
+      const payload = {
+        user_id: accountName.trim().toLowerCase(),
+        data: {
+          sessions,
+          templates,
+          recoveryLogs,
+          cardioLogs,
+          nutritionProfile,
+          meals,
+        },
+        updated_at: new Date().toISOString(),
+      };
+      await fetch(`${SUPABASE_URL}/rest/v1/user_backups`, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch {}
+  }, [accountName, sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals]);
+
+  const syncAccount = useCallback(async (name?: string) => {
+    const userToSync = (name || accountName || "").trim().toLowerCase();
+    if (!userToSync) return;
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/user_backups?user_id=eq.${encodeURIComponent(userToSync)}&select=data`,
+        {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      const json = await res.json();
+      if (Array.isArray(json) && json.length > 0 && json[0].data) {
+        const remoteData = json[0].data;
+        if (Array.isArray(remoteData.sessions)) setSessions(mergeImportedWorkoutSessions(remoteData.sessions));
+        if (Array.isArray(remoteData.templates)) setTemplates(hydrateWorkoutTemplates(remoteData.templates));
+        if (Array.isArray(remoteData.recoveryLogs)) setRecoveryLogs(remoteData.recoveryLogs);
+        if (Array.isArray(remoteData.cardioLogs)) setCardioLogs(remoteData.cardioLogs);
+        if (remoteData.nutritionProfile) setNutritionProfile(remoteData.nutritionProfile);
+        if (Array.isArray(remoteData.meals) && remoteData.meals.length > 0) setMeals(remoteData.meals);
+      }
+    } catch {}
+  }, [accountName]);
+
+  const setAccountName = async (name: string) => {
+    setAccountNameState(name);
+    await AsyncStorage.setItem(ACCOUNT_KEY, name);
+    await syncAccount(name);
+  };
+
+  const updateMeals = (newMeals: Meal[]) => {
+    setMeals(newMeals);
+    AsyncStorage.setItem(MEALS_KEY, JSON.stringify(newMeals));
+  };
+
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(SESSION_KEY), AsyncStorage.getItem(TEMPLATE_KEY), AsyncStorage.getItem(RECOVERY_KEY), AsyncStorage.getItem(CARDIO_KEY), AsyncStorage.getItem(NUTRITION_KEY)]).then(([sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue]) => {
+    Promise.all([
+      AsyncStorage.getItem(SESSION_KEY),
+      AsyncStorage.getItem(TEMPLATE_KEY),
+      AsyncStorage.getItem(RECOVERY_KEY),
+      AsyncStorage.getItem(CARDIO_KEY),
+      AsyncStorage.getItem(NUTRITION_KEY),
+      AsyncStorage.getItem(MEALS_KEY),
+      AsyncStorage.getItem(ACCOUNT_KEY),
+    ]).then(([sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue, mealsValue, accountValue]) => {
       if (sessionValue) {
         const savedSessions = (JSON.parse(sessionValue) as WorkoutSession[])
           .filter((session) => !session.id.startsWith("demo-legs-"))
@@ -339,17 +397,35 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       if (templateValue) setTemplates(hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]));
       if (recoveryValue) setRecoveryLogs(JSON.parse(recoveryValue));
       if (cardioValue) setCardioLogs(JSON.parse(cardioValue));
-      if (nutritionValue) { const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile; setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] })); }
+      if (nutritionValue) {
+        const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile;
+        setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] }));
+      }
+      if (mealsValue) {
+        try {
+          const parsedMeals = JSON.parse(mealsValue);
+          if (Array.isArray(parsedMeals) && parsedMeals.length > 0) setMeals(parsedMeals);
+        } catch {}
+      }
+      if (accountValue) {
+        setAccountNameState(accountValue);
+        void syncAccount(accountValue);
+      }
       setHydrated(true);
     }).catch(() => setHydrated(true));
-  }, []);
+  }, [syncAccount]);
 
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(SESSION_KEY, JSON.stringify(sessions)); }, [sessions, hydrated]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates)); }, [templates, hydrated]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryLogs)); }, [recoveryLogs, hydrated]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs)); }, [cardioLogs, hydrated]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile)); }, [nutritionProfile, hydrated]);
-
+  useEffect(() => {
+    if (hydrated) {
+      AsyncStorage.setItem(SESSION_KEY, JSON.stringify(sessions));
+      AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates));
+      AsyncStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryLogs));
+      AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs));
+      AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile));
+      AsyncStorage.setItem(MEALS_KEY, JSON.stringify(meals));
+      void backupToCloud();
+    }
+  }, [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals, hydrated, backupToCloud]);
 
   const startWorkoutOnDate = (templateId: WorkoutId, date: string, copyPrevious = false) => {
     const template = templates.find((item) => item.id === templateId) ?? getTemplate(templateId);
@@ -407,7 +483,6 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (!activeSession) return;
     const setToRemove = activeSession.sets.find((set) => set.id === setId);
     if (!setToRemove) return;
-    const exerciseSets = activeSession.sets.filter((set) => set.exerciseId === setToRemove.exerciseId);
     setTemplates((current) => current.map((item) => item.id !== activeSession.templateId ? item : { ...item, exercises: item.exercises.map((candidate) => candidate.id !== setToRemove.exerciseId ? candidate : { ...candidate, sets: candidate.sets.filter((_, index) => index !== setToRemove.setNumber - 1) }) }));
     setActiveSession((current) => current ? { ...current, sets: current.sets.filter((set) => set.id !== setId).map((set) => set.exerciseId === setToRemove.exerciseId && set.setNumber > setToRemove.setNumber ? { ...set, setNumber: set.setNumber - 1 } : set) } : current);
   };
@@ -453,7 +528,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const updateNutritionProfile = (profile: NutritionProfile) => setNutritionProfile(profile);
   const updateExercise = (templateId: WorkoutId, exerciseId: string, patch: Partial<ExerciseTemplate>) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, ...patch } : exercise) } : template));
   const deleteExercise = (templateId: WorkoutId, exerciseId: string) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.filter((exercise) => exercise.id !== exerciseId) } : template));
-  const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile]);
+  const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals, accountName }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals, accountName]);
   const applyAccountState = useCallback((state: Partial<AccountState>) => {
     if (Array.isArray(state.sessions)) {
       const remoteSessions = state.sessions.filter((session) => !session.id.startsWith("demo-legs-"));
@@ -463,6 +538,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (Array.isArray(state.recoveryLogs)) setRecoveryLogs(state.recoveryLogs);
     if (Array.isArray(state.cardioLogs)) setCardioLogs(state.cardioLogs);
     if (state.nutritionProfile) setNutritionProfile((current) => ({ ...current, ...state.nutritionProfile }));
+    if (Array.isArray(state.meals) && state.meals.length > 0) setMeals(state.meals);
+    if (state.accountName) setAccountNameState(state.accountName);
   }, []);
   const moveExercise = (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => setTemplates((current) => current.map((template) => {
     if (template.id !== templateId) return template;
@@ -475,10 +552,12 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   }));
 
   const value = useMemo(() => ({
-    sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated,
+    sessions, recoveryLogs, cardioLogs, nutritionProfile, meals, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated, accountName,
+    setAccountName, syncAccount, backupToCloud, updateMeals,
     startWorkout, startWorkoutOnDate, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
     updateTemplate, addCustomTemplate, addExercise, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addCustomExerciseToActiveWorkout, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState,
-  }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, hydrated]);
+  }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, meals, templates, activeSession, hydrated, accountName, backupToCloud, syncAccount]);
+
   return <WorkoutContext.Provider value={value}>{children}</WorkoutContext.Provider>;
 }
 
