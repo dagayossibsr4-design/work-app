@@ -28,10 +28,17 @@ const trainingMethods: TrainingMethod[] = [
 
 export default function HomeScreen() {
   const store = useWorkoutStore() as any;
-  const { sessions, startWorkoutFromTemplate, hydrated, templates, addCustomTemplate, updateTemplate } = store;
+  const { sessions, startWorkoutFromTemplate, hydrated, templates, addCustomTemplate, updateTemplate, accountName, userName, userDisplayName, syncAccount } = store;
 
-  const rawAccount = store.accountName || store.userName || store.userDisplayName || "";
-  const displayName = rawAccount ? rawAccount.split("_")[0] : "";
+  const rawAccount = accountName || userName || userDisplayName || "";
+  
+  const displayName = useMemo(() => {
+    if (!rawAccount) return "";
+    let clean = rawAccount.trim();
+    if (clean.includes("_")) clean = clean.split("_")[0];
+    if (clean.includes("@")) clean = clean.split("@")[0];
+    return clean;
+  }, [rawAccount]);
 
   const [selectedMethodId, setSelectedMethodId] = useState("fixed");
   const [isSwitchingMethod, setIsSwitchingMethod] = useState(false);
@@ -49,7 +56,12 @@ export default function HomeScreen() {
         } catch {}
       }
     });
-  }, []);
+
+    // סנכרון ענן אוטומטי בכניסה
+    if (rawAccount && typeof syncAccount === "function") {
+      void syncAccount(rawAccount);
+    }
+  }, [rawAccount]);
 
   const [isCreatorOpen, setIsCreatorOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<WorkoutTemplate | null>(null);
@@ -174,7 +186,7 @@ export default function HomeScreen() {
             <Pressable onPress={() => router.push("/menu" as never)} style={styles.menuButton}><Text style={styles.menuText}>☰ תפריט</Text></Pressable>
             <Pressable onPress={() => router.push("/(tabs)/meal-plan" as never)} style={styles.mealButton}><Text style={styles.mealButtonText}>תפריט 5 ארוחות</Text></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="הרשמה או התחברות" onPress={() => router.push("/register" as never)} style={styles.accountButton}>
-              <Text style={styles.accountButtonText}>{displayName ? `מחובר: ${displayName}` : "הרשמה / התחברות"}</Text>
+              <Text style={styles.accountButtonText}>{displayName ? `👤 ${displayName}` : "הרשמה / התחברות"}</Text>
             </Pressable>
           </View>
           <View style={styles.titleBlock}>
@@ -248,8 +260,6 @@ const styles = StyleSheet.create({
   title: { color: "#F7F9FC", fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 4, textAlign: "right" },
   subtitle: { color: "#AAB7C8", fontSize: 13, marginTop: 6, textAlign: "right" },
   buildStamp: { color: "#718096", fontSize: 9, marginTop: 5, textAlign: "right", letterSpacing: 0.2 },
-  logoMark: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" },
-  logoText: { color: "#0B1224", fontSize: 28, fontWeight: "900" },
   statsRow: { flexDirection: "row-reverse", gap: 10 },
   statCard: { flex: 1, backgroundColor: "#16233A", borderRadius: 16, paddingVertical: 15, alignItems: "center", borderWidth: 1, borderColor: "#2C3B55" },
   statValue: { color: "#F7F9FC", fontSize: 21, fontWeight: "800" },
@@ -263,7 +273,6 @@ const styles = StyleSheet.create({
   sectionHint: { color: "#AAB7C8", fontSize: 12 },
   creatorButton: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#F5B72C", borderRadius: 14, paddingVertical: 12 },
   creatorButtonText: { color: "#0B1224", fontSize: 13, fontWeight: "900" },
-  methodCarousel: { paddingHorizontal: 4, gap: 10 },
   methodList: { gap: 8 },
   methodRow: { flexDirection: "row-reverse", alignItems: "center", gap: 11, backgroundColor: "#16233A", borderRadius: 15, padding: 12, borderWidth: 1 },
   methodRowText: { flex: 1, minWidth: 0 },
@@ -281,18 +290,13 @@ const styles = StyleSheet.create({
   exerciseCount: { fontSize: 10, fontWeight: "900" },
   templateExercisePreview: { marginTop: 8, gap: 3 },
   templateExerciseName: { color: "#C7D4E5", fontSize: 10, textAlign: "right" },
-  moreExercises: { color: "#F5B72C", fontSize: 10, fontWeight: "800", textAlign: "right", marginTop: 2 },
-  methodCard: { width: 286, minHeight: 136, backgroundColor: "#16233A", borderRadius: 18, padding: 16, borderWidth: 1, justifyContent: "center" },
-  methodTopRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   methodIcon: { width: 46, height: 46, borderRadius: 15, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  methodAccent: { width: 38, height: 5, borderRadius: 3 },
   methodTitle: { color: "#F7F9FC", fontSize: 21, fontWeight: "900", textAlign: "right" },
   methodSubtitle: { color: "#AAB7C8", fontSize: 11, lineHeight: 17, textAlign: "right", marginTop: 6 },
   methodState: { fontSize: 11, fontWeight: "900", textAlign: "right", marginTop: 11 },
   selectedMethodHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between" },
   selectedMethodText: { color: "#AAB7C8", fontSize: 11, textAlign: "right", marginTop: 3, maxWidth: 280 },
   methodCount: { fontSize: 12, fontWeight: "900" },
-  templateGrid: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 12 },
   templateCard: { width: "48%", minHeight: 142, backgroundColor: "#16233A", borderRadius: 18, padding: 15, borderWidth: 1, overflow: "hidden" },
   accent: { width: 32, height: 5, borderRadius: 3, alignSelf: "flex-end", marginBottom: 14 },
   templateName: { color: "#F7F9FC", fontSize: 19, fontWeight: "800", textAlign: "right" },
