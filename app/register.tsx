@@ -9,13 +9,15 @@ import {
   Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { supabase } from "../lib/supabase";
+import * as SupabaseModule from "../lib/supabase";
 import { useWorkoutStore } from "../lib/workout-store";
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { setAccountName, syncAccount } = useWorkoutStore();
   
+  const supabaseClient = (SupabaseModule as any).supabase || (SupabaseModule as any).default;
+
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +28,7 @@ export default function RegisterScreen() {
   const handleAuth = async () => {
     const cleanEmail = email.trim();
     if (!cleanEmail || !password) {
-      setErrorMsg("נא להזין דוא\"ל וסיסמה");
+      setErrorMsg('נא להזין דוא"ל וסיסמה');
       return;
     }
 
@@ -35,9 +37,12 @@ export default function RegisterScreen() {
     setSuccessMsg("");
 
     try {
+      if (!supabaseClient || !supabaseClient.auth) {
+        throw new Error("שגיאת תצורת חיבור לסנכרון");
+      }
+
       if (isLoginMode) {
-        // התחברות לחשבון קיים
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
           email: cleanEmail,
           password: password,
         });
@@ -55,8 +60,7 @@ export default function RegisterScreen() {
           }
         }
       } else {
-        // הרשמת חשבון חדש
-        const { data, error } = await supabase.auth.signUp({
+        const { data, error } = await supabaseClient.auth.signUp({
           email: cleanEmail,
           password: password,
         });
