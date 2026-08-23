@@ -10,7 +10,6 @@ import { calculateVolume, sortWorkoutSessionsNewestFirst, useWorkoutStore } from
 import { calculateFivePercentProgress } from "@/lib/workout-progression";
 import { calculateProjectedVolume } from "@/lib/workout-volume";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
-import { supabase } from "@/lib/supabase";
 
 const formatDate = (iso: string) => new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "long" }).format(new Date(iso));
 
@@ -29,35 +28,11 @@ const trainingMethods: TrainingMethod[] = [
 
 export default function HomeScreen() {
   const { sessions, startWorkoutFromTemplate, hydrated, templates, addCustomTemplate, updateTemplate } = useWorkoutStore();
-  const [userName, setUserName] = useState("יוסי");
   const [selectedMethodId, setSelectedMethodId] = useState("fixed");
   const [isSwitchingMethod, setIsSwitchingMethod] = useState(false);
   const [isCardioPickerOpen, setIsCardioPickerOpen] = useState(false);
   const [selectedDayByMethod, setSelectedDayByMethod] = useState<Record<string, WorkoutId>>({});
-
-  useEffect(() => {
-    void AsyncStorage.getItem(selectedMethodStorageKey).then((stored) => { if (stored) setSelectedMethodId(stored); });
-    void AsyncStorage.getItem(selectedDayStorageKey).then((stored) => {
-      if (stored) {
-        try {
-          setSelectedDayByMethod(JSON.parse(stored) as Record<string, WorkoutId>);
-        } catch {
-          // ignore corrupted state
-        }
-      }
-    });
-
-    // קריאת המשתמש המחובר מ-Supabase
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.user_metadata?.full_name) {
-        setUserName(session.user.user_metadata.full_name);
-      } else if (session?.user?.email) {
-        const namePart = session.user.email.split("@")[0];
-        setUserName(namePart === "yossi" || namePart === "dagayossi" ? "יוסי" : namePart);
-      }
-    });
-  }, []);
-
+  useEffect(() => { void AsyncStorage.getItem(selectedMethodStorageKey).then((stored) => { if (stored) setSelectedMethodId(stored); }); void AsyncStorage.getItem(selectedDayStorageKey).then((stored) => { if (stored) { try { setSelectedDayByMethod(JSON.parse(stored) as Record<string, WorkoutId>); } catch { /* נתון ישן או פגום — נשארים בברירת המחדל */ } } }); }, []);
   const [isCreatorOpen, setIsCreatorOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<WorkoutTemplate | null>(null);
   const [isPreviewEditing, setIsPreviewEditing] = useState(false);
@@ -123,8 +98,8 @@ export default function HomeScreen() {
           </View>
           <View style={styles.titleBlock}>
             <Text style={styles.eyebrow}>יומן האימונים</Text>
-            <Text style={styles.title} numberOfLines={1}>שלום {userName} 👋</Text>
-            <Text style={styles.subtitle}>{hydrated ? "מוכנים לעבוד? כל סט מסונכרן לענן" : "טוען את היומן שלך…"}</Text><Text testID="home-build-stamp" style={styles.buildStamp}>גרסת התקנה {Constants.expoConfig?.version ?? "לא ידועה"} · Android build {Constants.expoConfig?.android?.versionCode ?? "לא ידוע"}</Text>
+            <Text style={styles.title} numberOfLines={1}>מוכנים לעבוד?</Text>
+            <Text style={styles.subtitle}>{hydrated ? "כל סט נשמר מיד במכשיר" : "טוען את היומן שלך…"}</Text><Text testID="home-build-stamp" style={styles.buildStamp}>גרסת התקנה {Constants.expoConfig?.version ?? "לא ידועה"} · Android build {Constants.expoConfig?.android?.versionCode ?? "לא ידוע"}</Text>
           </View>
         </View>
         <View style={styles.statsRow}>

@@ -6,12 +6,13 @@ const workout = (id: string, templateId: WorkoutSession["templateId"], date: str
 
 describe("השוואת שני אימונים מאותו סוג", () => {
   it("משווה כוח לפי נפח, משקל, חזרות ותרגיל", () => {
-    const old = workout("old", "pull1", "2026-08-13", [{ id: "a", exerciseId: "חתירה", setNumber: 1, weight: "60", reps: "10", completed: true }]);
-    const current = workout("new", "pull1", "2026-08-20", [{ id: "b", exerciseId: "חתירה", setNumber: 1, weight: "70", reps: "10", completed: true }]);
+    const old = workout("old", "pull1", "2026-08-13", [{ id: "a", exerciseId: "חתירה", setNumber: 1, weight: "60", reps: "10", completed: true, restSeconds: 90 }]);
+    const current = workout("new", "pull1", "2026-08-20", [{ id: "b", exerciseId: "חתירה", setNumber: 1, weight: "70", reps: "10", completed: true, restSeconds: 60 }]);
     const result = compareWorkoutSessions(old, current);
     expect(result.isCardio).toBe(false);
     expect(result.baselineVolume).toBe(600);
     expect(result.currentVolume).toBe(700);
+    expect(result).toMatchObject({ baselineAverageRestSeconds: 90, currentAverageRestSeconds: 60 });
     expect(result.rows[0]).toMatchObject({ exerciseId: "חתירה", baselineBestWeight: 60, currentBestWeight: 70 });
   });
 

@@ -1,5 +1,5 @@
 import { getTemplate, workoutTemplates, type WorkoutId, type WorkoutTemplate } from "./workout-data";
-import { calculateVolume, type WorkoutSession } from "./workout-store";
+import { calculateVolume, isCardioWorkoutTemplate, type WorkoutSession } from "./workout-store";
 import { calculateRecoveryScore } from "./recovery-analysis";
 
 export type PlanMetrics = {
@@ -110,6 +110,53 @@ export type SessionTrend = {
   deltaPercent: number;
   status: "up" | "down" | "same" | "first";
 };
+
+export type WeeklyRestTrend = {
+  weekStart: string;
+  label: string;
+  averageRestSeconds: number;
+  measuredSets: number;
+};
+
+function localDateAtNoon(date: string) {
+  return new Date(`${date.slice(0, 10)}T12:00:00`);
+}
+
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function weekStartForDate(date: string) {
+  const local = localDateAtNoon(date);
+  local.setDate(local.getDate() - local.getDay());
+  return localDateKey(local);
+}
+
+function weekLabel(weekStart: string) {
+  const start = localDateAtNoon(weekStart);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return `${String(start.getDate()).padStart(2, "0")}.${String(start.getMonth() + 1).padStart(2, "0")}–${String(end.getDate()).padStart(2, "0")}.${String(end.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function buildWeeklyRestTrends(sessions: WorkoutSession[]): WeeklyRestTrend[] {
+  const buckets = new Map<string, number[]>();
+  sessions.forEach((session) => {
+    const weekStart = weekStartForDate(session.startedAt);
+    const rests = session.sets
+      .filter((set) => set.completed && typeof set.restSeconds === "number" && set.restSeconds > 0)
+      .map((set) => set.restSeconds!);
+    if (rests.length) buckets.set(weekStart, [...(buckets.get(weekStart) ?? []), ...rests]);
+  });
+  return Array.from(buckets.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([weekStart, rests]) => ({
+      weekStart,
+      label: weekLabel(weekStart),
+      averageRestSeconds: rests.reduce((sum, seconds) => sum + seconds, 0) / rests.length,
+      measuredSets: rests.length,
+    }));
+}
 
 export type ExerciseTrend = {
   key: string;
@@ -234,12 +281,20 @@ export function buildLoadTrends(
   let previousAdjusted = 0;
   return chronological.map((session) => {
     const template = templates.find((item) => item.id === session.templateId) ?? getTemplate(session.templateId);
-    const completedSets = session.sets.filter((set) => set.completed).length;
-    const resistanceVolume = calculateVolume(session);
+    const isCardioSession = isCardioWorkoutTemplate(session.templateId);
+    const completedSets = isCardioSession ? 0 : session.sets.filter((set) => set.completed).length;
+    const resistanceVolume = isCardioSession ? 0 : calculateVolume(session);
     const sessionDate = new Date(session.startedAt).getTime();
     const nearestRecovery = [...recoveryLogs].sort((a, b) => Math.abs(new Date(a.date).getTime() - sessionDate) - Math.abs(new Date(b.date).getTime() - sessionDate))[0];
     const recoveryScore = nearestRecovery ? calculateRecoveryScore(nearestRecovery) : null;
-    const cardioMinutes = cardioLogs.filter((log) => Math.abs(new Date(log.date).getTime() - sessionDate) < 36 * 60 * 60 * 1000).reduce((sum, log) => sum + (Number(log.durationMinutes) || 0), 0);
+    const sessionDateKey = session.startedAt.slice(0, 10);
+    const plannedCardioMinutes = sessions
+      .filter((candidate) => isCardioWorkoutTemplate(candidate.templateId) && candidate.startedAt.slice(0, 10) === sessionDateKey)
+      .flatMap((candidate) => candidate.sets)
+      .filter((set) => set.completed)
+      .reduce((sum, set) => sum + (Number(set.reps) || 0), 0);
+    const loggedCardioMinutes = cardioLogs.filter((log) => Math.abs(new Date(log.date).getTime() - sessionDate) < 36 * 60 * 60 * 1000).reduce((sum, log) => sum + (Number(log.durationMinutes) || 0), 0);
+    const cardioMinutes = plannedCardioMinutes + loggedCardioMinutes;
     const rawLoad = resistanceVolume / 1000 + completedSets * 2 + cardioMinutes * 0.15;
     const adjustedLoad = rawLoad * (recoveryScore === null ? 1 : 1 + (50 - recoveryScore) / 100);
     const deltaPercent = previousAdjusted > 0 ? Math.round(((adjustedLoad - previousAdjusted) / previousAdjusted) * 100) : 0;

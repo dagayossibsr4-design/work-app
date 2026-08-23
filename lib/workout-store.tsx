@@ -3,7 +3,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type ExerciseTemplate, type WorkoutId, type WorkoutTemplate } from "./workout-data";
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
-import { supabase } from "./supabase";
 
 function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
   return saved.map((template) => {
@@ -45,6 +44,7 @@ export type SetLog = {
   completed: boolean;
   target?: string;
   note?: string;
+  restSeconds?: number;
 };
 
 export type CardioLog = { id: string; date: string; type: string; durationMinutes: string; distanceKm: string; caloriesBurned?: string; intensity: string; note: string };
@@ -70,6 +70,27 @@ export type WorkoutSession = {
   sets: SetLog[];
 };
 
+export const CARDIO_WORKOUT_TEMPLATE_IDS = new Set(["cardio", "cycling", "elliptical", "stairs", "treadmill", "outdoor-run", "walking", "rowing", "swimming", "hiit"]);
+
+export function isCardioWorkoutTemplate(templateId: WorkoutId) {
+  return CARDIO_WORKOUT_TEMPLATE_IDS.has(templateId);
+}
+
+export function sessionsForWorkoutDate(sessions: WorkoutSession[], date: string) {
+  return sessions
+    .filter((session) => session.startedAt.slice(0, 10) === date)
+    .sort((left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt));
+}
+
+export function splitSessionsForWorkoutDate(sessions: WorkoutSession[], date: string) {
+  const all = sessionsForWorkoutDate(sessions, date);
+  return {
+    all,
+    strength: all.filter((session) => !isCardioWorkoutTemplate(session.templateId)),
+    cardio: all.filter((session) => isCardioWorkoutTemplate(session.templateId)),
+  };
+}
+
 export type AccountState = { sessions: WorkoutSession[]; templates: WorkoutTemplate[]; recoveryLogs: RecoveryLog[]; cardioLogs: CardioLog[]; nutritionProfile: NutritionProfile };
 
 type WorkoutContextValue = {
@@ -82,6 +103,7 @@ type WorkoutContextValue = {
   activeTemplate: WorkoutTemplate | null;
   hydrated: boolean;
   startWorkout: (templateId: WorkoutId, copyPrevious?: boolean) => void;
+  startWorkoutOnDate: (templateId: WorkoutId, date: string, copyPrevious?: boolean) => void;
   startWorkoutFromTemplate: (template: WorkoutTemplate) => void;
   updateSet: (setId: string, patch: Partial<SetLog>) => void;
   updateActiveSession: (patch: Partial<WorkoutSession>) => void;
@@ -122,13 +144,164 @@ const CARDIO_KEY = "workout-tracker-cardio-v1";
 const NUTRITION_KEY = "workout-tracker-nutrition-v1";
 const cloneTemplates = () => JSON.parse(JSON.stringify(workoutTemplates)) as WorkoutTemplate[];
 
+function demoSet(exerciseId: string, setNumber: number, weight: number, reps: number, date: string, note?: string, restSeconds?: number): SetLog {
+  return {
+    id: `demo-${date}-${exerciseId}-${setNumber}`,
+    exerciseId,
+    setNumber,
+    weight: String(weight),
+    reps: String(reps),
+    completed: true,
+    note,
+    restSeconds,
+  };
+}
+
+function createDemoLegsSessions(): WorkoutSession[] {
+  const today = "2026-08-16";
+  const wednesday = "2026-08-12";
+  const build = (date: string, values: Array<[string, number, number]>): WorkoutSession => {
+    const counters: Record<string, number> = {};
+    return {
+      id: `demo-legs-${date}`,
+      templateId: "legs1" as WorkoutId,
+      startedAt: `${date}T18:00:00.000Z`,
+      finishedAt: `${date}T19:25:00.000Z`,
+      sets: values.map(([exerciseId, weight, reps]) => {
+        counters[exerciseId] = (counters[exerciseId] ?? 0) + 1;
+        return demoSet(exerciseId, counters[exerciseId], weight, reps, date);
+      }),
+    };
+  };
+  const todayValues: Array<[string, number, number]> = [
+    ["סקוואט חופשי", 120, 6], ["סקוואט חופשי", 100, 10], ["סקוואט חופשי", 90, 15],
+    ["לג פרס", 262.5, 8], ["לג פרס", 282.5, 8], ["לג פרס", 292.5, 7],
+    ["כפיפת ברכיים בשכיבה", 70, 10], ["כפיפת ברכיים בשכיבה", 65, 12], ["כפיפת ברכיים בשכיבה", 50, 10],
+    ["כפיפת ברכיים בעמידה", 40, 16], ["כפיפת ברכיים בעמידה", 30, 22],
+    ["פשיטת ברכיים במכונה", 120, 9], ["פשיטת ברכיים במכונה", 110, 12], ["פשיטת ברכיים במכונה", 95, 20],
+    ["מקרבי ירך במכונה", 90, 11], ["מקרבי ירך במכונה", 80, 10],
+    ["מרחיקי ירך במכונה", 90, 9], ["מרחיקי ירך במכונה", 70, 12],
+    ["תאומים בישיבה", 30, 12], ["תאומים בישיבה", 30, 11],
+  ];
+  const previousValues: Array<[string, number, number]> = [
+    ["סקוואט חופשי", 115, 6], ["סקוואט חופשי", 95, 10], ["סקוואט חופשי", 85, 14],
+    ["לג פרס", 250, 8], ["לג פרס", 270, 8], ["לג פרס", 280, 7],
+    ["כפיפת ברכיים בשכיבה", 65, 10], ["כפיפת ברכיים בשכיבה", 60, 12], ["כפיפת ברכיים בשכיבה", 45, 10],
+    ["כפיפת ברכיים בעמידה", 35, 15], ["כפיפת ברכיים בעמידה", 27.5, 20],
+    ["פשיטת ברכיים במכונה", 110, 9], ["פשיטת ברכיים במכונה", 100, 12], ["פשיטת ברכיים במכונה", 90, 18],
+    ["מקרבי ירך במכונה", 85, 11], ["מקרבי ירך במכונה", 75, 10],
+    ["מרחיקי ירך במכונה", 85, 9], ["מרחיקי ירך במכונה", 65, 12],
+    ["תאומים בישיבה", 27.5, 12], ["תאומים בישיבה", 27.5, 10],
+  ];
+  return [build(today, todayValues), build(wednesday, previousValues)];
+}
+
+type ImportedSet = [exerciseId: string, weight: number, reps: number, note?: string, restSeconds?: number];
+
+export function createImportedWorkoutSessions(): WorkoutSession[] {
+  const build = (id: string, templateId: WorkoutId, date: string, values: ImportedSet[], finishHour: number): WorkoutSession => {
+    const counters: Record<string, number> = {};
+    return {
+      id,
+      templateId,
+      startedAt: `${date}T18:00:00.000Z`,
+      finishedAt: `${date}T${String(finishHour).padStart(2, "0")}:30:00.000Z`,
+      sets: values.map(([exerciseId, weight, reps, note, restSeconds]) => {
+        counters[exerciseId] = (counters[exerciseId] ?? 0) + 1;
+        return demoSet(exerciseId, counters[exerciseId], weight, reps, date, note, restSeconds);
+      }),
+    };
+  };
+
+  return [
+    build("imported-pull1-2026-08-22", "pull1", "2026-08-22", [
+      ["חתירה גבוהה במכונה", 100, 10, undefined, 57], ["חתירה גבוהה במכונה", 80, 12, undefined, 59], ["חתירה גבוהה במכונה", 75, 16, "Rest & Pause: 3 דקות", 92],
+      ["חתירה במכונה עם תמיכה לחזה", 100, 9, undefined, 58], ["חתירה במכונה עם תמיכה לחזה", 80, 11, undefined, 48],
+      ["חתירה על ספסל דאמבל מסור", 70, 8, undefined, 59], ["חתירה על ספסל דאמבל מסור", 60, 12, undefined, 65],
+      ["פולי רחב", 80, 9, undefined, 25], ["פולי רחב", 70, 13, undefined, 33],
+      ["פול־אובר בכבלים", 28, 8, undefined, 28], ["פול־אובר בכבלים", 24, 9, undefined, 28], ["פול־אובר בכבלים", 20, 12, undefined, 30],
+      ["כתף אחורית במכונה ייעודית", 60, 10, undefined, 23], ["כתף אחורית במכונה ייעודית", 50, 12, undefined, 44], ["כתף אחורית במכונה ייעודית", 45, 15, undefined, 28],
+      ["שרגים", 70, 9, undefined, 31], ["שרגים", 65, 12, undefined, 36], ["שרגים", 60, 12, undefined, 34],
+      ["יד קדמית בהאמר", 45, 8, undefined, 24], ["יד קדמית בהאמר", 40, 8, undefined, 23], ["יד קדמית בהאמר", 35, 9, undefined, 27],
+      ["יד קדמית דאמבלים בישיבה קרוב מרפקים", 25, 8, undefined, 26], ["יד קדמית דאמבלים בישיבה קרוב מרפקים", 20, 10, undefined, 29], ["יד קדמית דאמבלים בישיבה קרוב מרפקים", 16, 10, undefined, 34],
+      ["יד קדמית פולי תחתון עם כבל", 25, 10], ["יד קדמית פולי תחתון עם כבל", 20, 10], ["יד קדמית פולי תחתון עם כבל", 17.5, 10],
+    ], 20),
+    build("imported-pull1-2026-08-13", "pull1", "2026-08-13", [
+      ["חתירה גבוהה במכונה/כבל", 100, 8, "Rest & Pause: 3 דקות"], ["חתירה גבוהה במכונה/כבל", 90, 11], ["חתירה גבוהה במכונה/כבל", 70, 17],
+      ["חתירה במכונה עם תמיכה לחזה", 100, 7], ["חתירה במכונה עם תמיכה לחזה", 80, 10],
+      ["חתירה על ספסל עם דאמבל", 65, 9], ["חתירה על ספסל עם דאמבל", 55, 10],
+      ["עליות מתח / משיכה עליונה", 70, 9], ["עליות מתח / משיכה עליונה", 60, 12],
+      ["פול־אובר בכבלים בעמידה", 26, 12], ["פול־אובר בכבלים בעמידה", 24, 15], ["פול־אובר בכבלים בעמידה", 20, 18],
+      ["פרפר הפוך במכונה", 50, 12], ["פרפר הפוך במכונה", 40, 14], ["פרפר הפוך במכונה", 30, 16],
+      ["שרג עם דאמבלים", 70, 10], ["שרג עם דאמבלים", 60, 12], ["שרג עם דאמבלים", 50, 15],
+      ["יד קדמית במכונת האמר", 30, 10], ["יד קדמית במכונת האמר", 25, 12],
+      ["יד קדמית בישיבה עם 2 דאמבלים", 16, 10], ["יד קדמית בישיבה עם 2 דאמבלים", 14, 12], ["יד קדמית בישיבה עם 2 דאמבלים", 12, 14],
+      ["יד קדמית בפולי עליון", 20, 12], ["יד קדמית בפולי עליון", 15, 15],
+    ], 20),
+    build("imported-pull2-2026-08-18", "pull2", "2026-08-18", [
+      ["פולי עליון אחיזה צרה", 95, 7, "Rest & Pause: 3 דקות"], ["פולי עליון אחיזה צרה", 75, 12], ["פולי עליון אחיזה צרה", 65, 17],
+      ["חתירת T-Bar", 70, 10], ["חתירת T-Bar", 60, 15],
+      ["פולי עליון אחיזה רחבה", 70, 9], ["פולי עליון אחיזה רחבה", 60, 18],
+      ["כבל ראו בישיבה — אחיזה צרה", 65, 9], ["כבל ראו בישיבה — אחיזה צרה", 55, 12],
+      ["חתירה פולי תחתון עם כבל", 32.5, 9], ["חתירה פולי תחתון עם כבל", 27.5, 14],
+      ["שרגים", 65, 9], ["שרגים", 55, 13], ["שרגים", 50, 12],
+      ["יד קדמית האמר", 35, 9], ["יד קדמית האמר", 30, 12], ["יד קדמית האמר", 25, 15], ["יד קדמית האמר", 20, 18],
+      ["יד קדמית מוט W / SZ", 30, 9], ["יד קדמית מוט W / SZ", 25, 7], ["יד קדמית מוט W / SZ", 20, 14],
+      ["זוקפי גב", 92, 15], ["זוקפי גב", 96, 15], ["זוקפי גב", 92, 15],
+    ], 20),
+    build("imported-push2-2026-08-19", "push2", "2026-08-19", [
+      ["לחיצת חזה עליון במוט חופשי", 100, 6], ["לחיצת חזה עליון במוט חופשי", 85, 9], ["לחיצת חזה עליון במוט חופשי", 80, 10],
+      ["לחיצת חזה בשיפוע עם משקולות", 90, 8], ["לחיצת חזה בשיפוע עם משקולות", 80, 10], ["לחיצת חזה בשיפוע עם משקולות", 65, 12],
+      ["לחיצת חזה תחתון במכשיר", 98, 8], ["לחיצת חזה תחתון במכשיר", 78, 13],
+      ["פרפר חופשי בכבלים", 30, 8], ["פרפר חופשי בכבלים", 25, 12],
+      ["פרפר במכשיר ייעודי", 65, 18, "Rest & Pause"],
+      ["לחיצת כתפיים במכונת האמר", 80, 9], ["לחיצת כתפיים במכונת האמר", 70, 10],
+      ["הרחקת כתפיים לצדדים", 25, 7], ["הרחקת כתפיים לצדדים", 20, 12],
+      ["כתף קדמית בפולי תחתון", 15, 12], ["כתף קדמית בפולי תחתון", 10, 12], ["כתף קדמית בפולי תחתון", 10, 8],
+      ["פשיטת מרפקים כנגד כבל", 24, 14], ["פשיטת מרפקים כנגד כבל", 22, 12], ["פשיטת מרפקים כנגד כבל", 18, 12],
+      ["פשיטת מרפקים בהצלבה", 12, 8], ["פשיטת מרפקים בהצלבה", 8, 11],
+    ], 20),
+    build("imported-legs1-2026-08-16", "legs1", "2026-08-16", [
+      ["סקוואט חופשי", 120, 6], ["סקוואט חופשי", 100, 10], ["סקוואט חופשי", 90, 15],
+      ["לג פרס", 262.5, 8], ["לג פרס", 282.5, 8], ["לג פרס", 292.5, 7],
+      ["כפיפת ברכיים בשכיבה", 70, 10], ["כפיפת ברכיים בשכיבה", 65, 12],
+      ["כפיפת ברכיים בעמידה", 50, 16], ["כפיפת ברכיים בעמידה", 40, 22],
+      ["פשיטת ברכיים במכונה", 120, 9], ["פשיטת ברכיים במכונה", 110, 12], ["פשיטת ברכיים במכונה", 95, 20, "Rest & Pause: 3 דקות"],
+      ["מקרבי ירך במכונה", 90, 11], ["מקרבי ירך במכונה", 80, 12],
+      ["מרחיקי ירך במכונה", 90, 9], ["מרחיקי ירך במכונה", 70, 12],
+      ["תאומים בישיבה", 30, 12], ["תאומים בישיבה", 30, 11],
+    ], 20),
+    build("imported-legs2-2026-08-20", "legs2", "2026-08-20", [
+      ["האק סקוואט-legs2", 170, 8, "Rest & Pause: 3 דקות"], ["האק סקוואט-legs2", 150, 9], ["האק סקוואט-legs2", 120, 14], ["האק סקוואט-legs2", 90, 20],
+      ["מכרעים", 80, 20], ["מכרעים", 35, 18],
+      ["כפיפת ברך-ירך-legs2", 25, 24],
+      ["פשיטת ברכיים-legs2", 105, 12], ["פשיטת ברכיים-legs2", 100, 10], ["פשיטת ברכיים-legs2", 90, 12],
+      ["כפיפת ירך בעמידה-legs2", 20, 14],
+      ["מקרבי ירך-legs2", 90, 11], ["מקרבי ירך-legs2", 75, 12],
+      ["תאומים-legs2", 30, 10], ["תאומים-legs2", 30, 10],
+    ], 20),
+  ];
+}
+
+export function mergeImportedWorkoutSessions(savedSessions: WorkoutSession[]): WorkoutSession[] {
+  const importedSessions = createImportedWorkoutSessions();
+  const importedIds = new Set(importedSessions.map((session) => session.id));
+  return [
+    ...importedSessions,
+    ...savedSessions.filter((session) => !session.id.startsWith("demo-legs-") && !importedIds.has(session.id)),
+  ];
+}
+
 const WorkoutContext = createContext<WorkoutContextValue | null>(null);
 
-function createSession(template: WorkoutTemplate): WorkoutSession {
+function createSession(template: WorkoutTemplate, scheduledDate?: string): WorkoutSession {
+  const startedAt = scheduledDate && /^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)
+    ? `${scheduledDate}T${new Date().toISOString().slice(11)}`
+    : new Date().toISOString();
   return {
     id: `${template.id}-${Date.now()}`,
     templateId: template.id,
-    startedAt: new Date().toISOString(),
+    startedAt,
     sets: template.exercises.flatMap((exercise) => exercise.sets.map((_, index) => ({
       id: `${template.id}-${exercise.id}-${index}-${Date.now()}`,
       exerciseId: exercise.id,
@@ -151,105 +324,36 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const [sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue] = await Promise.all([
-          AsyncStorage.getItem(SESSION_KEY),
-          AsyncStorage.getItem(TEMPLATE_KEY),
-          AsyncStorage.getItem(RECOVERY_KEY),
-          AsyncStorage.getItem(CARDIO_KEY),
-          AsyncStorage.getItem(NUTRITION_KEY),
-        ]);
-
-        if (sessionValue) {
-          const savedSessions = (JSON.parse(sessionValue) as WorkoutSession[])
-            .filter((session) => !session.id.startsWith("demo-legs-") && !session.id.startsWith("imported-"))
-            .map((session) => ({
-              ...session,
-              sets: session.sets.map((set) => set.exerciseId === "לחיצת רגליים" ? { ...set, exerciseId: "לג פרס" } : set),
-            }));
-          setSessions(savedSessions);
-        } else {
-          setSessions([]);
-        }
-
-        if (templateValue) setTemplates(hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]));
-        if (recoveryValue) setRecoveryLogs(JSON.parse(recoveryValue));
-        if (cardioValue) setCardioLogs(JSON.parse(cardioValue));
-        if (nutritionValue) {
-          const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile;
-          setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] }));
-        }
-
-        // סנכרון נתונים מענן Supabase אם קיים משתמש
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.id) {
-          const { data: profile } = await supabase
-            .from("user_profiles")
-            .select("account_state")
-            .eq("id", session.user.id)
-            .maybeSingle();
-
-          if (profile?.account_state) {
-            const remoteState = profile.account_state as Partial<AccountState>;
-            if (Array.isArray(remoteState.sessions)) {
-              setSessions(remoteState.sessions.filter((s) => !s.id.startsWith("demo-legs-") && !s.id.startsWith("imported-")));
-            }
-            if (Array.isArray(remoteState.templates)) setTemplates(hydrateWorkoutTemplates(remoteState.templates));
-            if (Array.isArray(remoteState.recoveryLogs)) setRecoveryLogs(remoteState.recoveryLogs);
-            if (Array.isArray(remoteState.cardioLogs)) setCardioLogs(remoteState.cardioLogs);
-            if (remoteState.nutritionProfile) setNutritionProfile((current) => ({ ...current, ...remoteState.nutritionProfile }));
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load workout store data", e);
-      } finally {
-        setHydrated(true);
+    Promise.all([AsyncStorage.getItem(SESSION_KEY), AsyncStorage.getItem(TEMPLATE_KEY), AsyncStorage.getItem(RECOVERY_KEY), AsyncStorage.getItem(CARDIO_KEY), AsyncStorage.getItem(NUTRITION_KEY)]).then(([sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue]) => {
+      if (sessionValue) {
+        const savedSessions = (JSON.parse(sessionValue) as WorkoutSession[])
+          .filter((session) => !session.id.startsWith("demo-legs-"))
+          .map((session) => ({
+            ...session,
+            sets: session.sets.map((set) => set.exerciseId === "לחיצת רגליים" ? { ...set, exerciseId: "לג פרס" } : set),
+          }));
+        setSessions(mergeImportedWorkoutSessions(savedSessions));
+      } else {
+        setSessions(createImportedWorkoutSessions());
       }
-    }
-
-    loadData();
+      if (templateValue) setTemplates(hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]));
+      if (recoveryValue) setRecoveryLogs(JSON.parse(recoveryValue));
+      if (cardioValue) setCardioLogs(JSON.parse(cardioValue));
+      if (nutritionValue) { const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile; setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] })); }
+      setHydrated(true);
+    }).catch(() => setHydrated(true));
   }, []);
 
-  // שמירה מקומית
   useEffect(() => { if (hydrated) AsyncStorage.setItem(SESSION_KEY, JSON.stringify(sessions)); }, [sessions, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates)); }, [templates, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryLogs)); }, [recoveryLogs, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs)); }, [cardioLogs, hydrated]);
   useEffect(() => { if (hydrated) AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile)); }, [nutritionProfile, hydrated]);
 
-  // סנכרון אוטומטי לענן של Supabase
-  useEffect(() => {
-    if (!hydrated) return;
-    const syncTimeout = setTimeout(async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.id) {
-          const accountState: AccountState = {
-            sessions,
-            templates,
-            recoveryLogs,
-            cardioLogs,
-            nutritionProfile,
-          };
-          await supabase.from("user_profiles").upsert({
-            id: session.user.id,
-            email: session.user.email,
-            account_state: accountState,
-            updated_at: new Date().toISOString(),
-          });
-        }
-      } catch (err) {
-        console.error("Cloud sync error:", err);
-      }
-    }, 1500);
 
-    return () => clearTimeout(syncTimeout);
-  }, [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, hydrated]);
-
-  const startWorkout = (templateId: WorkoutId, copyPrevious = false) => {
+  const startWorkoutOnDate = (templateId: WorkoutId, date: string, copyPrevious = false) => {
     const template = templates.find((item) => item.id === templateId) ?? getTemplate(templateId);
-    const fresh = createSession(template);
+    const fresh = createSession(template, date);
     if (!copyPrevious) {
       setActiveSession(fresh);
       return;
@@ -261,6 +365,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     });
     setActiveSession({ ...fresh, sets: copied });
   };
+  const startWorkout = (templateId: WorkoutId, copyPrevious = false) => startWorkoutOnDate(templateId, new Date().toISOString().slice(0, 10), copyPrevious);
   const startWorkoutFromTemplate = (template: WorkoutTemplate) => setActiveSession(createSession(template));
   const updateSet = (setId: string, patch: Partial<SetLog>) => setActiveSession((current) => current ? ({ ...current, sets: current.sets.map((set) => set.id === setId ? { ...set, ...patch } : set) }) : current);
   const updateActiveSession = (patch: Partial<WorkoutSession>) => setActiveSession((current) => current ? { ...current, ...patch } : current);
@@ -351,7 +456,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile]);
   const applyAccountState = useCallback((state: Partial<AccountState>) => {
     if (Array.isArray(state.sessions)) {
-      setSessions(state.sessions.filter((session) => !session.id.startsWith("demo-legs-") && !session.id.startsWith("imported-")));
+      const remoteSessions = state.sessions.filter((session) => !session.id.startsWith("demo-legs-"));
+      setSessions(mergeImportedWorkoutSessions(remoteSessions));
     }
     if (Array.isArray(state.templates)) setTemplates(hydrateWorkoutTemplates(state.templates));
     if (Array.isArray(state.recoveryLogs)) setRecoveryLogs(state.recoveryLogs);
@@ -370,7 +476,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(() => ({
     sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated,
-    startWorkout, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
+    startWorkout, startWorkoutOnDate, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
     updateTemplate, addCustomTemplate, addExercise, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addCustomExerciseToActiveWorkout, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState,
   }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, hydrated]);
   return <WorkoutContext.Provider value={value}>{children}</WorkoutContext.Provider>;

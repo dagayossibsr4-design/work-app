@@ -76,11 +76,23 @@ describe("Workout calculations", () => {
 });
 
 describe("יומנים שיובאו מהצילומים", () => {
-  it("מוסיף את PULL 1, PULL 2 ו־LEGS 2 בתאריכים הנכונים ובלי סטים חסרים", () => {
+  it("מוסיף את יומני PULL ו־LEGS בתאריכים הנכונים ובלי סטים חסרים", () => {
     const sessions = createImportedWorkoutSessions();
+    const pull1Aug22 = sessions.find((session) => session.id === "imported-pull1-2026-08-22");
     const pull1 = sessions.find((session) => session.id === "imported-pull1-2026-08-13");
     const pull2 = sessions.find((session) => session.id === "imported-pull2-2026-08-18");
     const legs2 = sessions.find((session) => session.id === "imported-legs2-2026-08-20");
+
+    expect(pull1Aug22?.startedAt.startsWith("2026-08-22")).toBe(true);
+    expect(pull1Aug22?.sets).toHaveLength(27);
+    expect(pull1Aug22?.sets.filter((set) => set.exerciseId === "חתירה גבוהה במכונה").map((set) => `${set.weight}×${set.reps}`)).toEqual(["100×10", "80×12", "75×16"]);
+    expect(pull1Aug22?.sets.find((set) => set.exerciseId === "חתירה גבוהה במכונה" && set.setNumber === 3)?.note).toContain("Rest & Pause");
+    expect([...new Set(pull1Aug22?.sets.map((set) => set.exerciseId))]).toEqual([
+      "חתירה גבוהה במכונה", "חתירה במכונה עם תמיכה לחזה", "חתירה על ספסל דאמבל מסור", "פולי רחב", "פול־אובר בכבלים",
+      "כתף אחורית במכונה ייעודית", "שרגים", "יד קדמית בהאמר", "יד קדמית דאמבלים בישיבה קרוב מרפקים", "יד קדמית פולי תחתון עם כבל",
+    ]);
+    expect(pull1Aug22?.sets.filter((set) => set.exerciseId === "כתף אחורית במכונה ייעודית").map((set) => `${set.weight}×${set.reps}`)).toEqual(["60×10", "50×12", "45×15"]);
+    expect(pull1Aug22?.sets.filter((set) => set.exerciseId === "יד קדמית פולי תחתון עם כבל").map((set) => `${set.weight}×${set.reps}`)).toEqual(["25×10", "20×10", "17.5×10"]);
 
     expect(pull1?.startedAt.startsWith("2026-08-13")).toBe(true);
     expect(pull1?.sets).toHaveLength(25);
@@ -112,7 +124,7 @@ describe("יומנים שיובאו מהצילומים", () => {
 
   it("מציג את האימון המאוחר ביותר כאימון האחרון, ללא תלות בסדר הטעינה", () => {
     const sessions = createImportedWorkoutSessions();
-    expect(sortWorkoutSessionsNewestFirst([...sessions].reverse())[0]?.startedAt.startsWith("2026-08-20")).toBe(true);
+    expect(sortWorkoutSessionsNewestFirst([...sessions].reverse())[0]?.startedAt.startsWith("2026-08-22")).toBe(true);
   });
 
   it("שומר את כל תרגילי PULL המיובאים כקבוצות נפרדות להצגה בהיסטוריה", () => {

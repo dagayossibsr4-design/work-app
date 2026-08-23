@@ -12,6 +12,7 @@ import {
   buildSmartLoadSnapshots,
   buildSessionTrends,
   buildWeeklyCardioTrends,
+  buildWeeklyRestTrends,
   loadExplanation,
   smartLoadExplanation,
   type ExerciseTrend,
@@ -32,6 +33,7 @@ export default function AnalysisScreen() {
   const loadTrends = buildLoadTrends(sessions, recoveryLogs, cardioLogs, templates);
   const smartLoadSnapshots = buildSmartLoadSnapshots(loadTrends);
   const weeklyCardioTrends = buildWeeklyCardioTrends(cardioLogs);
+  const weeklyRestTrends = buildWeeklyRestTrends(sessions);
   const [exerciseFilter, setExerciseFilter] = useState("הכול");
   const [search, setSearch] = useState("");
   const [rangeDays, setRangeDays] = useState(0);
@@ -65,6 +67,7 @@ export default function AnalysisScreen() {
         <RecoverySummary log={latestRecovery} trend={recoveryTrend(recoveryLogs)} />
         <CardioLoadSummary logs={cardioLogs} totalMinutes={cardioMinutes} />
         <WeeklyCardioChart trends={weeklyCardioTrends} />
+        <WeeklyRestChart trends={weeklyRestTrends} />
         <ExerciseComparisonCard rows={filteredExerciseTrends.slice(0, 10)} filter={exerciseFilter} search={search} onFilter={setExerciseFilter} onSearch={setSearch} />
         {comparisons.map((comparison) => <ComparisonCard key={comparison.title} title={comparison.title} left={comparison.left} right={comparison.right} insight={comparison.insight} />)}
         <View style={styles.armsCard}><Text style={styles.cardTitle}>Arms / Pump</Text><Text style={styles.armsText}>{buildArmsInsight(sessions, templates)}</Text><Text style={styles.small}>התכנית האופציונלית כוללת עבודה ייעודית ליד קדמית, יד אחורית ובטן.</Text></View>
@@ -104,9 +107,13 @@ function SessionComparisonSelector({ sessions, templates, initialTemplateId, ini
 function SessionComparisonResult({ comparison, baselineDate, currentDate, baselineName, currentName }: { comparison: import("@/lib/session-comparison").WorkoutSessionComparison; baselineDate: string; currentDate: string; baselineName?: string; currentName?: string }) {
   const deltaText = (from: number, to: number) => `${changePercent(from, to) >= 0 ? "+" : ""}${changePercent(from, to).toFixed(1)}%`;
   const pace = (minutes: number, distance: number) => distance ? `${(minutes / distance).toFixed(1)} דק׳/ק״מ` : "—";
+  const restLabel = (seconds: number) => seconds ? `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}` : "—";
+  const comparableRows = comparison.rows.filter((row) => row.baselineVolume > 0 && row.currentVolume > 0);
+  const strongestGain = [...comparableRows].sort((left, right) => (right.currentVolume - right.baselineVolume) - (left.currentVolume - left.baselineVolume))[0];
+  const strongestDrop = [...comparableRows].sort((left, right) => (left.currentVolume - left.baselineVolume) - (right.currentVolume - right.baselineVolume))[0];
   return <View style={styles.card}>
     <Text style={styles.cardTitle}>{baselineName && currentName ? `${baselineName} מול ${currentName}` : "השוואת ביצועים"}</Text><Text style={styles.chartSubtitle}>{dateLabel(baselineDate)} מול {dateLabel(currentDate)}</Text>
-    {comparison.isCardio ? <><View style={styles.summaryRow}><Mini value={`${comparison.baselineMinutes} → ${comparison.currentMinutes}`} label="זמן (דק׳)" /><Mini value={`${comparison.baselineDistance.toFixed(1)} → ${comparison.currentDistance.toFixed(1)}`} label="מרחק (ק״מ)" /><Mini value={`${pace(comparison.baselineMinutes, comparison.baselineDistance)} → ${pace(comparison.currentMinutes, comparison.currentDistance)}`} label="קצב" /></View><Text style={styles.chartSubtitle}>שינוי זמן {deltaText(comparison.baselineMinutes, comparison.currentMinutes)} · שינוי מרחק {deltaText(comparison.baselineDistance, comparison.currentDistance)}</Text></> : <><View style={styles.summaryRow}><Mini value={`${Math.round(comparison.baselineVolume)} → ${Math.round(comparison.currentVolume)}`} label="נפח (ק״ג)" /><Mini value={deltaText(comparison.baselineVolume, comparison.currentVolume)} label="שינוי בנפח" /><Mini value={String(comparison.rows.length)} label="תרגילים" /></View>{comparison.rows.map((row) => <View key={row.exerciseId} style={styles.exerciseRow}><View style={styles.exerciseDelta}><Text style={[styles.deltaValue, { color: row.currentVolume >= row.baselineVolume ? "#42D392" : "#FF6B81" }]}>{deltaText(row.baselineVolume, row.currentVolume)}</Text><Text style={styles.deltaDetail}>{Math.round(row.baselineVolume)} → {Math.round(row.currentVolume)} ק״ג</Text></View><View style={styles.exerciseInfo}><Text style={styles.exerciseName}>{row.exerciseId}</Text><Text style={styles.exerciseMeta}>שיא משקל {row.baselineBestWeight} → {row.currentBestWeight} ק״ג · חזרות {row.baselineReps} → {row.currentReps}</Text></View></View>)}</>}
+    {comparison.isCardio ? <><View style={styles.summaryRow}><Mini value={`${comparison.baselineMinutes} → ${comparison.currentMinutes}`} label="זמן (דק׳)" /><Mini value={`${comparison.baselineDistance.toFixed(1)} → ${comparison.currentDistance.toFixed(1)}`} label="מרחק (ק״מ)" /><Mini value={`${pace(comparison.baselineMinutes, comparison.baselineDistance)} → ${pace(comparison.currentMinutes, comparison.currentDistance)}`} label="קצב" /></View><Text style={styles.chartSubtitle}>שינוי זמן {deltaText(comparison.baselineMinutes, comparison.currentMinutes)} · שינוי מרחק {deltaText(comparison.baselineDistance, comparison.currentDistance)}</Text></> : <><View style={styles.summaryRow}><Mini value={`${Math.round(comparison.baselineVolume)} → ${Math.round(comparison.currentVolume)}`} label="נפח (ק״ג)" /><Mini value={deltaText(comparison.baselineVolume, comparison.currentVolume)} label="שינוי בנפח" /><Mini value={`${restLabel(comparison.baselineAverageRestSeconds)} → ${restLabel(comparison.currentAverageRestSeconds)}`} label="מנוחה ממוצעת" /></View>{strongestGain && <View style={styles.insight}><Text style={styles.insightText}>התקדמות בולטת: {strongestGain.exerciseId} · {deltaText(strongestGain.baselineVolume, strongestGain.currentVolume)}</Text>{strongestDrop && strongestDrop.exerciseId !== strongestGain.exerciseId ? <Text style={styles.insightText}>כדאי לבדוק: {strongestDrop.exerciseId} · {deltaText(strongestDrop.baselineVolume, strongestDrop.currentVolume)}</Text> : null}</View>}{comparison.rows.map((row) => <View key={row.exerciseId} style={styles.exerciseRow}><View style={styles.exerciseDelta}><Text style={[styles.deltaValue, { color: row.currentVolume >= row.baselineVolume ? "#42D392" : "#FF6B81" }]}>{deltaText(row.baselineVolume, row.currentVolume)}</Text><Text style={styles.deltaDetail}>{Math.round(row.baselineVolume)} → {Math.round(row.currentVolume)} ק״ג</Text></View><View style={styles.exerciseInfo}><Text style={styles.exerciseName}>{row.exerciseId}</Text><Text style={styles.exerciseMeta}>שיא משקל {row.baselineBestWeight} → {row.currentBestWeight} ק״ג · חזרות {row.baselineReps} → {row.currentReps}</Text></View></View>)}</>}
   </View>;
 }
 
@@ -184,6 +191,14 @@ function WeeklyCardioChart({ trends }: { trends: import("@/lib/workout-analysis"
   const totalCalories = trends.reduce((sum, item) => sum + item.calories, 0);
   const totalDistance = trends.reduce((sum, item) => sum + item.distanceKm, 0);
   return <View style={styles.card}><Text style={styles.cardTitle}>התקדמות אירובית שבועית</Text><Text style={styles.chartSubtitle}>סך הקלוריות והמרחק מכל אימוני האירובי שנשמרו</Text><View style={styles.cardioWeeklySummary}><Mini value={`${Math.round(totalCalories)}`} label="קלוריות" /><Mini value={`${totalDistance.toFixed(1)} ק״מ`} label="מרחק" /><Mini value={String(trends.reduce((sum, item) => sum + item.sessions, 0))} label="אימונים" /></View><View style={styles.cardioLegend}><Text style={styles.legendCalories}>■ קלוריות</Text><Text style={styles.legendDistance}>■ מרחק</Text></View><View style={styles.weeklyChart}>{trends.map((item) => <View key={item.weekStart} style={styles.weekColumn}><View style={styles.weekBars}><View style={[styles.weekBar, styles.calorieBar, { height: `${Math.max((item.calories / maxCalories) * 100, item.calories ? 7 : 2)}%` }]} /><View style={[styles.weekBar, styles.distanceBar, { height: `${Math.max((item.distanceKm / maxDistance) * 100, item.distanceKm ? 7 : 2)}%` }]} /></View><Text style={styles.weekValue}>{Math.round(item.calories)} קל׳</Text><Text style={styles.weekValue}>{item.distanceKm.toFixed(1)} ק״מ</Text><Text style={styles.weekLabel}>{item.label}</Text></View>)}</View></View>;
+}
+
+function WeeklyRestChart({ trends }: { trends: import("@/lib/workout-analysis").WeeklyRestTrend[] }) {
+  if (!trends.length) return <View style={styles.card}><Text style={styles.cardTitle}>ממוצע זמני מנוחה שבועי</Text><Text style={styles.emptyText}>זמן המנוחה יופיע כאן לאחר שתשלים סטים עם מנוחה מתועדת.</Text></View>;
+  const visible = trends.slice(-8);
+  const max = Math.max(...visible.map((item) => item.averageRestSeconds), 1);
+  const format = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
+  return <View style={styles.card}><Text style={styles.cardTitle}>ממוצע זמני מנוחה שבועי</Text><Text style={styles.chartSubtitle}>כל עמודה היא ממוצע המנוחה של סטים שהושלמו באותו שבוע.</Text><View style={styles.chart}>{visible.map((item) => <View key={item.weekStart} style={styles.barColumn}><Text style={styles.barValue}>{format(item.averageRestSeconds)}</Text><View style={styles.barTrack}><View style={[styles.bar, { height: `${Math.max((item.averageRestSeconds / max) * 100, 5)}%`, backgroundColor: "#65BDF6" }]} /></View><Text style={styles.barDate}>{item.label}</Text><Text style={styles.barName}>{item.measuredSets} סטים</Text></View>)}</View></View>;
 }
 
 function ExerciseComparisonCard({ rows, filter, search, onFilter, onSearch }: { rows: ExerciseTrend[]; filter: string; search: string; onFilter: (value: string) => void; onSearch: (value: string) => void }) {

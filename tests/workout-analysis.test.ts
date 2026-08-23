@@ -3,8 +3,10 @@ import {
   buildArmsInsight,
   buildComparisons,
   buildExerciseTrends,
+  buildLoadTrends,
   buildPlanMetrics,
   buildSessionTrends,
+  buildWeeklyRestTrends,
   compareSetPerformance,
 } from "../lib/workout-analysis";
 import type { WorkoutSession } from "../lib/workout-store";
@@ -63,5 +65,40 @@ describe("Comprehensive workout comparison", () => {
     expect(rows[0].previousVolume).toBe(800);
     expect(rows[0].deltaPercent).toBe(-10);
     expect(rows[0].status).toBe("down");
+  });
+
+  it("סופר אירובי שנשמר בנפרד באותו יום כדקות אירובי ולא כנפח כוח", () => {
+    const strength = makeSession("strength", "2026-08-22", "100");
+    const cardio: WorkoutSession = {
+      id: "cardio",
+      templateId: "treadmill",
+      startedAt: "2026-08-22T20:00:00.000Z",
+      finishedAt: "2026-08-22T20:30:00.000Z",
+      sets: [{ id: "cardio-set", exerciseId: "הליכון", setNumber: 1, weight: "3", reps: "30", completed: true }],
+    };
+    const trends = buildLoadTrends([strength, cardio]);
+    const strengthTrend = trends.find((trend) => trend.sessionId === "strength");
+    const cardioTrend = trends.find((trend) => trend.sessionId === "cardio");
+    expect(strengthTrend).toMatchObject({ resistanceVolume: 800, cardioMinutes: 30 });
+    expect(cardioTrend).toMatchObject({ resistanceVolume: 0, completedSets: 0, cardioMinutes: 30 });
+  });
+
+  it("מחשב ממוצע מנוחה לפי שבוע מתוך סטים מתועדים בלבד", () => {
+    const first: WorkoutSession = {
+      ...makeSession("rest-one", "2026-08-16", "100"),
+      sets: [
+        { id: "a", exerciseId: "סקוואט", setNumber: 1, weight: "100", reps: "8", completed: true, restSeconds: 60 },
+        { id: "b", exerciseId: "סקוואט", setNumber: 2, weight: "90", reps: "10", completed: true, restSeconds: 120 },
+      ],
+    };
+    const next: WorkoutSession = {
+      ...makeSession("rest-two", "2026-08-23", "100"),
+      sets: [{ id: "c", exerciseId: "סקוואט", setNumber: 1, weight: "100", reps: "8", completed: true, restSeconds: 90 }],
+    };
+    const noRest = makeSession("no-rest", "2026-08-24", "100");
+    expect(buildWeeklyRestTrends([first, noRest, next])).toEqual([
+      expect.objectContaining({ weekStart: "2026-08-16", averageRestSeconds: 90, measuredSets: 2 }),
+      expect.objectContaining({ weekStart: "2026-08-23", averageRestSeconds: 90, measuredSets: 1 }),
+    ]);
   });
 });

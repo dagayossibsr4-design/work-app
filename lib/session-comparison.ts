@@ -39,10 +39,17 @@ export type WorkoutSessionComparison = {
   currentMinutes: number;
   baselineDistance: number;
   currentDistance: number;
+  baselineAverageRestSeconds: number;
+  currentAverageRestSeconds: number;
   rows: ExerciseSessionComparison[];
 };
 
 const number = (value: string) => Number(value) || 0;
+
+const averageRestSeconds = (session: WorkoutSession) => {
+  const measured = session.sets.map((set) => set.restSeconds).filter((value): value is number => typeof value === "number" && value > 0);
+  return measured.length ? measured.reduce((sum, value) => sum + value, 0) / measured.length : 0;
+};
 
 export function sessionsForTemplate(sessions: WorkoutSession[], templateId: string) {
   return sessions.filter((session) => session.templateId === templateId).sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
@@ -70,7 +77,18 @@ export function compareWorkoutSessions(baseline: WorkoutSession, current: Workou
       currentReps: currentSets.reduce((sum, set) => sum + number(set.reps), 0),
     };
   });
-  return { isCardio, baselineVolume, currentVolume, baselineMinutes, currentMinutes, baselineDistance, currentDistance, rows };
+  return {
+    isCardio,
+    baselineVolume,
+    currentVolume,
+    baselineMinutes,
+    currentMinutes,
+    baselineDistance,
+    currentDistance,
+    baselineAverageRestSeconds: averageRestSeconds(baseline),
+    currentAverageRestSeconds: averageRestSeconds(current),
+    rows,
+  };
 }
 
 export function changePercent(from: number, to: number) {
