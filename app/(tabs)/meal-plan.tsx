@@ -47,6 +47,7 @@ import {
 } from "@/lib/menu-profiles";
 import { cloneMeals } from "@/lib/meal-plan-versions";
 import { foodItems, type FoodGroup } from "@/lib/food-nutrition";
+import { supabase } from "@/lib/supabase";
 
 type WaterEntry = {
   id: string;
@@ -59,10 +60,26 @@ type DailyMealSnapshot = {
   eaten: Record<string, boolean>;
 };
 
+// פונקציית עזר לנרמול קבוצות מזון (חלבון / פחמימה / שומן)
+function normalizeGroup(groupName?: string): ConversionGroup {
+  if (!groupName) return "חלבון";
+  if (groupName.includes("חלבון")) return "חלבון";
+  if (groupName.includes("פחמימ")) return "פחמימה";
+  if (groupName.includes("שומן")) return "שומן";
+  return "חלבון";
+}
+
 export default function MealPlanScreen() {
   const standalone = usePathname() === "/meals";
   const { nutritionProfile, updateNutritionProfile } = useNutritionStore();
-  const mealFoods = useMemo(() => [...(nutritionProfile.customFoods ?? []), ...foodItems], [nutritionProfile.customFoods]);
+  
+  const mealFoods = useMemo(() => {
+    const raw = [...(nutritionProfile.customFoods ?? []), ...foodItems];
+    return raw.map((item) => ({
+      ...item,
+      normalizedGroup: normalizeGroup(item.group),
+    }));
+  }, [nutritionProfile.customFoods]);
 
   const [meals, setMeals] = useState<Meal[]>(defaultMeals);
   const [eaten, setEaten] = useState<Record<string, boolean>>({});
@@ -79,7 +96,7 @@ export default function MealPlanScreen() {
   const [hydrated, setHydrated] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [savingActive, setSavingActive] = useState(false);
-  const [saveButtonText, setSaveButtonText] = useState("💾 שמור שינויים בתפריט");
+  const [saveButtonText, setSaveButtonText] = useState("💾 שמור שינויים בענן");
   const [saveButtonColor, setSaveButtonColor] = useState("#F59E0B");
   const [menuProfiles, setMenuProfiles] = useState<MenuProfiles>(() => createMenuProfiles(nutritionProfile));
   const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
@@ -94,7 +111,7 @@ export default function MealPlanScreen() {
   const [fullCarbsDraft, setFullCarbsDraft] = useState("");
   const [fullFatsDraft, setFullFatsDraft] = useState("");
 
-  // מצבי החלפת פריט והמרת ארוחה
+  // מצב המרת פריט וארוחה
   const [replacingFoodKey, setReplacingFoodKey] = useState<string | null>(null);
   const [mealConversionOpenId, setMealConversionOpenId] = useState<string | null>(null);
 
@@ -116,125 +133,106 @@ export default function MealPlanScreen() {
   const waterProgress = activeWater.goal > 0 ? Math.min(activeWater.consumed / activeWater.goal, 1) : 0;
   const mealPlanOpacity = useRef(new Animated.Value(1)).current;
 
+  // טעינת נתונים (ענן בעדיפות ראשונה, גיבוי מקומי)
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem("meal-plan-state"),
-      AsyncStorage.getItem("meal-plan-eaten-history"),
-      AsyncStorage.getItem("meal-plan-day-history"),
-      AsyncStorage.getItem("meal-plan-profiles"),
-      AsyncStorage.getItem("nutrition-water-history"),
-      AsyncStorage.getItem("nutrition-water-events"),
-    ])
-      .then(([value, eatenHistoryValue, mealHistoryValue, profiles, waterHistoryValue, waterEventsValue]) => {
-        let baseMeals = defaultMeals;
-        if (value) {
-          try {
-            const saved = JSON.parse(value) as { meals?: Meal[] };
-            if (saved.meals?.length) {
-              baseMeals = normalizeMealsTo100Grams(saved.meals);
-            }
-          } catch {}
-        }
+    async function loadData() {
+      try {
+        const { data: cloudData, error } = await supabase
+          .from("user_meal_plans")
+          .select("*")
+          .eq("date_key", todayKey())
+          .limit(1)
+          .maybeSingle();
 
-        if (mealHistoryValue) {
-          try {
-            const savedHistory = JSON.parse(mealHistoryValue) as Record<string, DailyMealSnapshot>;
-            const todaySnapshot = savedHistory[todayKey()];
-            if (todaySnapshot?.meals?.length) {
-              setMeals(normalizeMealsTo100Grams(todaySnapshot.meals));
-              setEaten(todaySnapshot.eaten ?? {});
-            } else {
-              setMeals(baseMeals);
-              setEaten({});
-            }
-            setMealHistoryByDate(savedHistory);
-          } catch {
-            setMeals(baseMeals);
+        if (!error && cloudData) {
+          if (cloudData.meals?.length > 0) {
+            setMeals(normalizeMealsTo100Grams(cloudData.meals));
           }
-        } else {
-          setMeals(baseMeals);
+          if (cloudData.eaten) setEaten(cloudData.eaten);
+          if (cloudData.profiles) setMenuProfiles(cloudData.profiles);
+          if (cloudData.water_history) setWaterHistory(cloudData.water_history);
+          if (cloudData.water_events) setWaterEvents(cloudData.water_events);
+          setHydrated(true);
+          return;
         }
+      } catch {}
 
-        if (eatenHistoryValue) {
-          try {
-            const savedHistory = JSON.parse(eatenHistoryValue) as Record<string, Record<string, boolean>>;
-            setEatenHistory(savedHistory);
-          } catch {}
+      try {
+        const [value, eatenVal, profiles, waterHist, waterEv] = await AsyncStorage.multiGet([
+          "meal-plan-state",
+          "meal-plan-eaten-history",
+          "meal-plan-profiles",
+          "nutrition-water-history",
+          "nutrition-water-events",
+        ]);
+
+        if (value[1]) {
+          const parsed = JSON.parse(value[1]);
+          if (parsed.meals?.length) setMeals(normalizeMealsTo100Grams(parsed.meals));
+          if (parsed.eaten) setEaten(parsed.eaten);
         }
+        if (profiles[1]) setMenuProfiles(JSON.parse(profiles[1]));
+        if (waterHist[1]) setWaterHistory(JSON.parse(waterHist[1]));
+        if (waterEv[1]) setWaterEvents(JSON.parse(waterEv[1]));
+      } catch {}
 
-        if (profiles) {
-          try {
-            const savedProfiles = JSON.parse(profiles) as MenuProfiles;
-            setMenuProfiles(savedProfiles);
-            const savedActive = savedProfiles[nutritionProfile.goal] ?? savedProfiles.ניטרלי;
-            if (savedActive) setActiveGoal(savedActive.goal);
-          } catch {}
-        }
+      setHydrated(true);
+    }
 
-        if (waterHistoryValue) {
-          try {
-            setWaterHistory(JSON.parse(waterHistoryValue));
-          } catch {}
-        }
-
-        if (waterEventsValue) {
-          try {
-            setWaterEvents(JSON.parse(waterEventsValue));
-          } catch {}
-        }
-
-        setHydrated(true);
-      })
-      .catch(() => setHydrated(true));
+    void loadData();
   }, []);
 
-  const persistEverything = async (overrideMeals?: Meal[]) => {
+  // סנכרון ושמירה
+  const persistToSupabase = async (overrideMeals?: Meal[]) => {
     const currentMeals = overrideMeals ?? meals;
-    const nextMealsState = JSON.stringify({
-      meals: currentMeals,
-      eaten: selectedDate === todayKey() ? eaten : eatenHistory[todayKey()] ?? {},
-    });
-    const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
-    const nextDayHistory = JSON.stringify({
-      ...mealHistoryByDate,
-      [selectedDate]: { meals: cloneMeals(currentMeals), eaten },
-    });
+    const currentEaten = selectedDate === todayKey() ? eaten : eatenHistory[todayKey()] ?? {};
 
-    try {
-      await AsyncStorage.multiSet([
-        ["meal-plan-state", nextMealsState],
-        ["meal-plan-eaten-history", nextEatenHistory],
-        ["meal-plan-day-history", nextDayHistory],
-        ["meal-plan-profiles", JSON.stringify(menuProfiles)],
-        ["nutrition-water-history", JSON.stringify(waterHistory)],
-        ["nutrition-water-events", JSON.stringify(waterEvents)],
-      ]);
-    } catch {}
+    void AsyncStorage.multiSet([
+      ["meal-plan-state", JSON.stringify({ meals: currentMeals, eaten: currentEaten })],
+      ["meal-plan-profiles", JSON.stringify(menuProfiles)],
+      ["nutrition-water-history", JSON.stringify(waterHistory)],
+      ["nutrition-water-events", JSON.stringify(waterEvents)],
+    ]).catch(() => undefined);
+
+    const payload = {
+      id: `plan-${selectedDate}`,
+      user_id: "default_user",
+      date_key: selectedDate,
+      meals: currentMeals,
+      eaten: currentEaten,
+      profiles: menuProfiles,
+      water_history: waterHistory,
+      water_events: waterEvents,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("user_meal_plans").upsert(payload, { onConflict: "id" });
+    if (error) throw error;
   };
 
   const manualSaveAction = async () => {
     if (savingActive) return;
     setSavingActive(true);
-    setSaveButtonText("⏳ שומר נתונים...");
+    setSaveButtonText("⏳ שומר בענן...");
     setSaveButtonColor("#2563EB");
     try {
-      await persistEverything();
+      await persistToSupabase();
       if (Platform.OS !== "web") {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
       }
-      setSaveButtonText("✓ נשמר בהצלחה!");
+      setSaveButtonText("✓ נשמר בענן בהצלחה!");
       setSaveButtonColor("#10B981");
       setSaveSuccessNotice(true);
       setTimeout(() => {
         setSaveSuccessNotice(false);
-        setSaveButtonText("💾 שמור שינויים בתפריט");
+        setSaveButtonText("💾 שמור שינויים בענן");
         setSaveButtonColor("#F59E0B");
       }, 2500);
     } catch {
       setSaveButtonText("! שגיאה בשמירה");
       setSaveButtonColor("#EF4444");
       setTimeout(() => {
-        setSaveButtonText("💾 שמור שינויים בתפריט");
+        setSaveButtonText("💾 שמור שינויים בענן");
         setSaveButtonColor("#F59E0B");
       }, 3000);
     } finally {
@@ -310,25 +308,30 @@ export default function MealPlanScreen() {
   };
 
   const toggleEaten = (id: string) => {
-    setEaten((current) => {
-      const next = { ...current, [id]: !current[id] };
-      return next;
-    });
+    setEaten((current) => ({ ...current, [id]: !current[id] }));
   };
 
-  const selectMealDate = (nextDate: string) => {
-    const currentSnapshot = { meals: cloneMeals(meals), eaten };
-    const nextSnapshot = mealHistoryByDate[nextDate];
-    setMealHistoryByDate((current) => ({ ...current, [selectedDate]: currentSnapshot }));
+  const selectMealDate = async (nextDate: string) => {
     setSelectedDate(nextDate);
-    if (nextSnapshot?.meals?.length) {
-      setMeals(normalizeMealsTo100Grams(nextSnapshot.meals));
-      setEaten(nextSnapshot.eaten);
-    } else {
-      setMeals(cloneMeals(defaultMeals));
-      setEaten({});
-    }
     setViewMode("planned");
+
+    try {
+      const { data } = await supabase
+        .from("user_meal_plans")
+        .select("*")
+        .eq("date_key", nextDate)
+        .limit(1)
+        .maybeSingle();
+
+      if (data?.meals?.length) {
+        setMeals(normalizeMealsTo100Grams(data.meals));
+        setEaten(data.eaten ?? {});
+        return;
+      }
+    } catch {}
+
+    setMeals(cloneMeals(defaultMeals));
+    setEaten({});
   };
 
   const changeSelectedDate = (offset: number) => selectMealDate(shiftDateKey(selectedDate, offset));
@@ -365,14 +368,14 @@ export default function MealPlanScreen() {
     );
   };
 
-  // --- ניהול ארוחות: הוספה, הזזה ומחיקה ---
+  // --- ניהול ארוחות (הוספה, מחיקה, סדר ועריכת שם) ---
   const addMeal = () => {
     const mealNumber = meals.length + 1;
     const mealId = `meal-${Date.now()}`;
     const starters = [
-      foodItems.find((item) => item.group === "חלבון") ?? foodItems[0],
-      foodItems.find((item) => item.group === "פחמימה") ?? foodItems[1],
-      foodItems.find((item) => item.group === "שומן") ?? foodItems[2],
+      mealFoods.find((item) => item.normalizedGroup === "חלבון") ?? mealFoods[0],
+      mealFoods.find((item) => item.normalizedGroup === "פחמימה") ?? mealFoods[1],
+      mealFoods.find((item) => item.normalizedGroup === "שומן") ?? mealFoods[2],
     ];
     const starterGrams = [150, 180, 10];
     const nextMeal: Meal = {
@@ -390,7 +393,7 @@ export default function MealPlanScreen() {
     const nextMeals = [...meals, nextMeal];
     setMeals(nextMeals);
     setExpandedMealIds((current) => [...current, nextMeal.id]);
-    void persistEverything(nextMeals);
+    void persistToSupabase(nextMeals);
   };
 
   const deleteMeal = (meal: Meal) => {
@@ -399,7 +402,7 @@ export default function MealPlanScreen() {
     setMeals(nextMeals);
     setExpandedMealIds((current) => current.filter((id) => id !== meal.id));
     if (editingMealId === meal.id) cancelMealEdit();
-    void persistEverything(nextMeals);
+    void persistToSupabase(nextMeals);
   };
 
   const moveMeal = (mealId: string, direction: -1 | 1) => {
@@ -410,7 +413,7 @@ export default function MealPlanScreen() {
     const [movedItem] = next.splice(index, 1);
     next.splice(nextIndex, 0, movedItem);
     setMeals(next);
-    void persistEverything(next);
+    void persistToSupabase(next);
   };
 
   const beginMealEdit = (meal: Meal) => {
@@ -426,7 +429,7 @@ export default function MealPlanScreen() {
     setMeals(next);
     setEditingMealId(null);
     setMealFoodSearch("");
-    void persistEverything(next);
+    void persistToSupabase(next);
   };
 
   const cancelMealEdit = () => {
@@ -446,7 +449,7 @@ export default function MealPlanScreen() {
     setAddFoodGroupFilter(group);
   };
 
-  // --- המרה מדויקת של פריט בפריט עם התאמת מאקרו זהה ---
+  // --- 1. המרת פריט בפריט (חישוב כמות מדויקת למאקרו זהה) ---
   const replaceFoodItem = (mealId: string, targetFoodId: string, newItem: (typeof mealFoods)[number]) => {
     const next = meals.map((meal) => {
       if (meal.id !== mealId) return meal;
@@ -457,7 +460,7 @@ export default function MealPlanScreen() {
 
           const oldMacros = mealFoodTotals(food);
           const group = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
-          
+
           let calculatedGrams = 100;
           if (group === "חלבון" && newItem.protein > 0) {
             calculatedGrams = Math.round((oldMacros.protein / newItem.protein) * 100);
@@ -486,45 +489,48 @@ export default function MealPlanScreen() {
 
     setMeals(next);
     setReplacingFoodKey(null);
-    void persistEverything(next);
+    void persistToSupabase(next);
     if (Platform.OS !== "web") {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
     }
   };
 
-  // --- המרת ארוחה שלמה לארוחה שוות ערכים תזונתיים ---
+  // --- 2. המרת ארוחה שלמה לארוחה שוות ערכים תזונתיים ---
   const convertFullMealToEquivalents = (mealId: string) => {
     const next = meals.map((meal) => {
       if (meal.id !== mealId) return meal;
 
       const convertedFoods = meal.foods.map((food) => {
         const group = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
-        const candidates = mealFoods.filter((item) => item.group === group && item.name !== food.name);
-        if (!candidates.length) return food;
+        const candidates = mealFoods.filter(
+          (item) => item.normalizedGroup === group && item.name !== food.name
+        );
+        const selectedAlternative = candidates.length > 0
+          ? candidates[Math.floor(Math.random() * candidates.length)]
+          : mealFoods.find((item) => item.name !== food.name) ?? mealFoods[0];
 
-        const randomAlternative = candidates[Math.floor(Math.random() * candidates.length)];
         const oldMacros = mealFoodTotals(food);
 
         let calculatedGrams = 100;
-        if (group === "חלבון" && randomAlternative.protein > 0) {
-          calculatedGrams = Math.round((oldMacros.protein / randomAlternative.protein) * 100);
-        } else if (group === "פחמימה" && randomAlternative.carbohydrates > 0) {
-          calculatedGrams = Math.round((oldMacros.carbohydrates / randomAlternative.carbohydrates) * 100);
-        } else if (group === "שומן" && randomAlternative.fats > 0) {
-          calculatedGrams = Math.round((oldMacros.fats / randomAlternative.fats) * 100);
-        } else if (randomAlternative.calories > 0) {
-          calculatedGrams = Math.round((oldMacros.calories / randomAlternative.calories) * 100);
+        if (group === "חלבון" && selectedAlternative.protein > 0) {
+          calculatedGrams = Math.round((oldMacros.protein / selectedAlternative.protein) * 100);
+        } else if (group === "פחמימה" && selectedAlternative.carbohydrates > 0) {
+          calculatedGrams = Math.round((oldMacros.carbohydrates / selectedAlternative.carbohydrates) * 100);
+        } else if (group === "שומן" && selectedAlternative.fats > 0) {
+          calculatedGrams = Math.round((oldMacros.fats / selectedAlternative.fats) * 100);
+        } else if (selectedAlternative.calories > 0) {
+          calculatedGrams = Math.round((oldMacros.calories / selectedAlternative.calories) * 100);
         }
 
         calculatedGrams = Math.max(5, calculatedGrams);
-        const macros = macrosForGrams(randomAlternative, calculatedGrams);
+        const macros = macrosForGrams(selectedAlternative, calculatedGrams);
 
         return {
           ...food,
-          id: `${randomAlternative.id}-${mealId}-${Date.now()}-${Math.random()}`,
-          name: randomAlternative.name,
+          id: `${selectedAlternative.id}-${mealId}-${Date.now()}-${Math.random()}`,
+          name: selectedAlternative.name,
           quantity: `${calculatedGrams} גרם`,
-          reference: randomAlternative.reference,
+          reference: selectedAlternative.reference,
           ...macros,
         };
       });
@@ -534,7 +540,7 @@ export default function MealPlanScreen() {
 
     setMeals(next);
     setMealConversionOpenId(null);
-    void persistEverything(next);
+    void persistToSupabase(next);
     if (Platform.OS !== "web") {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     }
@@ -549,7 +555,7 @@ export default function MealPlanScreen() {
           if (food.id !== foodId) return food;
           const match = quantity.match(/^([0-9]+(?:\.[0-9]+)?)/);
           const grams = match ? Number(match[1]) : 100;
-          const baseItem = foodItems.find((i) => i.name === food.name) ?? {
+          const baseItem = mealFoods.find((i) => i.name === food.name) ?? {
             calories: 100,
             protein: 10,
             carbohydrates: 10,
@@ -573,7 +579,7 @@ export default function MealPlanScreen() {
     const parsed = match ? Number(match[1]) : 100;
     const normalized = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * 10) / 10) : 100;
     updateMealFoodQuantity(mealId, foodId, `${normalized} גרם`);
-    void persistEverything();
+    void persistToSupabase();
   };
 
   const saveFullFoodMacros = (mealId: string, foodId: string) => {
@@ -595,7 +601,7 @@ export default function MealPlanScreen() {
     });
     setMeals(next);
     setEditingFullFoodKey(null);
-    void persistEverything(next);
+    void persistToSupabase(next);
   };
 
   const removeMealFood = (mealId: string, foodId: string) => {
@@ -605,7 +611,7 @@ export default function MealPlanScreen() {
       item.id !== mealId ? item : { ...item, foods: item.foods.filter((food) => food.id !== foodId) }
     );
     setMeals(next);
-    void persistEverything(next);
+    void persistToSupabase(next);
   };
 
   const addFoodToMeal = (mealId: string, item: (typeof mealFoods)[number]) => {
@@ -631,11 +637,11 @@ export default function MealPlanScreen() {
           }
     );
     setMeals(next);
-    void persistEverything(next);
+    void persistToSupabase(next);
   };
 
   const filteredMealFoods = mealFoods
-    .filter((item) => !addFoodGroupFilter || item.group === addFoodGroupFilter)
+    .filter((item) => !addFoodGroupFilter || item.normalizedGroup === normalizeGroup(addFoodGroupFilter))
     .filter((item) => `${item.name} ${item.group} ${item.reference}`.includes(mealFoodSearch.trim()))
     .slice(0, 20);
 
@@ -646,16 +652,16 @@ export default function MealPlanScreen() {
         style={styles.mealPlanScroll}
         scrollEnabled={true}
         showsVerticalScrollIndicator={true}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         contentContainerStyle={styles.content}
       >
         <View style={styles.header}>
           {standalone ? (
-            <Pressable onPress={() => router.back()} style={styles.menuButton}>
+            <Pressable hitSlop={12} onPress={() => router.back()} style={styles.menuButton}>
               <Text style={styles.menuText}>‹ חזרה</Text>
             </Pressable>
           ) : (
-            <Pressable onPress={() => router.push("/menu")} style={styles.menuButton}>
+            <Pressable hitSlop={12} onPress={() => router.push("/menu")} style={styles.menuButton}>
               <Text style={styles.menuText}>☰ תפריט</Text>
             </Pressable>
           )}
@@ -666,6 +672,7 @@ export default function MealPlanScreen() {
           </Text>
 
           <Pressable
+            hitSlop={12}
             onPress={manualSaveAction}
             disabled={savingActive}
             style={[styles.mainSaveButton, { backgroundColor: saveButtonColor }, savingActive && styles.busyButton]}
@@ -679,21 +686,22 @@ export default function MealPlanScreen() {
 
           {saveSuccessNotice ? (
             <View style={styles.saveSuccessBanner}>
-              <Text style={styles.saveSuccessBannerText}>✓ התפריט, הערכים והארוחות נשמרו בהצלחה!</Text>
+              <Text style={styles.saveSuccessBannerText}>✓ התפריט והערכים נשמרו ב-Supabase בהצלחה!</Text>
             </View>
           ) : null}
 
           <View style={styles.datePicker}>
-            <Pressable onPress={() => changeSelectedDate(-1)} style={styles.dateButton}>
+            <Pressable hitSlop={12} onPress={() => changeSelectedDate(-1)} style={styles.dateButton}>
               <Text style={styles.dateButtonText}>‹</Text>
             </Pressable>
-            <Pressable onPress={openCalendar} style={styles.dateCenter}>
+            <Pressable hitSlop={12} onPress={openCalendar} style={styles.dateCenter}>
               <Text style={styles.dateLabel}>
                 {selectedDate === todayKey() ? "היום" : formatDateLabel(selectedDate)}
               </Text>
               <Text style={styles.dateHint}>לחץ לפתיחת לוח שנה</Text>
             </Pressable>
             <Pressable
+              hitSlop={12}
               disabled={selectedDate === todayKey()}
               onPress={() => changeSelectedDate(1)}
               style={[styles.dateButton, selectedDate === todayKey() && styles.dateButtonDisabled]}
@@ -708,6 +716,7 @@ export default function MealPlanScreen() {
             <View style={styles.calendarModal}>
               <View style={styles.calendarHeader}>
                 <Pressable
+                  hitSlop={10}
                   onPress={() => setCalendarMonthKey(shiftMonthKey(calendarMonthKey, 1))}
                   style={styles.calendarNav}
                 >
@@ -715,6 +724,7 @@ export default function MealPlanScreen() {
                 </Pressable>
                 <Text style={styles.calendarTitle}>{formatMonthLabel(calendarMonthKey)}</Text>
                 <Pressable
+                  hitSlop={10}
                   onPress={() => setCalendarMonthKey(shiftMonthKey(calendarMonthKey, -1))}
                   style={styles.calendarNav}
                 >
@@ -732,13 +742,11 @@ export default function MealPlanScreen() {
                 {calendarCells.map((dateKey, index) => {
                   const isFuture = Boolean(dateKey && dateKey > todayKey());
                   const isSelected = dateKey === calendarDraftDate;
-                  const hasData = Boolean(
-                    dateKey && eatenHistory[dateKey] && Object.values(eatenHistory[dateKey]).some(Boolean)
-                  );
                   return (
                     <View key={`${dateKey ?? "empty"}-${index}`} style={styles.calendarCell}>
                       {dateKey ? (
                         <Pressable
+                          hitSlop={8}
                           disabled={isFuture}
                           onPress={() => setCalendarDraftDate(dateKey)}
                           style={[
@@ -756,7 +764,6 @@ export default function MealPlanScreen() {
                           >
                             {Number(dateKey.slice(-2))}
                           </Text>
-                          {hasData ? <View style={styles.calendarDataDot} /> : null}
                         </Pressable>
                       ) : null}
                     </View>
@@ -764,10 +771,10 @@ export default function MealPlanScreen() {
                 })}
               </View>
               <View style={styles.calendarActions}>
-                <Pressable onPress={() => setCalendarOpen(false)} style={styles.calendarCancel}>
+                <Pressable hitSlop={10} onPress={() => setCalendarOpen(false)} style={styles.calendarCancel}>
                   <Text style={styles.calendarCancelText}>ביטול</Text>
                 </Pressable>
-                <Pressable onPress={confirmCalendarDate} style={styles.calendarConfirm}>
+                <Pressable hitSlop={10} onPress={confirmCalendarDate} style={styles.calendarConfirm}>
                   <Text style={styles.calendarConfirmText}>אישור תאריך</Text>
                 </Pressable>
               </View>
@@ -775,7 +782,7 @@ export default function MealPlanScreen() {
           </View>
         </Modal>
 
-        {/* 💧 רכיב מעקב המים */}
+        {/* 💧 מעקב שתיית מים */}
         <View style={styles.waterCard}>
           <View style={styles.waterHeader}>
             <View style={styles.waterHeaderCopy}>
@@ -815,13 +822,18 @@ export default function MealPlanScreen() {
           </View>
           <View style={styles.waterQuickRow}>
             {[200, 250, 330, 500, 750].map((amount) => (
-              <Pressable key={amount} onPress={() => addWater(amount)} style={styles.waterQuickButton}>
+              <Pressable
+                key={amount}
+                hitSlop={8}
+                onPress={() => addWater(amount)}
+                style={styles.waterQuickButton}
+              >
                 <Text style={styles.waterQuickButtonText}>+{amount} מ״ל</Text>
               </Pressable>
             ))}
           </View>
           <View style={styles.waterSettingsRow}>
-            <Pressable onPress={resetWater} style={styles.waterResetButton}>
+            <Pressable hitSlop={10} onPress={resetWater} style={styles.waterResetButton}>
               <Text style={styles.waterResetText}>איפוס</Text>
             </Pressable>
             <View style={styles.waterGoalEditor}>
@@ -846,6 +858,7 @@ export default function MealPlanScreen() {
             {(["מסה", "חיטוב", "ניטרלי"] as const).map((goal) => (
               <Pressable
                 key={goal}
+                hitSlop={8}
                 onPress={() => selectGoal(goal)}
                 style={[styles.goalButton, activeGoal === goal && styles.goalButtonActive]}
               >
@@ -854,23 +867,39 @@ export default function MealPlanScreen() {
             ))}
           </View>
           <View style={styles.profileFields}>
-            <ProfileField label="קלוריות" value={activeProfile.calories} onChange={(value) => patchActiveProfile({ calories: value })} />
-            <ProfileField label="חלבון (ג׳)" value={activeProfile.protein} onChange={(value) => patchActiveProfile({ protein: value })} />
-            <ProfileField label="פחמימות (ג׳)" value={activeProfile.carbohydrates} onChange={(value) => patchActiveProfile({ carbohydrates: value })} />
-            <ProfileField label="שומן (ג׳)" value={activeProfile.fats} onChange={(value) => patchActiveProfile({ fats: value })} />
+            <ProfileField
+              label="קלוריות"
+              value={activeProfile.calories}
+              onChange={(value) => patchActiveProfile({ calories: value })}
+            />
+            <ProfileField
+              label="חלבון (ג׳)"
+              value={activeProfile.protein}
+              onChange={(value) => patchActiveProfile({ protein: value })}
+            />
+            <ProfileField
+              label="פחמימות (ג׳)"
+              value={activeProfile.carbohydrates}
+              onChange={(value) => patchActiveProfile({ carbohydrates: value })}
+            />
+            <ProfileField
+              label="שומן (ג׳)"
+              value={activeProfile.fats}
+              onChange={(value) => patchActiveProfile({ fats: value })}
+            />
           </View>
-          <Pressable onPress={completeActiveProfile} style={styles.completeButton}>
+          <Pressable hitSlop={10} onPress={completeActiveProfile} style={styles.completeButton}>
             <Text style={styles.completeText}>השלם אוטומטית לפי הקלוריות</Text>
           </Pressable>
         </View>
 
-        {/* 📋 ניהול והוספת ארוחות */}
+        {/* 📋 ניהול ארוחות */}
         <View style={styles.mealManagement}>
           <View style={styles.mealManagementHeader}>
             <Text style={styles.mealManagementTitle}>ניהול ארוחות</Text>
             <Text style={styles.mealManagementHint}>{meals.length} ארוחות בתפריט</Text>
           </View>
-          <Pressable onPress={addMeal} style={styles.addMealButton}>
+          <Pressable hitSlop={10} onPress={addMeal} style={styles.addMealButton}>
             <Text style={styles.addMealButtonText}>＋ הוסף ארוחה חדשה</Text>
           </Pressable>
         </View>
@@ -886,6 +915,7 @@ export default function MealPlanScreen() {
               <View key={meal.id} style={[styles.meal, isExpanded && styles.mealActive]}>
                 {/* כותרת ארוחה */}
                 <Pressable
+                  hitSlop={8}
                   onPress={() => toggleMeal(meal.id)}
                   style={({ pressed }) => [
                     styles.mealHeader,
@@ -899,8 +929,12 @@ export default function MealPlanScreen() {
                   </Text>
                   <View style={styles.mealTitleRow}>
                     <Text style={[styles.mealTitle, isExpanded && styles.mealTitleActive]}>{meal.title}</Text>
-                    <View style={[styles.mealFoodCountBadge, isExpanded && styles.mealFoodCountBadgeActive]}>
-                      <Text style={[styles.mealFoodCountText, isExpanded && styles.mealFoodCountTextActive]}>
+                    <View
+                      style={[styles.mealFoodCountBadge, isExpanded && styles.mealFoodCountBadgeActive]}
+                    >
+                      <Text
+                        style={[styles.mealFoodCountText, isExpanded && styles.mealFoodCountTextActive]}
+                      >
                         {meal.foods.length} {meal.foods.length === 1 ? "רכיב" : "רכיבים"}
                       </Text>
                     </View>
@@ -910,9 +944,10 @@ export default function MealPlanScreen() {
                   </Text>
                 </Pressable>
 
-                {/* פעולות מהירות לארוחה (הזזה, מחיקה, שינוי שם) */}
+                {/* פעולות ארוחה */}
                 <View style={styles.mealQuickActions}>
                   <Pressable
+                    hitSlop={8}
                     onPress={() => moveMeal(meal.id, 1)}
                     disabled={mealIndex === meals.length - 1}
                     style={[styles.mealMoveButton, mealIndex === meals.length - 1 && styles.disabledAction]}
@@ -920,16 +955,18 @@ export default function MealPlanScreen() {
                     <Text style={styles.mealMoveText}>↓</Text>
                   </Pressable>
                   <Pressable
+                    hitSlop={8}
                     onPress={() => moveMeal(meal.id, -1)}
                     disabled={mealIndex === 0}
                     style={[styles.mealMoveButton, mealIndex === 0 && styles.disabledAction]}
                   >
                     <Text style={styles.mealMoveText}>↑</Text>
                   </Pressable>
-                  <Pressable onPress={() => deleteMeal(meal)} style={styles.deleteMealButton}>
+                  <Pressable hitSlop={8} onPress={() => deleteMeal(meal)} style={styles.deleteMealButton}>
                     <Text style={styles.deleteMealText}>מחק ארוחה</Text>
                   </Pressable>
                   <Pressable
+                    hitSlop={8}
                     onPress={() => (isEditing ? cancelMealEdit() : beginMealEdit(meal))}
                     style={styles.mealEditButton}
                   >
@@ -937,7 +974,6 @@ export default function MealPlanScreen() {
                   </Pressable>
                 </View>
 
-                {/* תיבת עריכת שם ארוחה */}
                 {isEditing ? (
                   <View style={styles.editingMealBox}>
                     <TextInput
@@ -948,10 +984,10 @@ export default function MealPlanScreen() {
                       style={styles.mealTitleInput}
                     />
                     <View style={styles.editingMealActions}>
-                      <Pressable onPress={() => saveMealEdit(meal.id)} style={styles.mealSaveButton}>
+                      <Pressable hitSlop={8} onPress={() => saveMealEdit(meal.id)} style={styles.mealSaveButton}>
                         <Text style={styles.mealSaveText}>שמור שם</Text>
                       </Pressable>
-                      <Pressable onPress={cancelMealEdit} style={styles.mealCancelButton}>
+                      <Pressable hitSlop={8} onPress={cancelMealEdit} style={styles.mealCancelButton}>
                         <Text style={styles.mealCancelText}>בטל</Text>
                       </Pressable>
                     </View>
@@ -960,28 +996,47 @@ export default function MealPlanScreen() {
 
                 {isExpanded ? (
                   <View style={styles.mealFoodEditor}>
-                    {/* המרת ארוחה שלמה */}
+                    {/* המרת ארוחה שלמה - פתיחה ארוכה וברורה */}
                     <View style={styles.mealConversionBlock}>
                       <Pressable
+                        hitSlop={10}
                         onPress={() => setMealConversionOpenId(isConversionOpen ? null : meal.id)}
                         style={styles.mealConversionHeader}
                       >
-                        <View>
-                          <Text style={styles.mealConversionTitle}>🔄 המרת ארוחה שלמה</Text>
-                          <Text style={styles.mealConversionSubtitle}>המרת כל הרכיבים לתחליפים עם אותם ערכים תזונתיים</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.mealConversionTitle}>🔄 המרת ארוחה שלמה לתפריט חלופי</Text>
+                          <Text style={styles.mealConversionSubtitle}>
+                            המרה אוטומטית ששומרת בדיוק על אותם ערכי חלבון, פחמימה, שומן וקלוריות
+                          </Text>
                         </View>
                         <Text style={styles.mealConversionToggle}>{isConversionOpen ? "סגור ‹" : "פתח ›"}</Text>
                       </Pressable>
+
                       {isConversionOpen ? (
                         <View style={styles.mealConversionContent}>
                           <Text style={styles.mealConversionDesc}>
-                            פעולה זו תחליף את רכיבי הארוחה במוצרים מקבילים ותחשב אוטומטית כמויות לשמירה על אותם ערכי חלבון, פחמימה ושומן.
+                            פעולה זו תמיר את כל רכיבי הארוחה בתחליפים שווי-ערך ותחשב את הגרמים הנדרשים אוטומטית.
                           </Text>
+
+                          <View style={styles.mealConversionDetailsList}>
+                            <Text style={styles.mealConversionListTitle}>רכיבי הארוחה שיוחלפו:</Text>
+                            {meal.foods.map((food) => {
+                              const group = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
+                              return (
+                                <View key={food.id} style={styles.conversionFoodRow}>
+                                  <Text style={styles.conversionFoodText}>• {food.name} ({food.quantity})</Text>
+                                  <Text style={styles.conversionFoodBadge}>{group}</Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+
                           <Pressable
+                            hitSlop={10}
                             onPress={() => convertFullMealToEquivalents(meal.id)}
                             style={styles.applyConversionButton}
                           >
-                            <Text style={styles.applyConversionButtonText}>המר ארוחה לתחליפים שווי ערך</Text>
+                            <Text style={styles.applyConversionButtonText}>✨ בצע המרת ארוחה כעת</Text>
                           </Pressable>
                         </View>
                       ) : null}
@@ -992,7 +1047,7 @@ export default function MealPlanScreen() {
                       <Text style={styles.mealFoodListCount}>{meal.foods.length} רכיבים</Text>
                     </View>
 
-                    {/* רשימת הפריטים בארוחה */}
+                    {/* רשימת פריטי הארוחה */}
                     {meal.foods.map((food) => {
                       const macroGroup = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
                       const weightMode = food.weightMode ?? "cooked";
@@ -1006,13 +1061,19 @@ export default function MealPlanScreen() {
                       const isReplacing = replacingFoodKey === food.id;
                       const currentMacros = mealFoodTotals(food);
 
+                      const replacementOptions = mealFoods.filter(
+                        (item) => item.normalizedGroup === macroGroup && item.name !== food.name
+                      );
+                      const displayReplacements = replacementOptions.length > 0
+                        ? replacementOptions
+                        : mealFoods.filter((item) => item.name !== food.name);
+
                       return (
                         <View key={food.id} style={styles.food}>
                           <View style={styles.foodNameRow}>
                             <Text style={styles.foodName}>{food.name}</Text>
                           </View>
 
-                          {/* עריכת ערכים ידנית למוצר */}
                           {fullEditOpen ? (
                             <View style={styles.fullEditContainer}>
                               <Text style={styles.fullEditTitle}>עריכת ערכים תזונתיים מלאה למוצר</Text>
@@ -1056,12 +1117,14 @@ export default function MealPlanScreen() {
                               </View>
                               <View style={styles.fullEditActions}>
                                 <Pressable
+                                  hitSlop={8}
                                   onPress={() => saveFullFoodMacros(meal.id, food.id)}
                                   style={styles.fullEditSaveButton}
                                 >
                                   <Text style={styles.fullEditSaveText}>שמור ערכים</Text>
                                 </Pressable>
                                 <Pressable
+                                  hitSlop={8}
                                   onPress={() => setEditingFullFoodKey(null)}
                                   style={styles.fullEditCancelButton}
                                 >
@@ -1085,9 +1148,13 @@ export default function MealPlanScreen() {
                               {macroGroup}
                             </Text>
                             <Text style={styles.foodMeta}>
-                              {food.quantity} · {Math.round(currentMacros.calories)} קק״ל (ח׳: {Math.round(currentMacros.protein)} | פ׳: {Math.round(currentMacros.carbohydrates)} | ש׳: {Math.round(currentMacros.fats)})
+                              {food.quantity} · {Math.round(currentMacros.calories)} קק״ל (ח׳:{" "}
+                              {Math.round(currentMacros.protein)} | פ׳:{" "}
+                              {Math.round(currentMacros.carbohydrates)} | ש׳:{" "}
+                              {Math.round(currentMacros.fats)})
                             </Text>
                             <Pressable
+                              hitSlop={8}
                               onPress={() => setWeightInfoFoodId(weightInfoOpen ? null : weightInfoKey)}
                               style={styles.weightInfoButton}
                             >
@@ -1104,6 +1171,7 @@ export default function MealPlanScreen() {
                           ) : null}
 
                           <Pressable
+                            hitSlop={8}
                             onPress={() => toggleEaten(food.id)}
                             style={[styles.eatenButton, eaten[food.id] && styles.eatenButtonActive]}
                           >
@@ -1112,21 +1180,25 @@ export default function MealPlanScreen() {
                             </Text>
                           </Pressable>
 
-                          {/* מקשי פעולה: המרה, כמות, עריכת ערכים */}
+                          {/* מקשי פעולה */}
                           <View style={styles.actionButtonsRow}>
                             <Pressable
+                              hitSlop={8}
                               onPress={() => {
                                 LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                                 setReplacingFoodKey(isReplacing ? null : food.id);
                               }}
                               style={[styles.customActionButton, isReplacing && styles.activeReplaceButton]}
                             >
-                              <Text style={[styles.customActionText, isReplacing && styles.activeReplaceText]}>
-                                {isReplacing ? "סגור המרה" : `החלף ${macroGroup}`}
+                              <Text
+                                style={[styles.customActionText, isReplacing && styles.activeReplaceText]}
+                              >
+                                {isReplacing ? "✕ סגור החלפה" : `⇄ החלף ${macroGroup}`}
                               </Text>
                             </Pressable>
 
                             <Pressable
+                              hitSlop={8}
                               onPress={() => {
                                 if (quantityEditOpen) {
                                   setEditingQuantityKey(null);
@@ -1144,6 +1216,7 @@ export default function MealPlanScreen() {
                             </Pressable>
 
                             <Pressable
+                              hitSlop={8}
                               onPress={() => {
                                 setFullCaloriesDraft(String(currentMacros.calories));
                                 setFullProteinDraft(String(currentMacros.protein));
@@ -1157,38 +1230,39 @@ export default function MealPlanScreen() {
                             </Pressable>
                           </View>
 
-                          {/* פאנל המרת פריט בודד */}
+                          {/* פאנל בחירת פריט חלופי (ללא נעילות Scroll) */}
                           {isReplacing ? (
                             <View style={styles.replacementBox}>
                               <Text style={styles.replacementTitle}>
-                                בחר תחליף עבור {food.name} (שומר על {macroGroup}):
+                                בחר תחליף {macroGroup} עבור {food.name}:
                               </Text>
-                              <ScrollView nestedScrollEnabled style={styles.replacementScrollList}>
-                                {mealFoods
-                                  .filter((item) => item.group === macroGroup && item.name !== food.name)
-                                  .map((item) => (
-                                    <Pressable
-                                      key={item.id}
-                                      onPress={() => replaceFoodItem(meal.id, food.id, item)}
-                                      style={styles.replacementOption}
-                                    >
-                                      <Text style={styles.replacementOptionText}>⇄ {item.name}</Text>
-                                      <Text style={styles.replacementOptionMeta}>
-                                        {item.calories} קק״ל / 100ג׳ (ח: {item.protein}ג׳ | פ: {item.carbohydrates}ג׳)
-                                      </Text>
-                                    </Pressable>
-                                  ))}
-                              </ScrollView>
+                              <View style={styles.replacementItemsContainer}>
+                                {displayReplacements.slice(0, 15).map((item) => (
+                                  <Pressable
+                                    key={item.id}
+                                    hitSlop={8}
+                                    onPress={() => replaceFoodItem(meal.id, food.id, item)}
+                                    style={styles.replacementOption}
+                                  >
+                                    <Text style={styles.replacementOptionText}>⇄ {item.name}</Text>
+                                    <Text style={styles.replacementOptionMeta}>
+                                      {item.calories} קק״ל (100ג׳) · {item.group}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                              </View>
                             </View>
                           ) : null}
 
-                          {/* עריכת כמות גרמים */}
                           {quantityEditOpen ? (
                             <View style={styles.foodEdit}>
                               <View style={styles.quantityStepper}>
                                 <Pressable
+                                  hitSlop={6}
                                   onPress={() => {
-                                    const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
+                                    const cur = Number(
+                                      food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100
+                                    );
                                     const next = Math.max(0, cur - 10);
                                     updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
                                   }}
@@ -1197,8 +1271,11 @@ export default function MealPlanScreen() {
                                   <Text style={styles.quantityStepText}>−10</Text>
                                 </Pressable>
                                 <Pressable
+                                  hitSlop={6}
                                   onPress={() => {
-                                    const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
+                                    const cur = Number(
+                                      food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100
+                                    );
                                     const next = cur + 10;
                                     updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
                                   }}
@@ -1222,6 +1299,7 @@ export default function MealPlanScreen() {
                                 style={[styles.quantityInput, styles.quantityInputEditable]}
                               />
                               <Pressable
+                                hitSlop={8}
                                 onPress={() => {
                                   saveMealFoodQuantity(meal.id, food.id, quantityDraft);
                                   Keyboard.dismiss();
@@ -1236,6 +1314,7 @@ export default function MealPlanScreen() {
 
                           {meal.foods.length > 1 ? (
                             <Pressable
+                              hitSlop={8}
                               onPress={() => removeMealFood(meal.id, food.id)}
                               style={styles.removeMealFoodButton}
                             >
@@ -1246,7 +1325,6 @@ export default function MealPlanScreen() {
                       );
                     })}
 
-                    {/* סיכום ארוחה */}
                     <View style={styles.mealSummaryFooter}>
                       <Text style={styles.mealSummaryTitle}>סיכום הארוחה</Text>
                       <View style={styles.mealSummaryValues}>
@@ -1259,7 +1337,7 @@ export default function MealPlanScreen() {
                   </View>
                 ) : null}
 
-                {/* הוספת פריט מזון חדש לארוחה */}
+                {/* הוספת רכיב */}
                 <View style={styles.mealActions}>
                   <View style={styles.addFoodRow}>
                     <Text style={styles.addFoodRowTitle}>הוסף רכיב לארוחה</Text>
@@ -1267,6 +1345,7 @@ export default function MealPlanScreen() {
                       {(["חלבון", "פחמימה", "שומן"] as FoodGroup[]).map((group) => (
                         <Pressable
                           key={group}
+                          hitSlop={8}
                           onPress={() => openMealFoodGroup(meal, group)}
                           style={[
                             styles.addGroupButtonCustom,
@@ -1296,6 +1375,7 @@ export default function MealPlanScreen() {
                           {filteredMealFoods.map((item) => (
                             <Pressable
                               key={item.id}
+                              hitSlop={8}
                               onPress={() => {
                                 addFoodToMeal(meal.id, item);
                                 setAddFoodGroupFilter(null);
@@ -1320,13 +1400,14 @@ export default function MealPlanScreen() {
           })}
         </Animated.View>
 
-        {/* סיכום יומי כולל */}
+        {/* סיכום יומי */}
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>
             {viewMode === "planned" ? "תפריט מתוכנן" : "מה שנאכל היום"} · יעד {targetCalories || "—"} קק״ל
           </Text>
           <View style={styles.viewModeRow}>
             <Pressable
+              hitSlop={8}
               onPress={() => setViewMode("planned")}
               style={[styles.viewModeButton, viewMode === "planned" && styles.viewModeButtonActive]}
             >
@@ -1335,6 +1416,7 @@ export default function MealPlanScreen() {
               </Text>
             </Pressable>
             <Pressable
+              hitSlop={8}
               onPress={() => setViewMode("eaten")}
               style={[styles.viewModeButton, viewMode === "eaten" && styles.viewModeButtonActive]}
             >
@@ -1371,7 +1453,9 @@ function shiftMonthKey(monthKey: string, offset: number) {
 
 function formatMonthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
-  return new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  return new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric" }).format(
+    new Date(year, month - 1, 1)
+  );
 }
 
 function shiftDateKey(dateKey: string, offset: number) {
@@ -1387,7 +1471,7 @@ function formatDateLabel(dateKey: string) {
 
 function foodMacroLabel(name: string, protein: number, carbohydrates: number, fats: number): ConversionGroup {
   const source = sourceForFood(name);
-  if (source) return source.group;
+  if (source) return normalizeGroup(source.group);
   const values: [ConversionGroup, number][] = [
     ["חלבון", protein],
     ["פחמימה", carbohydrates],
@@ -1396,7 +1480,15 @@ function foodMacroLabel(name: string, protein: number, carbohydrates: number, fa
   return values.sort((a, b) => b[1] - a[1])[0][0];
 }
 
-function ProfileField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function ProfileField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <View style={styles.profileField}>
       <Text style={styles.profileLabel}>{label}</Text>
@@ -1408,7 +1500,7 @@ function ProfileField({ label, value, onChange }: { label: string; value: string
           style={styles.profileInput}
         />
         {value ? (
-          <Pressable onPress={() => onChange("")} style={styles.clearProfileFieldButton}>
+          <Pressable hitSlop={6} onPress={() => onChange("")} style={styles.clearProfileFieldButton}>
             <Text style={styles.clearProfileFieldText}>נקה</Text>
           </Pressable>
         ) : null}
@@ -1433,20 +1525,64 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#60A5FA", fontSize: 13, fontWeight: "800" },
   title: { color: "#FFFFFF", fontSize: 30, fontWeight: "900" },
   subtitle: { color: "#CBD5E1", fontSize: 13, marginTop: 5 },
-  mainSaveButton: { alignSelf: "stretch", minHeight: 50, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 12 },
+  mainSaveButton: {
+    alignSelf: "stretch",
+    minHeight: 50,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+  },
   mainSaveButtonText: { color: "#000000", fontSize: 16, fontWeight: "900", writingDirection: "rtl" },
-  saveSuccessBanner: { alignSelf: "stretch", minHeight: 44, borderRadius: 10, backgroundColor: "#064E3B", borderColor: "#10B981", borderWidth: 1, alignItems: "center", justifyContent: "center", marginTop: 8 },
+  saveSuccessBanner: {
+    alignSelf: "stretch",
+    minHeight: 44,
+    borderRadius: 10,
+    backgroundColor: "#064E3B",
+    borderColor: "#10B981",
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+  },
   saveSuccessBannerText: { color: "#D1FAE5", fontSize: 13, fontWeight: "900", writingDirection: "rtl" },
   busyButton: { opacity: 0.6 },
-  menuButton: { backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 8 },
+  menuButton: {
+    backgroundColor: "#1E293B",
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginBottom: 8,
+  },
   menuText: { color: "#60A5FA", fontWeight: "900", fontSize: 12 },
-  datePicker: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", alignSelf: "stretch", marginTop: 12, backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
+  datePicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    alignSelf: "stretch",
+    marginTop: 12,
+    backgroundColor: "#132137",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
   dateCenter: { alignItems: "center", gap: 2, flex: 1 },
   calendarBackdrop: { flex: 1, backgroundColor: "rgba(3, 8, 18, 0.85)", justifyContent: "center", padding: 20 },
   calendarModal: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 18, padding: 16, gap: 12 },
   calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   calendarTitle: { color: "#FFFFFF", fontSize: 18, fontWeight: "900" },
-  calendarNav: { width: 36, height: 36, borderRadius: 9, backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center" },
+  calendarNav: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    backgroundColor: "#1E293B",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   calendarNavText: { color: "#60A5FA", fontSize: 24, lineHeight: 28, fontWeight: "900" },
   weekdayRow: { flexDirection: "row-reverse" },
   weekday: { flex: 1, color: "#94A3B8", fontSize: 11, fontWeight: "800", textAlign: "center" },
@@ -1458,18 +1594,42 @@ const styles = StyleSheet.create({
   calendarDayText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
   calendarDayTextSelected: { color: "#FFFFFF", fontWeight: "900" },
   calendarDayTextDisabled: { color: "#64748B" },
-  calendarDataDot: { position: "absolute", bottom: 2, width: 4, height: 4, borderRadius: 2, backgroundColor: "#60A5FA" },
   calendarActions: { flexDirection: "row-reverse", gap: 8 },
-  calendarCancel: { flex: 1, borderColor: "#475569", borderWidth: 1, borderRadius: 9, paddingVertical: 10, alignItems: "center", backgroundColor: "#1E293B" },
+  calendarCancel: {
+    flex: 1,
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "#1E293B",
+  },
   calendarCancelText: { color: "#F1F5F9", fontWeight: "800", fontSize: 12 },
   calendarConfirm: { flex: 1, backgroundColor: "#3B82F6", borderRadius: 9, paddingVertical: 10, alignItems: "center" },
   calendarConfirmText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
-  dateButton: { width: 34, height: 34, borderRadius: 8, backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center", borderColor: "#475569", borderWidth: 1 },
+  dateButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: "#1E293B",
+    alignItems: "center",
+    justifyContent: "center",
+    borderColor: "#475569",
+    borderWidth: 1,
+  },
   dateButtonDisabled: { opacity: 0.35 },
   dateButtonText: { color: "#60A5FA", fontSize: 22, lineHeight: 26, fontWeight: "900" },
   dateLabel: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
   dateHint: { color: "#94A3B8", fontSize: 10 },
-  waterCard: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10, writingDirection: "rtl" },
+  waterCard: {
+    backgroundColor: "#132137",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+    writingDirection: "rtl",
+  },
   waterHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between" },
   waterHeaderCopy: { flex: 1, gap: 3 },
   waterIcon: { color: "#38BDF8", fontSize: 24, fontWeight: "900" },
@@ -1481,21 +1641,66 @@ const styles = StyleSheet.create({
   waterStatValue: { color: "#FFFFFF", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   waterStatValueDone: { color: "#10B981" },
   waterStatLabel: { color: "#94A3B8", fontSize: 10, textAlign: "right" },
-  waterProgressTrack: { height: 16, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 10, overflow: "hidden" },
+  waterProgressTrack: {
+    height: 16,
+    backgroundColor: "#09111D",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
   waterProgressFill: { height: "100%", backgroundColor: "#0284C7", borderRadius: 8 },
   waterProgressFillDone: { backgroundColor: "#10B981" },
   waterQuickRow: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 7 },
-  waterQuickButton: { flex: 1, minWidth: 50, minHeight: 38, borderRadius: 8, backgroundColor: "#1E293B", borderColor: "#334E68", borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  waterQuickButton: {
+    flex: 1,
+    minWidth: 50,
+    minHeight: 38,
+    borderRadius: 8,
+    backgroundColor: "#1E293B",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   waterQuickButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900", writingDirection: "rtl" },
   waterSettingsRow: { flexDirection: "row-reverse", alignItems: "flex-end", gap: 8, marginTop: 4 },
-  waterResetButton: { borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: "#1E293B", justifyContent: "center" },
+  waterResetButton: {
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: "#1E293B",
+    justifyContent: "center",
+  },
   waterResetText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
   waterGoalEditor: { flex: 1 },
-  waterGoalInput: { minHeight: 38, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", paddingHorizontal: 10, textAlign: "right", writingDirection: "rtl", fontSize: 12, fontWeight: "700" },
+  waterGoalInput: {
+    minHeight: 38,
+    backgroundColor: "#09111D",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 8,
+    color: "#FFFFFF",
+    paddingHorizontal: 10,
+    textAlign: "right",
+    writingDirection: "rtl",
+    fontSize: 12,
+    fontWeight: "700",
+  },
   profileEditor: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
   profileTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", textAlign: "right" },
   goalRow: { flexDirection: "row-reverse", gap: 7 },
-  goalButton: { flex: 1, borderColor: "#475569", borderWidth: 1, borderRadius: 9, paddingVertical: 10, alignItems: "center", backgroundColor: "#1E293B" },
+  goalButton: {
+    flex: 1,
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "#1E293B",
+  },
   goalButtonActive: { backgroundColor: "#F59E0B", borderColor: "#F59E0B" },
   goalText: { color: "#E2E8F0", fontWeight: "800", fontSize: 12 },
   goalTextActive: { color: "#000000", fontWeight: "900" },
@@ -1503,39 +1708,109 @@ const styles = StyleSheet.create({
   profileField: { width: "48%", marginBottom: 10, alignItems: "stretch" },
   profileLabel: { color: "#94A3B8", fontSize: 11, textAlign: "right", marginBottom: 3, fontWeight: "700" },
   profileInputRow: { width: "100%", flexDirection: "row-reverse", alignItems: "stretch" },
-  clearProfileFieldButton: { borderColor: "#F59E0B", borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 7, backgroundColor: "#1E293B" },
+  clearProfileFieldButton: {
+    borderColor: "#F59E0B",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    backgroundColor: "#1E293B",
+  },
   clearProfileFieldText: { color: "#F59E0B", fontSize: 10, fontWeight: "900" },
-  profileInput: { flex: 1, minWidth: 0, width: "100%", backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", padding: 10, textAlign: "right", writingDirection: "rtl", minHeight: 44, fontSize: 14, fontWeight: "700" },
-  completeButton: { backgroundColor: "#1E3A5F", borderColor: "#60A5FA", borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  profileInput: {
+    flex: 1,
+    minWidth: 0,
+    width: "100%",
+    backgroundColor: "#09111D",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 8,
+    color: "#FFFFFF",
+    padding: 10,
+    textAlign: "right",
+    writingDirection: "rtl",
+    minHeight: 44,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  completeButton: {
+    backgroundColor: "#1E3A5F",
+    borderColor: "#60A5FA",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
   completeText: { color: "#93C5FD", fontWeight: "900", fontSize: 13, writingDirection: "rtl" },
   mealManagement: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 14, padding: 12, gap: 8 },
   mealManagementHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
   mealManagementTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
   mealManagementHint: { color: "#94A3B8", fontSize: 11 },
-  addMealButton: { width: "100%", minHeight: 48, backgroundColor: "#F59E0B", borderRadius: 10, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
+  addMealButton: {
+    width: "100%",
+    minHeight: 48,
+    backgroundColor: "#F59E0B",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   addMealButtonText: { color: "#000000", fontWeight: "900", fontSize: 14, writingDirection: "rtl" },
   mealsTransition: { gap: 12 },
   meal: { backgroundColor: "#16253B", borderColor: "#2E4765", borderWidth: 1, borderRadius: 16, padding: 14, gap: 12, marginBottom: 12 },
   mealActive: { borderColor: "#3B82F6" },
-  mealHeader: { minHeight: 88, flexDirection: "column", justifyContent: "center", alignItems: "stretch", paddingHorizontal: 12, paddingVertical: 10, gap: 6, borderRadius: 10, backgroundColor: "#1A2E4C", borderColor: "#33537C", borderWidth: 1 },
+  mealHeader: {
+    minHeight: 88,
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "stretch",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+    borderRadius: 10,
+    backgroundColor: "#1A2E4C",
+    borderColor: "#33537C",
+    borderWidth: 1,
+  },
   mealHeaderActive: { backgroundColor: "#1E3A5F", borderColor: "#60A5FA" },
   mealHeaderPressed: { opacity: 0.85 },
   mealToggle: { color: "#93C5FD", fontSize: 12, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
   mealToggleActive: { color: "#60A5FA" },
   mealFoodEditor: { gap: 10, paddingTop: 4 },
-  mealConversionBlock: { backgroundColor: "#132137", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 12, padding: 12, gap: 8 },
+  mealConversionBlock: {
+    backgroundColor: "#132137",
+    borderColor: "#3B82F6",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    gap: 10,
+  },
   mealConversionHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between" },
-  mealConversionTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", textAlign: "right" },
-  mealConversionSubtitle: { color: "#94A3B8", fontSize: 10, textAlign: "right" },
-  mealConversionToggle: { color: "#60A5FA", fontSize: 12, fontWeight: "900" },
-  mealConversionContent: { gap: 8, paddingTop: 6, borderTopColor: "#223955", borderTopWidth: 1 },
-  mealConversionDesc: { color: "#CBD5E1", fontSize: 11, textAlign: "right", lineHeight: 16 },
-  applyConversionButton: { backgroundColor: "#10B981", borderRadius: 8, paddingVertical: 10, alignItems: "center" },
-  applyConversionButtonText: { color: "#000000", fontSize: 12, fontWeight: "900" },
+  mealConversionTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "900", textAlign: "right" },
+  mealConversionSubtitle: { color: "#94A3B8", fontSize: 11, textAlign: "right", marginTop: 2 },
+  mealConversionToggle: { color: "#60A5FA", fontSize: 14, fontWeight: "900" },
+  mealConversionContent: { gap: 10, paddingTop: 10, borderTopColor: "#223955", borderTopWidth: 1 },
+  mealConversionDesc: { color: "#CBD5E1", fontSize: 12, textAlign: "right", lineHeight: 18 },
+  mealConversionDetailsList: { backgroundColor: "#0E1826", padding: 10, borderRadius: 8, gap: 6 },
+  mealConversionListTitle: { color: "#FBBF24", fontSize: 11, fontWeight: "800", textAlign: "right" },
+  conversionFoodRow: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
+  conversionFoodText: { color: "#E2E8F0", fontSize: 12, textAlign: "right" },
+  conversionFoodBadge: { color: "#93C5FD", fontSize: 10, fontWeight: "800", backgroundColor: "#1E3A5F", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  applyConversionButton: { backgroundColor: "#10B981", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
+  applyConversionButtonText: { color: "#000000", fontSize: 13, fontWeight: "900" },
   mealFoodListHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 3 },
   mealFoodListTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   mealFoodListCount: { color: "#FBBF24", fontSize: 11, fontWeight: "800", textAlign: "left", writingDirection: "rtl" },
-  mealSummaryFooter: { backgroundColor: "#0E1826", borderColor: "#273D54", borderWidth: 1, borderRadius: 10, padding: 12, gap: 8, marginTop: 2, writingDirection: "rtl" },
+  mealSummaryFooter: {
+    backgroundColor: "#0E1826",
+    borderColor: "#273D54",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    gap: 8,
+    marginTop: 2,
+    writingDirection: "rtl",
+  },
   mealSummaryTitle: { color: "#FBBF24", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   mealSummaryValues: { flexDirection: "row-reverse", flexWrap: "wrap", justifyContent: "space-between", gap: 6 },
   mealSummaryCalories: { color: "#FFFFFF", fontSize: 12, fontWeight: "900", writingDirection: "rtl" },
@@ -1544,71 +1819,245 @@ const styles = StyleSheet.create({
   mealSummaryFats: { color: "#FBBF24", fontSize: 11, fontWeight: "800", writingDirection: "rtl" },
   mealActions: { gap: 8, marginTop: 8, paddingTop: 8, borderTopColor: "#2E4765", borderTopWidth: 1 },
   mealQuickActions: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "flex-start", gap: 6 },
-  mealMoveButton: { width: 32, height: 30, borderRadius: 7, backgroundColor: "#1E293B", borderColor: "#334E68", borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  mealMoveButton: {
+    width: 32,
+    height: 30,
+    borderRadius: 7,
+    backgroundColor: "#1E293B",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mealMoveText: { color: "#60A5FA", fontSize: 16, fontWeight: "900" },
-  deleteMealButton: { borderColor: "#7F1D1D", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#450A0A" },
+  deleteMealButton: {
+    borderColor: "#7F1D1D",
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#450A0A",
+  },
   deleteMealText: { color: "#FCA5A5", fontSize: 11, fontWeight: "900" },
   disabledAction: { opacity: 0.35 },
-  editingMealBox: { gap: 8, marginTop: 4, backgroundColor: "#0E1826", padding: 10, borderRadius: 8, borderColor: "#334E68", borderWidth: 1 },
+  editingMealBox: {
+    gap: 8,
+    marginTop: 4,
+    backgroundColor: "#0E1826",
+    padding: 10,
+    borderRadius: 8,
+    borderColor: "#334E68",
+    borderWidth: 1,
+  },
   editingMealActions: { flexDirection: "row-reverse", gap: 6 },
-  mealTitleInput: { backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", padding: 10, textAlign: "right", writingDirection: "rtl", fontSize: 13, fontWeight: "700" },
-  mealEditButton: { borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#1E293B" },
+  mealTitleInput: {
+    backgroundColor: "#09111D",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 8,
+    color: "#FFFFFF",
+    padding: 10,
+    textAlign: "right",
+    writingDirection: "rtl",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  mealEditButton: {
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#1E293B",
+  },
   mealEditText: { color: "#60A5FA", fontWeight: "900", fontSize: 11 },
   mealSaveButton: { flex: 1, backgroundColor: "#3B82F6", borderRadius: 8, alignItems: "center", paddingVertical: 8 },
   mealSaveText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
-  mealCancelButton: { flex: 1, borderColor: "#475569", borderWidth: 1, borderRadius: 8, alignItems: "center", paddingVertical: 8, backgroundColor: "#1E293B" },
+  mealCancelButton: {
+    flex: 1,
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: "center",
+    paddingVertical: 8,
+    backgroundColor: "#1E293B",
+  },
   mealCancelText: { color: "#CBD5E1", fontWeight: "800", fontSize: 12 },
   addFoodRow: { padding: 10, backgroundColor: "#0E1826", borderRadius: 10, borderColor: "#273D54", borderWidth: 1, gap: 8 },
   quickSearchLabel: { color: "#FBBF24", fontSize: 12, fontWeight: "900", textAlign: "right", width: "100%", marginTop: 4 },
   addFoodRowTitle: { width: "100%", color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "right" },
   addGroupButtonsGrid: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 6 },
-  addGroupButtonCustom: { flex: 1, minWidth: "30%", minHeight: 40, borderRadius: 8, paddingVertical: 8, alignItems: "center", justifyContent: "center", borderWidth: 1, backgroundColor: "#1E293B", borderColor: "#475569" },
+  addGroupButtonCustom: {
+    flex: 1,
+    minWidth: "30%",
+    minHeight: 40,
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    backgroundColor: "#1E293B",
+    borderColor: "#475569",
+  },
   addFoodGroupButtonActive: { backgroundColor: "#3B82F6", borderColor: "#60A5FA" },
   addGroupButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "900" },
   searchBoxContainer: { gap: 6, marginTop: 4 },
-  mealFoodSearch: { backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", padding: 10, textAlign: "right", writingDirection: "rtl", fontSize: 13 },
+  mealFoodSearch: {
+    backgroundColor: "#09111D",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 8,
+    color: "#FFFFFF",
+    padding: 10,
+    textAlign: "right",
+    writingDirection: "rtl",
+    fontSize: 13,
+  },
   mealFoodResults: { gap: 6 },
-  mealFoodResult: { backgroundColor: "#1E293B", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: "#334E68", flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
+  mealFoodResult: {
+    backgroundColor: "#1E293B",
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#334E68",
+    flexDirection: "row-reverse",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   mealFoodResultName: { color: "#FFFFFF", fontWeight: "800", textAlign: "right", fontSize: 13 },
   mealFoodResultMeta: { color: "#94A3B8", fontSize: 11, textAlign: "right" },
-  removeMealFoodButton: { alignSelf: "flex-start", backgroundColor: "#450A0A", borderColor: "#7F1D1D", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, marginTop: 6 },
+  removeMealFoodButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#450A0A",
+    borderColor: "#7F1D1D",
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 6,
+  },
   removeMealFoodText: { color: "#FCA5A5", fontSize: 11, fontWeight: "900" },
   mealTitleRow: { width: "100%", flexDirection: "row-reverse", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   mealTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   mealTitleActive: { color: "#FFFFFF" },
-  mealFoodCountBadge: { backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginLeft: 6 },
+  mealFoodCountBadge: {
+    backgroundColor: "#1E293B",
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 6,
+  },
   mealFoodCountBadgeActive: { backgroundColor: "#3B82F6", borderColor: "#60A5FA" },
   mealFoodCountText: { color: "#CBD5E1", fontSize: 11, fontWeight: "900", textAlign: "center" },
   mealFoodCountTextActive: { color: "#FFFFFF" },
   mealTotal: { color: "#93C5FD", fontSize: 11, fontWeight: "800", textAlign: "right", width: "100%" },
   mealTotalActive: { color: "#60A5FA" },
-  food: { backgroundColor: "#111D2E", borderColor: "#223955", borderWidth: 1, borderRadius: 12, padding: 12, gap: 8, marginBottom: 4 },
+  food: {
+    backgroundColor: "#111D2E",
+    borderColor: "#223955",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+    marginBottom: 4,
+  },
   foodNameRow: { width: "100%", marginBottom: 2 },
   foodName: { color: "#FFFFFF", fontWeight: "900", textAlign: "right", fontSize: 14, width: "100%" },
   actionButtonsRow: { flexDirection: "row-reverse", gap: 6, marginTop: 6, flexWrap: "wrap" },
-  customActionButton: { flex: 1, minWidth: "30%", backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
+  customActionButton: {
+    flex: 1,
+    minWidth: "30%",
+    backgroundColor: "#1E293B",
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   activeReplaceButton: { backgroundColor: "#2563EB", borderColor: "#60A5FA", borderWidth: 2 },
-  customActionText: { color: "#60A5FA", fontSize: 11, fontWeight: "900" },
+  customActionText: { color: "#60A5FA", fontSize: 12, fontWeight: "900" },
   activeReplaceText: { color: "#FFFFFF", fontWeight: "900" },
-  replacementBox: { backgroundColor: "#0E1826", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 6, marginTop: 6 },
-  replacementScrollList: { maxHeight: 185 },
-  replacementTitle: { color: "#38BDF8", fontSize: 12, fontWeight: "900", textAlign: "right" },
-  replacementOption: { backgroundColor: "#16253B", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, padding: 8, flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  replacementOptionText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800", textAlign: "right" },
-  replacementOptionMeta: { color: "#94A3B8", fontSize: 10, textAlign: "right" },
-  fullEditContainer: { backgroundColor: "#0E1826", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 8, width: "100%" },
+  replacementBox: {
+    backgroundColor: "#0E1826",
+    borderColor: "#3B82F6",
+    borderWidth: 1.5,
+    borderRadius: 10,
+    padding: 12,
+    gap: 8,
+    marginTop: 6,
+  },
+  replacementTitle: { color: "#38BDF8", fontSize: 12, fontWeight: "900", textAlign: "right", marginBottom: 2 },
+  replacementItemsContainer: { gap: 6 },
+  replacementOption: {
+    backgroundColor: "#16253B",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    flexDirection: "row-reverse",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  replacementOptionText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800", textAlign: "right" },
+  replacementOptionMeta: { color: "#94A3B8", fontSize: 11, textAlign: "right" },
+  fullEditContainer: {
+    backgroundColor: "#0E1826",
+    borderColor: "#3B82F6",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    gap: 8,
+    width: "100%",
+  },
   fullEditTitle: { color: "#38BDF8", fontSize: 12, fontWeight: "900", textAlign: "right" },
   fullEditGrid: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 6 },
   fullEditField: { width: "48%", gap: 2 },
   fullEditLabel: { color: "#94A3B8", fontSize: 10, fontWeight: "700", textAlign: "right" },
-  fullEditInput: { backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 6, color: "#FFFFFF", paddingHorizontal: 8, paddingVertical: 4, fontSize: 12, textAlign: "right", fontWeight: "700" },
+  fullEditInput: {
+    backgroundColor: "#09111D",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 6,
+    color: "#FFFFFF",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 12,
+    textAlign: "right",
+    fontWeight: "700",
+  },
   fullEditActions: { flexDirection: "row-reverse", gap: 6, marginTop: 4 },
-  fullEditSaveButton: { backgroundColor: "#3B82F6", borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6, alignItems: "center" },
+  fullEditSaveButton: {
+    backgroundColor: "#3B82F6",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignItems: "center",
+  },
   fullEditSaveText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
-  fullEditCancelButton: { backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" },
+  fullEditCancelButton: {
+    backgroundColor: "#1E293B",
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: "center",
+  },
   fullEditCancelText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
   foodMetaRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
-  weightInfoButton: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: "#60A5FA", backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center" },
+  weightInfoButton: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#60A5FA",
+    backgroundColor: "#1E293B",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   weightInfoButtonText: { color: "#60A5FA", fontSize: 12, fontWeight: "900", fontStyle: "italic" },
   weightInfoPanel: { backgroundColor: "#0E1826", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, padding: 8, gap: 3 },
   weightInfoTitle: { color: "#60A5FA", fontSize: 11, fontWeight: "900", textAlign: "right" },
@@ -1618,21 +2067,60 @@ const styles = StyleSheet.create({
   foodMacroCarb: { color: "#67E8F9", backgroundColor: "#164E63", borderColor: "#06B6D4", borderWidth: 1 },
   foodMacroFat: { color: "#FDE047", backgroundColor: "#713F12", borderColor: "#EAB308", borderWidth: 1 },
   foodMeta: { color: "#CBD5E1", fontSize: 11, textAlign: "right", writingDirection: "rtl" },
-  eatenButton: { alignSelf: "flex-start", borderColor: "#475569", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#1E293B" },
+  eatenButton: {
+    alignSelf: "flex-start",
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#1E293B",
+  },
   eatenButtonActive: { backgroundColor: "#10B981", borderColor: "#10B981" },
   eatenText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
   eatenTextActive: { color: "#000000", fontWeight: "900" },
   foodEdit: { width: "100%", flexDirection: "row-reverse", flexWrap: "wrap", alignItems: "center", gap: 7 },
-  quantityInput: { width: "100%", minHeight: 44, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", fontSize: 16, fontWeight: "800", paddingHorizontal: 12, paddingVertical: 8, textAlign: "right", writingDirection: "rtl" },
+  quantityInput: {
+    width: "100%",
+    minHeight: 44,
+    backgroundColor: "#09111D",
+    borderColor: "#334E68",
+    borderWidth: 1,
+    borderRadius: 8,
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "800",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    textAlign: "right",
+    writingDirection: "rtl",
+  },
   quantityStepper: { flexDirection: "row-reverse", gap: 4 },
-  quantityStepButton: { minWidth: 36, minHeight: 32, borderRadius: 7, backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  quantityStepButton: {
+    minWidth: 36,
+    minHeight: 32,
+    borderRadius: 7,
+    backgroundColor: "#1E293B",
+    borderColor: "#475569",
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   quantityStepText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
   quantityInputEditable: { borderColor: "#3B82F6", borderWidth: 2 },
   saveQuantityButton: { backgroundColor: "#F59E0B", borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
   saveQuantityText: { color: "#000000", fontSize: 11, fontWeight: "900" },
   summary: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 15, gap: 12 },
   viewModeRow: { flexDirection: "row-reverse", gap: 8 },
-  viewModeButton: { flex: 1, borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: "center", backgroundColor: "#1E293B" },
+  viewModeButton: {
+    flex: 1,
+    borderColor: "#475569",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    backgroundColor: "#1E293B",
+  },
   viewModeButtonActive: { backgroundColor: "#F59E0B", borderColor: "#F59E0B" },
   viewModeText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
   viewModeTextActive: { color: "#000000", fontWeight: "900" },
