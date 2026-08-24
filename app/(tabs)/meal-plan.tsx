@@ -18,7 +18,6 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "@/components/screen-container";
-import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import {
   dailyMealTotals,
   defaultMeals,
@@ -35,24 +34,18 @@ import {
 } from "@/lib/cooking-weight";
 import { todayKey } from "@/lib/weekly-nutrition";
 import {
-  conversionFoods,
   macrosForGrams,
   sourceForFood,
-  type ConversionFood,
   type ConversionGroup,
 } from "@/lib/food-conversions";
-import {
-  mealPlanGoalLabel,
-} from "@/lib/meal-plan-targets";
+import { mealPlanGoalLabel } from "@/lib/meal-plan-targets";
 import {
   completeMenuProfile,
   createMenuProfiles,
   type MenuProfile,
   type MenuProfiles,
 } from "@/lib/menu-profiles";
-import {
-  cloneMeals,
-} from "@/lib/meal-plan-versions";
+import { cloneMeals } from "@/lib/meal-plan-versions";
 import { foodItems, type FoodGroup } from "@/lib/food-nutrition";
 
 type WaterEntry = {
@@ -70,7 +63,7 @@ export default function MealPlanScreen() {
   const standalone = usePathname() === "/meals";
   const { nutritionProfile, updateNutritionProfile } = useNutritionStore();
   const mealFoods = useMemo(() => [...(nutritionProfile.customFoods ?? []), ...foodItems], [nutritionProfile.customFoods]);
-  
+
   const [meals, setMeals] = useState<Meal[]>(defaultMeals);
   const [eaten, setEaten] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<"planned" | "eaten">("planned");
@@ -91,7 +84,7 @@ export default function MealPlanScreen() {
   const [menuProfiles, setMenuProfiles] = useState<MenuProfiles>(() => createMenuProfiles(nutritionProfile));
   const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
   const [weightInfoFoodId, setWeightInfoFoodId] = useState<string | null>(null);
-  
+
   const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState("");
 
@@ -101,14 +94,13 @@ export default function MealPlanScreen() {
   const [fullCarbsDraft, setFullCarbsDraft] = useState("");
   const [fullFatsDraft, setFullFatsDraft] = useState("");
 
-  // מצבים להמרת ארוחה והחלפת פריט מזון
+  // מצבי החלפת פריט והמרת ארוחה
   const [replacingFoodKey, setReplacingFoodKey] = useState<string | null>(null);
   const [mealConversionOpenId, setMealConversionOpenId] = useState<string | null>(null);
-  const [conversionMode, setConversionMode] = useState<"100g" | "proportional">("100g");
 
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1", "meal-2", "meal-3", "meal-4", "meal-5"]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
-  const [mealEditBackup, setMealEditBackup] = useState<Meal | null>(null);
+  const [mealTitleDraft, setMealTitleDraft] = useState("");
   const [mealFoodSearch, setMealFoodSearch] = useState("");
   const [addFoodGroupFilter, setAddFoodGroupFilter] = useState<FoodGroup | null>(null);
   const [selectedAddFoodKey, setSelectedAddFoodKey] = useState<string | null>(null);
@@ -203,7 +195,10 @@ export default function MealPlanScreen() {
       eaten: selectedDate === todayKey() ? eaten : eatenHistory[todayKey()] ?? {},
     });
     const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
-    const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(currentMeals), eaten } });
+    const nextDayHistory = JSON.stringify({
+      ...mealHistoryByDate,
+      [selectedDate]: { meals: cloneMeals(currentMeals), eaten },
+    });
 
     try {
       await AsyncStorage.multiSet([
@@ -247,12 +242,6 @@ export default function MealPlanScreen() {
     }
   };
 
-  useEffect(() => {
-    if (hydrated) {
-      void persistEverything().catch(() => undefined);
-    }
-  }, [meals, eaten, eatenHistory, mealHistoryByDate, selectedDate, hydrated, menuProfiles, waterHistory, waterEvents]);
-
   const addWater = (amount: number) => {
     const entry: WaterEntry = { id: `${Date.now()}-${amount}`, amount, at: new Date().toISOString() };
     setWaterEvents((current) => ({ ...current, [selectedDate]: [...(current[selectedDate] ?? []), entry] }));
@@ -264,7 +253,7 @@ export default function MealPlanScreen() {
       },
     }));
     if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     }
   };
 
@@ -320,7 +309,12 @@ export default function MealPlanScreen() {
     });
   };
 
-  const toggleEaten = (id: string) => setEaten((current) => ({ ...current, [id]: !current[id] }));
+  const toggleEaten = (id: string) => {
+    setEaten((current) => {
+      const next = { ...current, [id]: !current[id] };
+      return next;
+    });
+  };
 
   const selectMealDate = (nextDate: string) => {
     const currentSnapshot = { meals: cloneMeals(meals), eaten };
@@ -371,20 +365,21 @@ export default function MealPlanScreen() {
     );
   };
 
+  // --- ניהול ארוחות: הוספה, הזזה ומחיקה ---
   const addMeal = () => {
     const mealNumber = meals.length + 1;
     const mealId = `meal-${Date.now()}`;
     const starters = [
       foodItems.find((item) => item.group === "חלבון") ?? foodItems[0],
-      foodItems.find((item) => item.group === "פחמימה") ?? foodItems[0],
-      foodItems.find((item) => item.group === "שומן") ?? foodItems[0],
+      foodItems.find((item) => item.group === "פחמימה") ?? foodItems[1],
+      foodItems.find((item) => item.group === "שומן") ?? foodItems[2],
     ];
     const starterGrams = [150, 180, 10];
     const nextMeal: Meal = {
       id: mealId,
       title: `ארוחה ${mealNumber}`,
       foods: starters.map((starter, index) => ({
-        id: `${starter.id}-${mealId}`,
+        id: `${starter.id}-${mealId}-${index}`,
         name: starter.name,
         quantity: `${starterGrams[index]} גרם`,
         reference: starter.reference,
@@ -412,31 +407,137 @@ export default function MealPlanScreen() {
     const nextIndex = index + direction;
     if (index < 0 || nextIndex < 0 || nextIndex >= meals.length) return;
     const next = [...meals];
-    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    const [movedItem] = next.splice(index, 1);
+    next.splice(nextIndex, 0, movedItem);
     setMeals(next);
     void persistEverything(next);
   };
 
-  const updateMealTitle = (mealId: string, title: string) => {
-    const next = meals.map((meal) => (meal.id === mealId ? { ...meal, title } : meal));
-    setMeals(next);
-  };
-
   const beginMealEdit = (meal: Meal) => {
-    setMealEditBackup(JSON.parse(JSON.stringify(meal)) as Meal);
     setEditingMealId(meal.id);
+    setMealTitleDraft(meal.title);
     setExpandedMealIds((current) => (current.includes(meal.id) ? current : [...current, meal.id]));
     setMealFoodSearch("");
     setAddFoodGroupFilter(null);
   };
 
+  const saveMealEdit = (mealId: string) => {
+    const next = meals.map((m) => (m.id === mealId ? { ...m, title: mealTitleDraft.trim() || m.title } : m));
+    setMeals(next);
+    setEditingMealId(null);
+    setMealFoodSearch("");
+    void persistEverything(next);
+  };
+
+  const cancelMealEdit = () => {
+    setEditingMealId(null);
+    setMealTitleDraft("");
+    setMealFoodSearch("");
+    setAddFoodGroupFilter(null);
+    setSelectedAddFoodKey(null);
+  };
+
   const openMealFoodGroup = (meal: Meal, group: FoodGroup) => {
-    setMealEditBackup((current) => current ?? (JSON.parse(JSON.stringify(meal)) as Meal));
     setEditingMealId(meal.id);
+    setMealTitleDraft(meal.title);
     setExpandedMealIds((current) => (current.includes(meal.id) ? current : [...current, meal.id]));
     setMealFoodSearch("");
     setSelectedAddFoodKey(`${meal.id}:${group}`);
     setAddFoodGroupFilter(group);
+  };
+
+  // --- המרה מדויקת של פריט בפריט עם התאמת מאקרו זהה ---
+  const replaceFoodItem = (mealId: string, targetFoodId: string, newItem: (typeof mealFoods)[number]) => {
+    const next = meals.map((meal) => {
+      if (meal.id !== mealId) return meal;
+      return {
+        ...meal,
+        foods: meal.foods.map((food) => {
+          if (food.id !== targetFoodId) return food;
+
+          const oldMacros = mealFoodTotals(food);
+          const group = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
+          
+          let calculatedGrams = 100;
+          if (group === "חלבון" && newItem.protein > 0) {
+            calculatedGrams = Math.round((oldMacros.protein / newItem.protein) * 100);
+          } else if (group === "פחמימה" && newItem.carbohydrates > 0) {
+            calculatedGrams = Math.round((oldMacros.carbohydrates / newItem.carbohydrates) * 100);
+          } else if (group === "שומן" && newItem.fats > 0) {
+            calculatedGrams = Math.round((oldMacros.fats / newItem.fats) * 100);
+          } else if (newItem.calories > 0) {
+            calculatedGrams = Math.round((oldMacros.calories / newItem.calories) * 100);
+          }
+
+          calculatedGrams = Math.max(5, calculatedGrams);
+          const macros = macrosForGrams(newItem, calculatedGrams);
+
+          return {
+            ...food,
+            id: `${newItem.id}-${mealId}-${Date.now()}`,
+            name: newItem.name,
+            quantity: `${calculatedGrams} גרם`,
+            reference: newItem.reference,
+            ...macros,
+          };
+        }),
+      };
+    });
+
+    setMeals(next);
+    setReplacingFoodKey(null);
+    void persistEverything(next);
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+    }
+  };
+
+  // --- המרת ארוחה שלמה לארוחה שוות ערכים תזונתיים ---
+  const convertFullMealToEquivalents = (mealId: string) => {
+    const next = meals.map((meal) => {
+      if (meal.id !== mealId) return meal;
+
+      const convertedFoods = meal.foods.map((food) => {
+        const group = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
+        const candidates = mealFoods.filter((item) => item.group === group && item.name !== food.name);
+        if (!candidates.length) return food;
+
+        const randomAlternative = candidates[Math.floor(Math.random() * candidates.length)];
+        const oldMacros = mealFoodTotals(food);
+
+        let calculatedGrams = 100;
+        if (group === "חלבון" && randomAlternative.protein > 0) {
+          calculatedGrams = Math.round((oldMacros.protein / randomAlternative.protein) * 100);
+        } else if (group === "פחמימה" && randomAlternative.carbohydrates > 0) {
+          calculatedGrams = Math.round((oldMacros.carbohydrates / randomAlternative.carbohydrates) * 100);
+        } else if (group === "שומן" && randomAlternative.fats > 0) {
+          calculatedGrams = Math.round((oldMacros.fats / randomAlternative.fats) * 100);
+        } else if (randomAlternative.calories > 0) {
+          calculatedGrams = Math.round((oldMacros.calories / randomAlternative.calories) * 100);
+        }
+
+        calculatedGrams = Math.max(5, calculatedGrams);
+        const macros = macrosForGrams(randomAlternative, calculatedGrams);
+
+        return {
+          ...food,
+          id: `${randomAlternative.id}-${mealId}-${Date.now()}-${Math.random()}`,
+          name: randomAlternative.name,
+          quantity: `${calculatedGrams} גרם`,
+          reference: randomAlternative.reference,
+          ...macros,
+        };
+      });
+
+      return { ...meal, foods: convertedFoods };
+    });
+
+    setMeals(next);
+    setMealConversionOpenId(null);
+    void persistEverything(next);
+    if (Platform.OS !== "web") {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    }
   };
 
   const updateMealFoodQuantity = (mealId: string, foodId: string, quantity: string) => {
@@ -448,7 +549,12 @@ export default function MealPlanScreen() {
           if (food.id !== foodId) return food;
           const match = quantity.match(/^([0-9]+(?:\.[0-9]+)?)/);
           const grams = match ? Number(match[1]) : 100;
-          const baseItem = foodItems.find((i) => i.name === food.name) ?? { calories: 100, protein: 10, carbohydrates: 10, fats: 5 };
+          const baseItem = foodItems.find((i) => i.name === food.name) ?? {
+            calories: 100,
+            protein: 10,
+            carbohydrates: 10,
+            fats: 5,
+          };
           const calculatedMacros = macrosForGrams(baseItem, grams);
           return {
             ...food,
@@ -459,6 +565,15 @@ export default function MealPlanScreen() {
       };
     });
     setMeals(next);
+  };
+
+  const saveMealFoodQuantity = (mealId: string, foodId: string, draftOverride?: string) => {
+    const raw = (draftOverride ?? "").trim().replace(",", ".");
+    const match = raw.match(/^([0-9]+(?:\.[0-9]+)?)/);
+    const parsed = match ? Number(match[1]) : 100;
+    const normalized = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * 10) / 10) : 100;
+    updateMealFoodQuantity(mealId, foodId, `${normalized} גרם`);
+    void persistEverything();
   };
 
   const saveFullFoodMacros = (mealId: string, foodId: string) => {
@@ -481,70 +596,6 @@ export default function MealPlanScreen() {
     setMeals(next);
     setEditingFullFoodKey(null);
     void persistEverything(next);
-  };
-
-  const replaceFoodItem = (mealId: string, targetFoodId: string, newItem: (typeof mealFoods)[number]) => {
-    const next = meals.map((meal) => {
-      if (meal.id !== mealId) return meal;
-      return {
-        ...meal,
-        foods: meal.foods.map((food) => {
-          if (food.id !== targetFoodId) return food;
-          const match = food.quantity.match(/^([0-9]+(?:\.[0-9]+)?)/);
-          const grams = match ? Number(match[1]) : 100;
-          const macros = macrosForGrams(newItem, grams);
-          return {
-            ...food,
-            id: `${newItem.id}-${mealId}-${Date.now()}`,
-            name: newItem.name,
-            reference: newItem.reference,
-            ...macros,
-          };
-        }),
-      };
-    });
-    setMeals(next);
-    setReplacingFoodKey(null);
-    void persistEverything(next);
-  };
-
-  const applyMealConversion = (mealId: string) => {
-    const next = meals.map((meal) => {
-      if (meal.id !== mealId) return meal;
-      return {
-        ...meal,
-        foods: meal.foods.map((food) => {
-          const baseItem = foodItems.find((i) => i.name === food.name) ?? { calories: 100, protein: 10, carbohydrates: 10, fats: 5 };
-          const grams = conversionMode === "100g" ? 100 : 150;
-          const macros = macrosForGrams(baseItem, grams);
-          return {
-            ...food,
-            quantity: `${grams} גרם`,
-            ...macros,
-          };
-        }),
-      };
-    });
-    setMeals(next);
-    setMealConversionOpenId(null);
-    void persistEverything(next);
-    if (Platform.OS !== "web") {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-    }
-  };
-
-  const saveMealFoodQuantity = (mealId: string, foodId: string, draftOverride?: string) => {
-    const raw = (draftOverride ?? "").trim().replace(",", ".");
-    const match = raw.match(/^([0-9]+(?:\.[0-9]+)?)/);
-    const parsed = match ? Number(match[1]) : 100;
-    const normalized = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * 10) / 10) : 100;
-    updateMealFoodQuantity(mealId, foodId, `${normalized} גרם`);
-    void persistEverything();
-  };
-
-  const resetMealFoodQuantity = (mealId: string, foodId: string) => {
-    updateMealFoodQuantity(mealId, foodId, "100 גרם");
-    void persistEverything();
   };
 
   const removeMealFood = (mealId: string, foodId: string) => {
@@ -581,25 +632,6 @@ export default function MealPlanScreen() {
     );
     setMeals(next);
     void persistEverything(next);
-  };
-
-  const saveMealEdit = () => {
-    setEditingMealId(null);
-    setMealEditBackup(null);
-    setMealFoodSearch("");
-    void persistEverything();
-  };
-
-  const cancelMealEdit = () => {
-    if (mealEditBackup) {
-      const next = meals.map((meal) => (meal.id === mealEditBackup.id ? normalizeMealsTo100Grams([mealEditBackup])[0] : meal));
-      setMeals(next);
-    }
-    setEditingMealId(null);
-    setMealEditBackup(null);
-    setMealFoodSearch("");
-    setAddFoodGroupFilter(null);
-    setSelectedAddFoodKey(null);
   };
 
   const filteredMealFoods = mealFoods
@@ -650,13 +682,6 @@ export default function MealPlanScreen() {
               <Text style={styles.saveSuccessBannerText}>✓ התפריט, הערכים והארוחות נשמרו בהצלחה!</Text>
             </View>
           ) : null}
-
-          <Pressable onPress={() => router.push("/scroll-test")} style={styles.utilityNavButton}>
-            <Text style={styles.utilityNavButtonText}>בדיקת גלילה</Text>
-          </Pressable>
-          <Pressable onPress={() => router.push("/nutrition-calendar" as never)} style={styles.utilityNavButton}>
-            <Text style={styles.utilityNavButtonText}>לוח תזונה: יום · שבוע · חודש</Text>
-          </Pressable>
 
           <View style={styles.datePicker}>
             <Pressable onPress={() => changeSelectedDate(-1)} style={styles.dateButton}>
@@ -756,7 +781,7 @@ export default function MealPlanScreen() {
             <View style={styles.waterHeaderCopy}>
               <Text style={styles.waterTitle}>מעקב שתיית מים</Text>
               <Text style={styles.waterSubtitle}>
-                {selectedDate === todayKey() ? "היום" : formatDateLabel(selectedDate)} · שמירה לפי תאריך
+                {selectedDate === todayKey() ? "היום" : formatDateLabel(selectedDate)}
               </Text>
             </View>
             <Text style={styles.waterIcon}>◉</Text>
@@ -779,29 +804,18 @@ export default function MealPlanScreen() {
               <Text style={styles.waterStatLabel}>השלמה</Text>
             </View>
           </View>
-          <View style={styles.waterProgressHeader}>
-            <Text style={styles.waterProgressCaption}>התקדמות יומית</Text>
-            <Text style={[styles.waterProgressPercent, waterProgress >= 1 && styles.waterProgressPercentDone]}>
-              {Math.round(waterProgress * 100)}%
-            </Text>
-          </View>
           <View style={styles.waterProgressTrack}>
-            <View style={[styles.waterProgressFill, waterProgress >= 1 && styles.waterProgressFillDone, { width: `${Math.round(waterProgress * 100)}%` }]}>
-              <View style={styles.waterProgressGlow} />
-            </View>
+            <View
+              style={[
+                styles.waterProgressFill,
+                waterProgress >= 1 && styles.waterProgressFillDone,
+                { width: `${Math.round(waterProgress * 100)}%` },
+              ]}
+            />
           </View>
-          <Text style={styles.waterRemaining}>
-            {activeWater.consumed >= activeWater.goal
-              ? "הגעת ליעד המים היומי"
-              : `נשארו ${Math.max(0, Math.round(activeWater.goal - activeWater.consumed))} מ״ל להשלמת היעד`}
-          </Text>
           <View style={styles.waterQuickRow}>
             {[200, 250, 330, 500, 750].map((amount) => (
-              <Pressable
-                key={amount}
-                onPress={() => addWater(amount)}
-                style={({ pressed }) => [styles.waterQuickButton, pressed && styles.waterQuickButtonPressed]}
-              >
+              <Pressable key={amount} onPress={() => addWater(amount)} style={styles.waterQuickButton}>
                 <Text style={styles.waterQuickButtonText}>+{amount} מ״ל</Text>
               </Pressable>
             ))}
@@ -825,14 +839,13 @@ export default function MealPlanScreen() {
           </View>
         </View>
 
+        {/* 🎯 יעדים ומאקרו */}
         <View style={styles.profileEditor}>
           <Text style={styles.profileTitle}>הגדרת יעד בתוך התפריט</Text>
           <View style={styles.goalRow}>
             {(["מסה", "חיטוב", "ניטרלי"] as const).map((goal) => (
               <Pressable
                 key={goal}
-                accessibilityRole="button"
-                accessibilityState={{ selected: activeGoal === goal }}
                 onPress={() => selectGoal(goal)}
                 style={[styles.goalButton, activeGoal === goal && styles.goalButtonActive]}
               >
@@ -851,6 +864,7 @@ export default function MealPlanScreen() {
           </Pressable>
         </View>
 
+        {/* 📋 ניהול והוספת ארוחות */}
         <View style={styles.mealManagement}>
           <View style={styles.mealManagementHeader}>
             <Text style={styles.mealManagementTitle}>ניהול ארוחות</Text>
@@ -866,15 +880,22 @@ export default function MealPlanScreen() {
             const total = mealTotals(meal);
             const isExpanded = expandedMealIds.includes(meal.id);
             const isConversionOpen = mealConversionOpenId === meal.id;
+            const isEditing = editingMealId === meal.id;
 
             return (
               <View key={meal.id} style={[styles.meal, isExpanded && styles.mealActive]}>
+                {/* כותרת ארוחה */}
                 <Pressable
                   onPress={() => toggleMeal(meal.id)}
-                  style={({ pressed }) => [styles.mealHeader, isExpanded && styles.mealHeaderActive, pressed && styles.mealHeaderPressed]}
+                  style={({ pressed }) => [
+                    styles.mealHeader,
+                    isExpanded && styles.mealHeaderActive,
+                    pressed && styles.mealHeaderPressed,
+                  ]}
                 >
                   <Text style={[styles.mealTotal, isExpanded && styles.mealTotalActive]}>
-                    {Math.round(total.calories)} קק״ל · חלבון {Math.round(total.protein)}ג׳ · פחמימות {Math.round(total.carbohydrates)}ג׳ · שומן {Math.round(total.fats)}ג׳
+                    {Math.round(total.calories)} קק״ל · חלבון {Math.round(total.protein)}ג׳ · פחמימות{" "}
+                    {Math.round(total.carbohydrates)}ג׳ · שומן {Math.round(total.fats)}ג׳
                   </Text>
                   <View style={styles.mealTitleRow}>
                     <Text style={[styles.mealTitle, isExpanded && styles.mealTitleActive]}>{meal.title}</Text>
@@ -889,6 +910,7 @@ export default function MealPlanScreen() {
                   </Text>
                 </Pressable>
 
+                {/* פעולות מהירות לארוחה (הזזה, מחיקה, שינוי שם) */}
                 <View style={styles.mealQuickActions}>
                   <Pressable
                     onPress={() => moveMeal(meal.id, 1)}
@@ -907,70 +929,72 @@ export default function MealPlanScreen() {
                   <Pressable onPress={() => deleteMeal(meal)} style={styles.deleteMealButton}>
                     <Text style={styles.deleteMealText}>מחק ארוחה</Text>
                   </Pressable>
+                  <Pressable
+                    onPress={() => (isEditing ? cancelMealEdit() : beginMealEdit(meal))}
+                    style={styles.mealEditButton}
+                  >
+                    <Text style={styles.mealEditText}>{isEditing ? "סגור עריכה" : "ערוך שם"}</Text>
+                  </Pressable>
                 </View>
+
+                {/* תיבת עריכת שם ארוחה */}
+                {isEditing ? (
+                  <View style={styles.editingMealBox}>
+                    <TextInput
+                      value={mealTitleDraft}
+                      onChangeText={setMealTitleDraft}
+                      placeholder="שם הארוחה"
+                      placeholderTextColor="#8A9BB5"
+                      style={styles.mealTitleInput}
+                    />
+                    <View style={styles.editingMealActions}>
+                      <Pressable onPress={() => saveMealEdit(meal.id)} style={styles.mealSaveButton}>
+                        <Text style={styles.mealSaveText}>שמור שם</Text>
+                      </Pressable>
+                      <Pressable onPress={cancelMealEdit} style={styles.mealCancelButton}>
+                        <Text style={styles.mealCancelText}>בטל</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
 
                 {isExpanded ? (
                   <View style={styles.mealFoodEditor}>
-                    {/* בלוק המרת ארוחה פעיל לחלוטין */}
+                    {/* המרת ארוחה שלמה */}
                     <View style={styles.mealConversionBlock}>
                       <Pressable
                         onPress={() => setMealConversionOpenId(isConversionOpen ? null : meal.id)}
                         style={styles.mealConversionHeader}
                       >
                         <View>
-                          <Text style={styles.mealConversionTitle}>המרת ארוחה</Text>
-                          <Text style={styles.mealConversionSubtitle}>חלבון · פחמימה · שומן · חישוב לפי 100 ג׳</Text>
+                          <Text style={styles.mealConversionTitle}>🔄 המרת ארוחה שלמה</Text>
+                          <Text style={styles.mealConversionSubtitle}>המרת כל הרכיבים לתחליפים עם אותם ערכים תזונתיים</Text>
                         </View>
                         <Text style={styles.mealConversionToggle}>{isConversionOpen ? "סגור ‹" : "פתח ›"}</Text>
                       </Pressable>
                       {isConversionOpen ? (
                         <View style={styles.mealConversionContent}>
-                          <Text style={styles.mealConversionDesc}>בחר שיטת המרה לרכיבי הארוחה:</Text>
-                          <View style={styles.conversionOptionsRow}>
-                            <Pressable
-                              onPress={() => setConversionMode("100g")}
-                              style={[styles.conversionModeBtn, conversionMode === "100g" && styles.conversionModeBtnActive]}
-                            >
-                              <Text style={[styles.conversionModeText, conversionMode === "100g" && styles.conversionModeTextActive]}>אפס ל־100 גרם</Text>
-                            </Pressable>
-                            <Pressable
-                              onPress={() => setConversionMode("proportional")}
-                              style={[styles.conversionModeBtn, conversionMode === "proportional" && styles.conversionModeBtnActive]}
-                            >
-                              <Text style={[styles.conversionModeText, conversionMode === "proportional" && styles.conversionModeTextActive]}>התאם ל־150 גרם</Text>
-                            </Pressable>
-                          </View>
+                          <Text style={styles.mealConversionDesc}>
+                            פעולה זו תחליף את רכיבי הארוחה במוצרים מקבילים ותחשב אוטומטית כמויות לשמירה על אותם ערכי חלבון, פחמימה ושומן.
+                          </Text>
                           <Pressable
-                            onPress={() => applyMealConversion(meal.id)}
+                            onPress={() => convertFullMealToEquivalents(meal.id)}
                             style={styles.applyConversionButton}
                           >
-                            <Text style={styles.applyConversionButtonText}>החל המרה על הארוחה</Text>
+                            <Text style={styles.applyConversionButtonText}>המר ארוחה לתחליפים שווי ערך</Text>
                           </Pressable>
                         </View>
                       ) : null}
                     </View>
-
-                    {/* כפתור שמור כארוחה קבועה */}
-                    <Pressable
-                      onPress={() => {
-                        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-                        alert("הארוחה נשמרה כארוחה קבועה במאגר האישי!");
-                      }}
-                      style={styles.savePermanentMealButton}
-                    >
-                      <Text style={styles.savePermanentMealTitle}>שמור כארוחה קבועה</Text>
-                      <Text style={styles.savePermanentMealSubtitle}>כל הרכיבים · קלוריות · מאקרו</Text>
-                    </Pressable>
 
                     <View style={styles.mealFoodListHeader}>
                       <Text style={styles.mealFoodListTitle}>רכיבי הארוחה</Text>
                       <Text style={styles.mealFoodListCount}>{meal.foods.length} רכיבים</Text>
                     </View>
 
-                    {meal.foods.map((food, foodIndex) => {
+                    {/* רשימת הפריטים בארוחה */}
+                    {meal.foods.map((food) => {
                       const macroGroup = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
-                      const macroIcon: IconSymbolName =
-                        macroGroup === "חלבון" ? "fork.knife" : macroGroup === "פחמימה" ? "leaf.fill" : "drop.fill";
                       const weightMode = food.weightMode ?? "cooked";
                       const weightInfo = cookingConversionInfo(food.id, weightMode);
                       const weightInfoKey = `${meal.id}:${food.id}`;
@@ -988,39 +1012,64 @@ export default function MealPlanScreen() {
                             <Text style={styles.foodName}>{food.name}</Text>
                           </View>
 
-                          <View style={styles.foodTop}>
-                            {fullEditOpen ? (
-                              <View style={styles.fullEditContainer}>
-                                <Text style={styles.fullEditTitle}>עריכת ערכים תזונתיים מלאה למוצר</Text>
-                                <View style={styles.fullEditGrid}>
-                                  <View style={styles.fullEditField}>
-                                    <Text style={styles.fullEditLabel}>קלוריות</Text>
-                                    <TextInput value={fullCaloriesDraft} onChangeText={setFullCaloriesDraft} keyboardType="numeric" style={styles.fullEditInput} />
-                                  </View>
-                                  <View style={styles.fullEditField}>
-                                    <Text style={styles.fullEditLabel}>חלבון</Text>
-                                    <TextInput value={fullProteinDraft} onChangeText={setFullProteinDraft} keyboardType="numeric" style={styles.fullEditInput} />
-                                  </View>
-                                  <View style={styles.fullEditField}>
-                                    <Text style={styles.fullEditLabel}>פחמימה</Text>
-                                    <TextInput value={fullCarbsDraft} onChangeText={setFullCarbsDraft} keyboardType="numeric" style={styles.fullEditInput} />
-                                  </View>
-                                  <View style={styles.fullEditField}>
-                                    <Text style={styles.fullEditLabel}>שומן</Text>
-                                    <TextInput value={fullFatsDraft} onChangeText={setFullFatsDraft} keyboardType="numeric" style={styles.fullEditInput} />
-                                  </View>
+                          {/* עריכת ערכים ידנית למוצר */}
+                          {fullEditOpen ? (
+                            <View style={styles.fullEditContainer}>
+                              <Text style={styles.fullEditTitle}>עריכת ערכים תזונתיים מלאה למוצר</Text>
+                              <View style={styles.fullEditGrid}>
+                                <View style={styles.fullEditField}>
+                                  <Text style={styles.fullEditLabel}>קלוריות</Text>
+                                  <TextInput
+                                    value={fullCaloriesDraft}
+                                    onChangeText={setFullCaloriesDraft}
+                                    keyboardType="numeric"
+                                    style={styles.fullEditInput}
+                                  />
                                 </View>
-                                <View style={styles.fullEditActions}>
-                                  <Pressable onPress={() => saveFullFoodMacros(meal.id, food.id)} style={styles.fullEditSaveButton}>
-                                    <Text style={styles.fullEditSaveText}>שמור ערכים</Text>
-                                  </Pressable>
-                                  <Pressable onPress={() => setEditingFullFoodKey(null)} style={styles.fullEditCancelButton}>
-                                    <Text style={styles.fullEditCancelText}>ביטול</Text>
-                                  </Pressable>
+                                <View style={styles.fullEditField}>
+                                  <Text style={styles.fullEditLabel}>חלבון</Text>
+                                  <TextInput
+                                    value={fullProteinDraft}
+                                    onChangeText={setFullProteinDraft}
+                                    keyboardType="numeric"
+                                    style={styles.fullEditInput}
+                                  />
+                                </View>
+                                <View style={styles.fullEditField}>
+                                  <Text style={styles.fullEditLabel}>פחמימה</Text>
+                                  <TextInput
+                                    value={fullCarbsDraft}
+                                    onChangeText={setFullCarbsDraft}
+                                    keyboardType="numeric"
+                                    style={styles.fullEditInput}
+                                  />
+                                </View>
+                                <View style={styles.fullEditField}>
+                                  <Text style={styles.fullEditLabel}>שומן</Text>
+                                  <TextInput
+                                    value={fullFatsDraft}
+                                    onChangeText={setFullFatsDraft}
+                                    keyboardType="numeric"
+                                    style={styles.fullEditInput}
+                                  />
                                 </View>
                               </View>
-                            ) : null}
-                          </View>
+                              <View style={styles.fullEditActions}>
+                                <Pressable
+                                  onPress={() => saveFullFoodMacros(meal.id, food.id)}
+                                  style={styles.fullEditSaveButton}
+                                >
+                                  <Text style={styles.fullEditSaveText}>שמור ערכים</Text>
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => setEditingFullFoodKey(null)}
+                                  style={styles.fullEditCancelButton}
+                                >
+                                  <Text style={styles.fullEditCancelText}>ביטול</Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          ) : null}
 
                           <View style={styles.foodMetaRow}>
                             <Text
@@ -1036,11 +1085,10 @@ export default function MealPlanScreen() {
                               {macroGroup}
                             </Text>
                             <Text style={styles.foodMeta}>
-                              {food.quantity} · {food.reference}
+                              {food.quantity} · {Math.round(currentMacros.calories)} קק״ל (ח׳: {Math.round(currentMacros.protein)} | פ׳: {Math.round(currentMacros.carbohydrates)} | ש׳: {Math.round(currentMacros.fats)})
                             </Text>
                             <Pressable
                               onPress={() => setWeightInfoFoodId(weightInfoOpen ? null : weightInfoKey)}
-                              accessibilityRole="button"
                               style={styles.weightInfoButton}
                             >
                               <Text style={styles.weightInfoButtonText}>i</Text>
@@ -1064,8 +1112,37 @@ export default function MealPlanScreen() {
                             </Text>
                           </Pressable>
 
-                          {/* כפתורי פעולה עובדים לחלוטין */}
+                          {/* מקשי פעולה: המרה, כמות, עריכת ערכים */}
                           <View style={styles.actionButtonsRow}>
+                            <Pressable
+                              onPress={() => {
+                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                setReplacingFoodKey(isReplacing ? null : food.id);
+                              }}
+                              style={[styles.customActionButton, isReplacing && styles.activeReplaceButton]}
+                            >
+                              <Text style={[styles.customActionText, isReplacing && styles.activeReplaceText]}>
+                                {isReplacing ? "סגור המרה" : `החלף ${macroGroup}`}
+                              </Text>
+                            </Pressable>
+
+                            <Pressable
+                              onPress={() => {
+                                if (quantityEditOpen) {
+                                  setEditingQuantityKey(null);
+                                  Keyboard.dismiss();
+                                } else {
+                                  const numericQuantity =
+                                    food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? "100";
+                                  setQuantityDraft(numericQuantity);
+                                  setEditingQuantityKey(quantityEditKey);
+                                }
+                              }}
+                              style={styles.customActionButton}
+                            >
+                              <Text style={styles.customActionText}>ערוך כמות</Text>
+                            </Pressable>
+
                             <Pressable
                               onPress={() => {
                                 setFullCaloriesDraft(String(currentMacros.calories));
@@ -1078,43 +1155,17 @@ export default function MealPlanScreen() {
                             >
                               <Text style={styles.customActionText}>ערוך ערכים</Text>
                             </Pressable>
-
-                            <Pressable
-                              onPress={() => {
-                                if (quantityEditOpen) {
-                                  setEditingQuantityKey(null);
-                                  Keyboard.dismiss();
-                                } else {
-                                  const numericQuantity = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? "100";
-                                  setQuantityDraft(numericQuantity);
-                                  setEditingQuantityKey(quantityEditKey);
-                                }
-                              }}
-                              style={styles.customActionButton}
-                            >
-                              <Text style={styles.customActionText}>ערוך כמות</Text>
-                            </Pressable>
-
-                            <Pressable
-                              onPress={() => {
-                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                                setReplacingFoodKey(isReplacing ? null : food.id);
-                              }}
-                              style={[styles.customActionButton, isReplacing && styles.activeReplaceButton]}
-                            >
-                              <Text style={[styles.customActionText, isReplacing && styles.activeReplaceText]}>
-                                {isReplacing ? "סגור החלפה" : `החלף ${macroGroup}`}
-                              </Text>
-                            </Pressable>
                           </View>
 
-                          {/* רשימת בחירת מוצר חלופי פעילה לחלוטין */}
+                          {/* פאנל המרת פריט בודד */}
                           {isReplacing ? (
                             <View style={styles.replacementBox}>
-                              <Text style={styles.replacementTitle}>בחר מוצר חלופי ממאגר ה{macroGroup}:</Text>
-                              <ScrollView horizontal={false} nestedScrollEnabled style={styles.replacementScrollList}>
+                              <Text style={styles.replacementTitle}>
+                                בחר תחליף עבור {food.name} (שומר על {macroGroup}):
+                              </Text>
+                              <ScrollView nestedScrollEnabled style={styles.replacementScrollList}>
                                 {mealFoods
-                                  .filter((item) => item.group === macroGroup)
+                                  .filter((item) => item.group === macroGroup && item.name !== food.name)
                                   .map((item) => (
                                     <Pressable
                                       key={item.id}
@@ -1122,82 +1173,80 @@ export default function MealPlanScreen() {
                                       style={styles.replacementOption}
                                     >
                                       <Text style={styles.replacementOptionText}>⇄ {item.name}</Text>
-                                      <Text style={styles.replacementOptionMeta}>{item.calories} קק״ל ל־100ג׳</Text>
+                                      <Text style={styles.replacementOptionMeta}>
+                                        {item.calories} קק״ל / 100ג׳ (ח: {item.protein}ג׳ | פ: {item.carbohydrates}ג׳)
+                                      </Text>
                                     </Pressable>
                                   ))}
                               </ScrollView>
                             </View>
                           ) : null}
 
+                          {/* עריכת כמות גרמים */}
+                          {quantityEditOpen ? (
+                            <View style={styles.foodEdit}>
+                              <View style={styles.quantityStepper}>
+                                <Pressable
+                                  onPress={() => {
+                                    const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
+                                    const next = Math.max(0, cur - 10);
+                                    updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
+                                  }}
+                                  style={styles.quantityStepButton}
+                                >
+                                  <Text style={styles.quantityStepText}>−10</Text>
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => {
+                                    const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
+                                    const next = cur + 10;
+                                    updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
+                                  }}
+                                  style={styles.quantityStepButton}
+                                >
+                                  <Text style={styles.quantityStepText}>+10</Text>
+                                </Pressable>
+                              </View>
+                              <TextInput
+                                value={quantityDraft}
+                                editable
+                                keyboardType="decimal-pad"
+                                onChangeText={(value) =>
+                                  setQuantityDraft(value.replace(/[^0-9.,]/g, "").replace(",", "."))
+                                }
+                                onSubmitEditing={() => {
+                                  saveMealFoodQuantity(meal.id, food.id, quantityDraft);
+                                  Keyboard.dismiss();
+                                  setEditingQuantityKey(null);
+                                }}
+                                style={[styles.quantityInput, styles.quantityInputEditable]}
+                              />
+                              <Pressable
+                                onPress={() => {
+                                  saveMealFoodQuantity(meal.id, food.id, quantityDraft);
+                                  Keyboard.dismiss();
+                                  setEditingQuantityKey(null);
+                                }}
+                                style={styles.saveQuantityButton}
+                              >
+                                <Text style={styles.saveQuantityText}>שמור</Text>
+                              </Pressable>
+                            </View>
+                          ) : null}
+
                           {meal.foods.length > 1 ? (
                             <Pressable
                               onPress={() => removeMealFood(meal.id, food.id)}
-                              style={({ pressed }) => [styles.removeMealFoodButton, pressed && styles.removeMealFoodPressed]}
+                              style={styles.removeMealFoodButton}
                             >
                               <Text style={styles.removeMealFoodText}>− הסר רכיב</Text>
                             </Pressable>
                           ) : null}
-
-                          <View style={styles.foodEdit}>
-                            {quantityEditOpen ? (
-                              <>
-                                <View style={styles.quantityStepper}>
-                                  <Pressable
-                                    onPress={() => {
-                                      const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
-                                      const next = Math.max(0, cur - 10);
-                                      updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
-                                    }}
-                                    style={styles.quantityStepButton}
-                                  >
-                                    <Text style={styles.quantityStepText}>−10</Text>
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => {
-                                      const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
-                                      const next = cur + 10;
-                                      updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
-                                    }}
-                                    style={styles.quantityStepButton}
-                                  >
-                                    <Text style={styles.quantityStepText}>+10</Text>
-                                  </Pressable>
-                                </View>
-                                <TextInput
-                                  value={quantityDraft}
-                                  editable
-                                  keyboardType="decimal-pad"
-                                  onChangeText={(value) => setQuantityDraft(value.replace(/[^0-9.,]/g, "").replace(",", "."))}
-                                  onSubmitEditing={() => {
-                                    saveMealFoodQuantity(meal.id, food.id, quantityDraft);
-                                    Keyboard.dismiss();
-                                    setEditingQuantityKey(null);
-                                  }}
-                                  style={[styles.quantityInput, styles.quantityInputEditable]}
-                                />
-                                <Pressable
-                                  onPress={() => {
-                                    saveMealFoodQuantity(meal.id, food.id, quantityDraft);
-                                    Keyboard.dismiss();
-                                    setEditingQuantityKey(null);
-                                  }}
-                                  style={styles.saveQuantityButton}
-                                >
-                                  <Text style={styles.saveQuantityText}>שמור</Text>
-                                </Pressable>
-                                <Pressable
-                                  onPress={() => resetMealFoodQuantity(meal.id, food.id)}
-                                  style={styles.resetQuantityButton}
-                                >
-                                  <Text style={styles.resetQuantityText}>אפס ל־100 גרם</Text>
-                                </Pressable>
-                              </>
-                            ) : null}
-                          </View>
                         </View>
                       );
                     })}
 
+                    {/* סיכום ארוחה */}
                     <View style={styles.mealSummaryFooter}>
                       <Text style={styles.mealSummaryTitle}>סיכום הארוחה</Text>
                       <View style={styles.mealSummaryValues}>
@@ -1210,9 +1259,10 @@ export default function MealPlanScreen() {
                   </View>
                 ) : null}
 
+                {/* הוספת פריט מזון חדש לארוחה */}
                 <View style={styles.mealActions}>
                   <View style={styles.addFoodRow}>
-                    <Text style={styles.addFoodRowTitle}>הוסף רכיב</Text>
+                    <Text style={styles.addFoodRowTitle}>הוסף רכיב לארוחה</Text>
                     <View style={styles.addGroupButtonsGrid}>
                       {(["חלבון", "פחמימה", "שומן"] as FoodGroup[]).map((group) => (
                         <Pressable
@@ -1229,31 +1279,17 @@ export default function MealPlanScreen() {
                     </View>
                   </View>
 
-                  {editingMealId === meal.id ? (
-                    <View style={styles.editingMealBox}>
-                      <TextInput
-                        value={meal.title}
-                        onChangeText={(value) => updateMealTitle(meal.id, value)}
-                        placeholder="שם הארוחה"
-                        placeholderTextColor="#8A9BB5"
-                        style={styles.mealTitleInput}
-                        textAlign="right"
-                      />
-                      <Pressable onPress={saveMealEdit} style={styles.mealSaveButton}>
-                        <Text style={styles.mealSaveText}>שמור ארוחה</Text>
-                      </Pressable>
-                      <Pressable onPress={cancelMealEdit} style={styles.mealCancelButton}>
-                        <Text style={styles.mealCancelText}>בטל</Text>
-                      </Pressable>
-                      {addFoodGroupFilter ? <Text style={styles.quickSearchLabel}>בחר {addFoodGroupFilter} להוספה:</Text> : null}
+                  {selectedAddFoodKey && selectedAddFoodKey.startsWith(meal.id) ? (
+                    <View style={styles.searchBoxContainer}>
+                      {addFoodGroupFilter ? (
+                        <Text style={styles.quickSearchLabel}>בחר {addFoodGroupFilter} להוספה:</Text>
+                      ) : null}
                       <TextInput
                         value={mealFoodSearch}
                         onChangeText={setMealFoodSearch}
-                        autoFocus={Boolean(addFoodGroupFilter)}
                         placeholder="חיפוש מזון..."
                         placeholderTextColor="#8A9BB5"
                         style={styles.mealFoodSearch}
-                        textAlign="right"
                       />
                       {filteredMealFoods.length > 0 ? (
                         <View style={styles.mealFoodResults}>
@@ -1269,40 +1305,47 @@ export default function MealPlanScreen() {
                               style={styles.mealFoodResult}
                             >
                               <Text style={styles.mealFoodResultName}>＋ {item.name}</Text>
-                              <Text style={styles.mealFoodResultMeta}>{item.group} · 100 ג׳</Text>
+                              <Text style={styles.mealFoodResultMeta}>
+                                {item.group} · {item.calories} קק״ל (100 ג׳)
+                              </Text>
                             </Pressable>
                           ))}
                         </View>
                       ) : null}
                     </View>
-                  ) : (
-                    <Pressable onPress={() => beginMealEdit(meal)} style={styles.mealEditButton}>
-                      <Text style={styles.mealEditText}>ערוך ארוחה</Text>
-                    </Pressable>
-                  )}
+                  ) : null}
                 </View>
               </View>
             );
           })}
         </Animated.View>
 
+        {/* סיכום יומי כולל */}
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>
             {viewMode === "planned" ? "תפריט מתוכנן" : "מה שנאכל היום"} · יעד {targetCalories || "—"} קק״ל
           </Text>
           <View style={styles.viewModeRow}>
-            <Pressable onPress={() => setViewMode("planned")} style={[styles.viewModeButton, viewMode === "planned" && styles.viewModeButtonActive]}>
-              <Text style={[styles.viewModeText, viewMode === "planned" && styles.viewModeTextActive]}>תפריט מתוכנן</Text>
+            <Pressable
+              onPress={() => setViewMode("planned")}
+              style={[styles.viewModeButton, viewMode === "planned" && styles.viewModeButtonActive]}
+            >
+              <Text style={[styles.viewModeText, viewMode === "planned" && styles.viewModeTextActive]}>
+                תפריט מתוכנן
+              </Text>
             </Pressable>
-            <Pressable onPress={() => setViewMode("eaten")} style={[styles.viewModeButton, viewMode === "eaten" && styles.viewModeButtonActive]}>
+            <Pressable
+              onPress={() => setViewMode("eaten")}
+              style={[styles.viewModeButton, viewMode === "eaten" && styles.viewModeButtonActive]}
+            >
               <Text style={[styles.viewModeText, viewMode === "eaten" && styles.viewModeTextActive]}>נאכל היום</Text>
             </Pressable>
           </View>
           <View style={styles.summaryGrid}>
-            <Stat label="מוצג · קלוריות" value={`${Math.round(displayedTotals.calories)}`} />
-            <Stat label="מוצג · חלבון" value={`${Math.round(displayedTotals.protein)} ג׳`} />
-            <Stat label="מוצג · פחמימות" value={`${Math.round(displayedTotals.carbohydrates)} ג׳`} />
-            <Stat label="מוצג · שומן" value={`${Math.round(displayedTotals.fats)} ג׳`} />
+            <Stat label="קלוריות" value={`${Math.round(displayedTotals.calories)}`} />
+            <Stat label="חלבון" value={`${Math.round(displayedTotals.protein)} ג׳`} />
+            <Stat label="פחמימות" value={`${Math.round(displayedTotals.carbohydrates)} ג׳`} />
+            <Stat label="שומן" value={`${Math.round(displayedTotals.fats)} ג׳`} />
           </View>
         </View>
       </ScrollView>
@@ -1395,8 +1438,6 @@ const styles = StyleSheet.create({
   saveSuccessBanner: { alignSelf: "stretch", minHeight: 44, borderRadius: 10, backgroundColor: "#064E3B", borderColor: "#10B981", borderWidth: 1, alignItems: "center", justifyContent: "center", marginTop: 8 },
   saveSuccessBannerText: { color: "#D1FAE5", fontSize: 13, fontWeight: "900", writingDirection: "rtl" },
   busyButton: { opacity: 0.6 },
-  utilityNavButton: { alignSelf: "stretch", minHeight: 42, borderRadius: 10, borderWidth: 1, borderColor: "#334E68", alignItems: "center", justifyContent: "center", marginTop: 8, backgroundColor: "#132137" },
-  utilityNavButtonText: { color: "#FBBF24", fontSize: 13, fontWeight: "800", writingDirection: "rtl" },
   menuButton: { backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 8 },
   menuText: { color: "#60A5FA", fontWeight: "900", fontSize: 12 },
   datePicker: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", alignSelf: "stretch", marginTop: 12, backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
@@ -1440,18 +1481,11 @@ const styles = StyleSheet.create({
   waterStatValue: { color: "#FFFFFF", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   waterStatValueDone: { color: "#10B981" },
   waterStatLabel: { color: "#94A3B8", fontSize: 10, textAlign: "right" },
-  waterProgressHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
-  waterProgressCaption: { color: "#94A3B8", fontSize: 11, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
-  waterProgressPercent: { color: "#38BDF8", fontSize: 20, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
-  waterProgressPercentDone: { color: "#10B981" },
-  waterProgressTrack: { height: 16, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 10, overflow: "hidden", position: "relative" },
-  waterProgressFill: { height: "100%", minWidth: 4, backgroundColor: "#0284C7", borderRadius: 8, overflow: "hidden" },
+  waterProgressTrack: { height: 16, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 10, overflow: "hidden" },
+  waterProgressFill: { height: "100%", backgroundColor: "#0284C7", borderRadius: 8 },
   waterProgressFillDone: { backgroundColor: "#10B981" },
-  waterProgressGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 3, backgroundColor: "#E0F2FE", opacity: 0.9 },
-  waterRemaining: { color: "#CBD5E1", fontSize: 11, textAlign: "right", writingDirection: "rtl" },
   waterQuickRow: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 7 },
   waterQuickButton: { flex: 1, minWidth: 50, minHeight: 38, borderRadius: 8, backgroundColor: "#1E293B", borderColor: "#334E68", borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  waterQuickButtonPressed: { backgroundColor: "#0284C7", borderColor: "#0284C7" },
   waterQuickButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900", writingDirection: "rtl" },
   waterSettingsRow: { flexDirection: "row-reverse", alignItems: "flex-end", gap: 8, marginTop: 4 },
   waterResetButton: { borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: "#1E293B", justifyContent: "center" },
@@ -1480,6 +1514,7 @@ const styles = StyleSheet.create({
   mealManagementHint: { color: "#94A3B8", fontSize: 11 },
   addMealButton: { width: "100%", minHeight: 48, backgroundColor: "#F59E0B", borderRadius: 10, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
   addMealButtonText: { color: "#000000", fontWeight: "900", fontSize: 14, writingDirection: "rtl" },
+  mealsTransition: { gap: 12 },
   meal: { backgroundColor: "#16253B", borderColor: "#2E4765", borderWidth: 1, borderRadius: 16, padding: 14, gap: 12, marginBottom: 12 },
   mealActive: { borderColor: "#3B82F6" },
   mealHeader: { minHeight: 88, flexDirection: "column", justifyContent: "center", alignItems: "stretch", paddingHorizontal: 12, paddingVertical: 10, gap: 6, borderRadius: 10, backgroundColor: "#1A2E4C", borderColor: "#33537C", borderWidth: 1 },
@@ -1495,16 +1530,8 @@ const styles = StyleSheet.create({
   mealConversionToggle: { color: "#60A5FA", fontSize: 12, fontWeight: "900" },
   mealConversionContent: { gap: 8, paddingTop: 6, borderTopColor: "#223955", borderTopWidth: 1 },
   mealConversionDesc: { color: "#CBD5E1", fontSize: 11, textAlign: "right", lineHeight: 16 },
-  conversionOptionsRow: { flexDirection: "row-reverse", gap: 6 },
-  conversionModeBtn: { flex: 1, backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: "center" },
-  conversionModeBtnActive: { backgroundColor: "#3B82F6", borderColor: "#60A5FA" },
-  conversionModeText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
-  conversionModeTextActive: { color: "#FFFFFF", fontWeight: "900" },
   applyConversionButton: { backgroundColor: "#10B981", borderRadius: 8, paddingVertical: 10, alignItems: "center" },
   applyConversionButtonText: { color: "#000000", fontSize: 12, fontWeight: "900" },
-  savePermanentMealButton: { backgroundColor: "#FBBF24", borderRadius: 12, padding: 12, alignItems: "center", gap: 2 },
-  savePermanentMealTitle: { color: "#000000", fontSize: 14, fontWeight: "900" },
-  savePermanentMealSubtitle: { color: "#451A03", fontSize: 10, fontWeight: "800" },
   mealFoodListHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 3 },
   mealFoodListTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   mealFoodListCount: { color: "#FBBF24", fontSize: 11, fontWeight: "800", textAlign: "left", writingDirection: "rtl" },
@@ -1522,28 +1549,29 @@ const styles = StyleSheet.create({
   deleteMealButton: { borderColor: "#7F1D1D", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#450A0A" },
   deleteMealText: { color: "#FCA5A5", fontSize: 11, fontWeight: "900" },
   disabledAction: { opacity: 0.35 },
-  editingMealBox: { gap: 8, marginTop: 4 },
+  editingMealBox: { gap: 8, marginTop: 4, backgroundColor: "#0E1826", padding: 10, borderRadius: 8, borderColor: "#334E68", borderWidth: 1 },
+  editingMealActions: { flexDirection: "row-reverse", gap: 6 },
   mealTitleInput: { backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", padding: 10, textAlign: "right", writingDirection: "rtl", fontSize: 13, fontWeight: "700" },
-  mealEditButton: { alignSelf: "flex-end", borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: "#1E293B" },
-  mealEditText: { color: "#60A5FA", fontWeight: "900", fontSize: 12 },
-  mealSaveButton: { backgroundColor: "#3B82F6", borderRadius: 8, alignItems: "center", paddingVertical: 10 },
-  mealSaveText: { color: "#FFFFFF", fontWeight: "900", fontSize: 13 },
-  mealCancelButton: { borderColor: "#475569", borderWidth: 1, borderRadius: 8, alignItems: "center", paddingVertical: 8, backgroundColor: "#1E293B" },
+  mealEditButton: { borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#1E293B" },
+  mealEditText: { color: "#60A5FA", fontWeight: "900", fontSize: 11 },
+  mealSaveButton: { flex: 1, backgroundColor: "#3B82F6", borderRadius: 8, alignItems: "center", paddingVertical: 8 },
+  mealSaveText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
+  mealCancelButton: { flex: 1, borderColor: "#475569", borderWidth: 1, borderRadius: 8, alignItems: "center", paddingVertical: 8, backgroundColor: "#1E293B" },
   mealCancelText: { color: "#CBD5E1", fontWeight: "800", fontSize: 12 },
   addFoodRow: { padding: 10, backgroundColor: "#0E1826", borderRadius: 10, borderColor: "#273D54", borderWidth: 1, gap: 8 },
   quickSearchLabel: { color: "#FBBF24", fontSize: 12, fontWeight: "900", textAlign: "right", width: "100%", marginTop: 4 },
   addFoodRowTitle: { width: "100%", color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "right" },
   addGroupButtonsGrid: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 6 },
-  addGroupButtonCustom: { width: "31%", minHeight: 42, borderRadius: 8, paddingVertical: 9, alignItems: "center", justifyContent: "center", borderWidth: 1, backgroundColor: "#1E293B", borderColor: "#475569" },
+  addGroupButtonCustom: { flex: 1, minWidth: "30%", minHeight: 40, borderRadius: 8, paddingVertical: 8, alignItems: "center", justifyContent: "center", borderWidth: 1, backgroundColor: "#1E293B", borderColor: "#475569" },
   addFoodGroupButtonActive: { backgroundColor: "#3B82F6", borderColor: "#60A5FA" },
   addGroupButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "900" },
+  searchBoxContainer: { gap: 6, marginTop: 4 },
   mealFoodSearch: { backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", padding: 10, textAlign: "right", writingDirection: "rtl", fontSize: 13 },
   mealFoodResults: { gap: 6 },
   mealFoodResult: { backgroundColor: "#1E293B", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: "#334E68", flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
   mealFoodResultName: { color: "#FFFFFF", fontWeight: "800", textAlign: "right", fontSize: 13 },
   mealFoodResultMeta: { color: "#94A3B8", fontSize: 11, textAlign: "right" },
   removeMealFoodButton: { alignSelf: "flex-start", backgroundColor: "#450A0A", borderColor: "#7F1D1D", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, marginTop: 6 },
-  removeMealFoodPressed: { opacity: 0.75 },
   removeMealFoodText: { color: "#FCA5A5", fontSize: 11, fontWeight: "900" },
   mealTitleRow: { width: "100%", flexDirection: "row-reverse", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   mealTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
@@ -1555,11 +1583,10 @@ const styles = StyleSheet.create({
   mealTotal: { color: "#93C5FD", fontSize: 11, fontWeight: "800", textAlign: "right", width: "100%" },
   mealTotalActive: { color: "#60A5FA" },
   food: { backgroundColor: "#111D2E", borderColor: "#223955", borderWidth: 1, borderRadius: 12, padding: 12, gap: 8, marginBottom: 4 },
-  foodTop: { flexDirection: "row-reverse", justifyContent: "space-between", gap: 8 },
   foodNameRow: { width: "100%", marginBottom: 2 },
   foodName: { color: "#FFFFFF", fontWeight: "900", textAlign: "right", fontSize: 14, width: "100%" },
   actionButtonsRow: { flexDirection: "row-reverse", gap: 6, marginTop: 6, flexWrap: "wrap" },
-  customActionButton: { flex: 1, minWidth: "31%", backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
+  customActionButton: { flex: 1, minWidth: "30%", backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
   activeReplaceButton: { backgroundColor: "#2563EB", borderColor: "#60A5FA", borderWidth: 2 },
   customActionText: { color: "#60A5FA", fontSize: 11, fontWeight: "900" },
   activeReplaceText: { color: "#FFFFFF", fontWeight: "900" },
@@ -1598,25 +1625,11 @@ const styles = StyleSheet.create({
   foodEdit: { width: "100%", flexDirection: "row-reverse", flexWrap: "wrap", alignItems: "center", gap: 7 },
   quantityInput: { width: "100%", minHeight: 44, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", fontSize: 16, fontWeight: "800", paddingHorizontal: 12, paddingVertical: 8, textAlign: "right", writingDirection: "rtl" },
   quantityStepper: { flexDirection: "row-reverse", gap: 4 },
-  quantityEditButtonContent: { flexDirection: "row-reverse", alignItems: "center", gap: 5 },
-  quantityEditButton: {
-    alignSelf: "flex-start",
-    borderColor: "#475569",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: "#1E293B",
-  },
-  quantityEditButtonActive: { backgroundColor: "#3B82F6", borderColor: "#60A5FA" },
-  quantityEditButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "900" },
   quantityStepButton: { minWidth: 36, minHeight: 32, borderRadius: 7, backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, alignItems: "center", justifyContent: "center" },
   quantityStepText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
   quantityInputEditable: { borderColor: "#3B82F6", borderWidth: 2 },
   saveQuantityButton: { backgroundColor: "#F59E0B", borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
   saveQuantityText: { color: "#000000", fontSize: 11, fontWeight: "900" },
-  resetQuantityButton: { backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
-  resetQuantityText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
   summary: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 15, gap: 12 },
   viewModeRow: { flexDirection: "row-reverse", gap: 8 },
   viewModeButton: { flex: 1, borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: "center", backgroundColor: "#1E293B" },
