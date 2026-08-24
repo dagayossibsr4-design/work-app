@@ -28,7 +28,6 @@ import {
   normalizeMealsTo100Grams,
   type Meal,
 } from "@/lib/meal-plan";
-import { requestNutritionCloudSave } from "@/lib/nutrition-persistence";
 import { useWorkoutStore as useNutritionStore } from "@/lib/workout-store";
 import {
   convertMealFoodWeight,
@@ -215,13 +214,14 @@ export default function MealPlanScreen() {
     const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
     const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(currentMeals), eaten } });
 
-    await AsyncStorage.multiSet([
-      ["meal-plan-state", nextMealsState],
-      ["meal-plan-eaten-history", nextEatenHistory],
-      ["meal-plan-day-history", nextDayHistory],
-      ["meal-plan-profiles", JSON.stringify(menuProfiles)],
-    ]);
-    await requestNutritionCloudSave();
+    try {
+      await AsyncStorage.multiSet([
+        ["meal-plan-state", nextMealsState],
+        ["meal-plan-eaten-history", nextEatenHistory],
+        ["meal-plan-day-history", nextDayHistory],
+        ["meal-plan-profiles", JSON.stringify(menuProfiles)],
+      ]);
+    } catch {}
   };
 
   const manualSaveAction = async () => {
