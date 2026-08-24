@@ -64,6 +64,12 @@ import {
 import { calculateMacroDistribution, type MacroDistribution } from "@/lib/macro-distribution";
 import { foodItems, macrosForGrams, type FoodGroup } from "@/lib/food-nutrition";
 
+type WaterEntry = {
+  id: string;
+  amount: number;
+  at: string;
+};
+
 type PendingSwap = {
   mealIndex: number;
   foodIndex: number;
@@ -102,6 +108,9 @@ export default function MealPlanScreen() {
   const [calendarDraftDate, setCalendarDraftDate] = useState(todayKey());
   const [eatenHistory, setEatenHistory] = useState<Record<string, Record<string, boolean>>>({});
   const [mealHistoryByDate, setMealHistoryByDate] = useState<Record<string, DailyMealSnapshot>>({});
+  const [waterHistory, setWaterHistory] = useState<Record<string, { consumed: number; goal: number }>>({});
+  const [waterEvents, setWaterEvents] = useState<Record<string, WaterEntry[]>>({});
+  const [waterGoalDraft, setWaterGoalDraft] = useState("2000");
   const [hydrated, setHydrated] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [savingActive, setSavingActive] = useState(false);
@@ -136,6 +145,9 @@ export default function MealPlanScreen() {
     }
   }, []);
 
+  const activeWater = waterHistory[selectedDate] ?? { consumed: 0, goal: 2000 };
+  const waterProgress = activeWater.goal > 0 ? Math.min(activeWater.consumed / activeWater.goal, 1) : 0;
+  const activeWaterEvents = [...(waterEvents[selectedDate] ?? [])].sort((a, b) => b.at.localeCompare(a.at));
   const favoriteScale = useRef(new Animated.Value(1)).current;
   const mealPlanOpacity = useRef(new Animated.Value(1)).current;
 
@@ -153,8 +165,10 @@ export default function MealPlanScreen() {
       AsyncStorage.getItem("meal-plan-eaten-history"),
       AsyncStorage.getItem("meal-plan-day-history"),
       AsyncStorage.getItem("meal-plan-profiles"),
+      AsyncStorage.getItem("nutrition-water-history"),
+      AsyncStorage.getItem("nutrition-water-events"),
     ])
-      .then(([value, eatenHistoryValue, mealHistoryValue, profiles]) => {
+      .then(([value, eatenHistoryValue, mealHistoryValue, profiles, waterHistoryValue, waterEventsValue]) => {
         let baseMeals = defaultMeals;
         if (value) {
           try {
@@ -200,6 +214,18 @@ export default function MealPlanScreen() {
           } catch {}
         }
 
+        if (waterHistoryValue) {
+          try {
+            setWaterHistory(JSON.parse(waterHistoryValue));
+          } catch {}
+        }
+
+        if (waterEventsValue) {
+          try {
+            setWaterEvents(JSON.parse(waterEventsValue));
+          } catch {}
+        }
+
         setHydrated(true);
       })
       .catch(() => setHydrated(true));
@@ -220,6 +246,8 @@ export default function MealPlanScreen() {
         ["meal-plan-eaten-history", nextEatenHistory],
         ["meal-plan-day-history", nextDayHistory],
         ["meal-plan-profiles", JSON.stringify(menuProfiles)],
+        ["nutrition-water-history", JSON.stringify(waterHistory)],
+        ["nutrition-water-events", JSON.stringify(waterEvents)],
       ]);
     } catch {}
   };
@@ -258,7 +286,41 @@ export default function MealPlanScreen() {
     if (hydrated) {
       void persistEverything().catch(() => undefined);
     }
-  }, [meals, eaten, eatenHistory, mealHistoryByDate, selectedDate, hydrated, menuProfiles]);
+  }, [meals, eaten, eatenHistory, mealHistoryByDate, selectedDate, hydrated, menuProfiles, waterHistory, waterEvents]);
+
+  const addWater = (amount: number) => {
+    const entry: WaterEntry = { id: `${Date.now()}-${amount}`, amount, at: new Date().toISOString() };
+    setWaterEvents((current) => ({ ...current, [selectedDate]: [...(current[selectedDate] ?? []), entry] }));
+    setWaterHistory((current) => ({
+      ...current,
+      [selectedDate]: {
+        consumed: Math.max(0, (current[selectedDate]?.consumed ?? 0) + amount),
+        goal: Math.max(250, current[selectedDate]?.goal ?? 2000),
+      },
+    }));
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+    }
+  };
+
+  const saveWaterGoal = () => {
+    const nextGoal = Math.min(10000, Math.max(250, Number(waterGoalDraft.replace(/[^0-9]/g, "")) || 2000));
+    setWaterGoalDraft(String(nextGoal));
+    setWaterHistory((current) => ({
+      ...current,
+      [selectedDate]: {
+        consumed: current[selectedDate]?.consumed ?? 0,
+        goal: nextGoal,
+      },
+    }));
+  };
+
+  const resetWater = () => {
+    setWaterHistory((current) => ({
+      ...current,
+      [selectedDate]: { consumed: 0, goal: current[selectedDate]?.goal ?? 2000 },
+    }));
+  };
 
   const activeProfile = menuProfiles[activeGoal];
   const targetCalories = Number(activeProfile.calories) || 0;
@@ -661,6 +723,81 @@ export default function MealPlanScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* 💧 רכיב מעקב המים שחזר למקום */}
+        <View style={styles.waterCard}>
+          <View style={styles.waterHeader}>
+            <View style={styles.waterHeaderCopy}>
+              <Text style={styles.waterTitle}>מעקב שתיית מים</Text>
+              <Text style={styles.waterSubtitle}>
+                {selectedDate === todayKey() ? "היום" : formatDateLabel(selectedDate)} · שמירה לפי תאריך
+              </Text>
+            </View>
+            <Text style={styles.waterIcon}>◉</Text>
+          </View>
+          <View style={styles.waterStatsRow}>
+            <View style={styles.waterStat}>
+              <Text style={styles.waterStatValue}>{Math.round(activeWater.consumed)} מ״ל</Text>
+              <Text style={styles.waterStatLabel}>נצרך</Text>
+            </View>
+            <View style={styles.waterStatDivider} />
+            <View style={styles.waterStat}>
+              <Text style={styles.waterStatValue}>{Math.round(activeWater.goal)} מ״ל</Text>
+              <Text style={styles.waterStatLabel}>יעד יומי</Text>
+            </View>
+            <View style={styles.waterStatDivider} />
+            <View style={styles.waterStat}>
+              <Text style={[styles.waterStatValue, waterProgress >= 1 && styles.waterStatValueDone]}>
+                {Math.round(waterProgress * 100)}%
+              </Text>
+              <Text style={styles.waterStatLabel}>השלמה</Text>
+            </View>
+          </View>
+          <View style={styles.waterProgressHeader}>
+            <Text style={styles.waterProgressCaption}>התקדמות יומית</Text>
+            <Text style={[styles.waterProgressPercent, waterProgress >= 1 && styles.waterProgressPercentDone]}>
+              {Math.round(waterProgress * 100)}%
+            </Text>
+          </View>
+          <View style={styles.waterProgressTrack}>
+            <View style={[styles.waterProgressFill, waterProgress >= 1 && styles.waterProgressFillDone, { width: `${Math.round(waterProgress * 100)}%` }]}>
+              <View style={styles.waterProgressGlow} />
+            </View>
+          </View>
+          <Text style={styles.waterRemaining}>
+            {activeWater.consumed >= activeWater.goal
+              ? "הגעת ליעד המים היומי"
+              : `נשארו ${Math.max(0, Math.round(activeWater.goal - activeWater.consumed))} מ״ל להשלמת היעד`}
+          </Text>
+          <View style={styles.waterQuickRow}>
+            {[200, 250, 330, 500, 750].map((amount) => (
+              <Pressable
+                key={amount}
+                onPress={() => addWater(amount)}
+                style={({ pressed }) => [styles.waterQuickButton, pressed && styles.waterQuickButtonPressed]}
+              >
+                <Text style={styles.waterQuickButtonText}>+{amount} מ״ל</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.waterSettingsRow}>
+            <Pressable onPress={resetWater} style={styles.waterResetButton}>
+              <Text style={styles.waterResetText}>איפוס</Text>
+            </Pressable>
+            <View style={styles.waterGoalEditor}>
+              <TextInput
+                value={waterGoalDraft}
+                onChangeText={setWaterGoalDraft}
+                onBlur={saveWaterGoal}
+                onSubmitEditing={saveWaterGoal}
+                keyboardType="number-pad"
+                placeholder="יעד במ״ל"
+                placeholderTextColor="#8A9BB5"
+                style={styles.waterGoalInput}
+              />
+            </View>
+          </View>
+        </View>
 
         <View style={styles.profileEditor}>
           <Text style={styles.profileTitle}>הגדרת יעד בתוך התפריט</Text>
@@ -1159,6 +1296,36 @@ const styles = StyleSheet.create({
   dateButtonText: { color: "#60A5FA", fontSize: 22, lineHeight: 26, fontWeight: "900" },
   dateLabel: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
   dateHint: { color: "#94A3B8", fontSize: 10 },
+  waterCard: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10, writingDirection: "rtl" },
+  waterHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between" },
+  waterHeaderCopy: { flex: 1, gap: 3 },
+  waterIcon: { color: "#38BDF8", fontSize: 24, fontWeight: "900" },
+  waterTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  waterSubtitle: { color: "#94A3B8", fontSize: 11, textAlign: "right", writingDirection: "rtl" },
+  waterStatsRow: { flexDirection: "row-reverse", alignItems: "stretch", justifyContent: "space-between", gap: 8 },
+  waterStat: { flex: 1, alignItems: "flex-end", gap: 2 },
+  waterStatDivider: { width: 1, backgroundColor: "#334E68" },
+  waterStatValue: { color: "#FFFFFF", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  waterStatValueDone: { color: "#10B981" },
+  waterStatLabel: { color: "#94A3B8", fontSize: 10, textAlign: "right" },
+  waterProgressHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
+  waterProgressCaption: { color: "#94A3B8", fontSize: 11, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
+  waterProgressPercent: { color: "#38BDF8", fontSize: 20, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  waterProgressPercentDone: { color: "#10B981" },
+  waterProgressTrack: { height: 16, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 10, overflow: "hidden", position: "relative" },
+  waterProgressFill: { height: "100%", minWidth: 4, backgroundColor: "#0284C7", borderRadius: 8, overflow: "hidden" },
+  waterProgressFillDone: { backgroundColor: "#10B981" },
+  waterProgressGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 3, backgroundColor: "#E0F2FE", opacity: 0.9 },
+  waterRemaining: { color: "#CBD5E1", fontSize: 11, textAlign: "right", writingDirection: "rtl" },
+  waterQuickRow: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 7 },
+  waterQuickButton: { flex: 1, minWidth: 50, minHeight: 38, borderRadius: 8, backgroundColor: "#1E293B", borderColor: "#334E68", borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  waterQuickButtonPressed: { backgroundColor: "#0284C7", borderColor: "#0284C7" },
+  waterQuickButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900", writingDirection: "rtl" },
+  waterSettingsRow: { flexDirection: "row-reverse", alignItems: "flex-end", gap: 8, marginTop: 4 },
+  waterResetButton: { borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: "#1E293B", justifyContent: "center" },
+  waterResetText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
+  waterGoalEditor: { flex: 1 },
+  waterGoalInput: { minHeight: 38, backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, color: "#FFFFFF", paddingHorizontal: 10, textAlign: "right", writingDirection: "rtl", fontSize: 12, fontWeight: "700" },
   profileEditor: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
   profileTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", textAlign: "right" },
   goalRow: { flexDirection: "row-reverse", gap: 7 },
