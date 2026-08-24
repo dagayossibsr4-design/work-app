@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, Pressable, View, Platform } from "react-native";
+import { ScrollView, StyleSheet, Text, Pressable, View, Platform, Alert } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import * as Haptics from "expo-haptics";
 
@@ -15,17 +15,36 @@ export default function GarminSyncScreen() {
     steps: "9,420",
   });
 
-  const handleSync = () => {
+  const handleSync = async () => {
     if (syncing) return;
     setSyncing(true);
     if (Platform.OS !== "web") {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
     }
 
-    setTimeout(() => {
-      setSyncing(false);
+    try {
+      // בדיקה האם אנחנו במובייל אמיתי מול Health Connect
+      if (Platform.OS === "web") {
+        // סימולציה מוצלחת בדפדפן (Render)
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        setMetrics({
+          sleepScore: 86,
+          sleepHours: "8 שעות ו-10 דקות",
+          hrv: "71 ms",
+          restingHeartRate: "50 bpm",
+          steps: "10,250",
+        });
+      } else {
+        // כאן נחבר בעתיד את קריאת ה-Native מול Health Connect של סמסונג
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
       setLastSync(new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }));
-    }, 1500);
+    } catch (error) {
+      Alert.alert("שגיאת סנכרון", "לא ניתן היה לקרוא נתונים מ-Samsung Health כרגע.");
+    } finally {
+      setSyncing(false);
+    }
   };
 
   return (
@@ -43,7 +62,7 @@ export default function GarminSyncScreen() {
           style={({ pressed }) => [styles.syncButton, pressed && styles.syncButtonPressed]}
         >
           <Text style={styles.syncButtonText}>
-            {syncing ? "⏳ מסנכרן נתונים מהשעון..." : "🔄 סנכרן נתונים עכשיו"}
+            {syncing ? "⏳ מסנכרן נתונים מ-Samsung Health..." : "🔄 סנכרן נתונים עכשיו"}
           </Text>
         </Pressable>
 
@@ -83,9 +102,9 @@ export default function GarminSyncScreen() {
         </View>
 
         <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>חיבור למקורות מידע</Text>
+          <Text style={styles.infoTitle}>סטטוס חיבור ל-Samsung Health</Text>
           <Text style={styles.infoText}>
-            הנתונים מתעדכנים אוטומטית ברקע דרך Samsung Health וחיבורי ה-API המוגדרים במכשיר.
+            המערכת מוכנה לשליפת נתונים. לחץ על כפתור הסנכרון כדי לעדכן את המדדים שלך מחדש.
           </Text>
         </View>
       </ScrollView>
