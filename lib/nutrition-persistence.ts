@@ -1,71 +1,34 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { type Meal } from "@/lib/meal-plan";
+/**
+ * All nutrition records that must travel with the authenticated user.
+ * Values are kept in AsyncStorage for offline use and copied to account_state
+ * by AccountSync whenever the user is signed in to Supabase.
+ */
+export const NUTRITION_PERSISTENCE_KEYS = [
+  "meal-plan-state",
+  "meal-plan-eaten-history",
+  "meal-plan-day-history",
+  "meal-plan-favorite",
+  "meal-plan-profiles",
+  "meal-plan-versions",
+  "meal-plan-saved-meals",
+  "meal-plan-defaults-v100",
+  "conversion-favorites",
+  "nutrition-water-history",
+  "nutrition-water-events",
+  "nutrition-daily-history",
+] as const;
 
-export const NUTRITION_STORAGE_KEY = "workout-tracker-nutrition-state-v2";
-export const NUTRITION_BACKUP_KEY = "workout-tracker-nutrition-backup-v2";
-export const WATER_STORAGE_KEY = "workout-tracker-water-state-v2";
+const nutritionCloudSaveListeners = new Set<() => void>();
 
-export type PersistedNutritionState = {
-  meals: Meal[];
-  eaten: Record<string, boolean>;
-  updatedAt: string;
-};
-
-export type PersistedWaterState = {
-  consumed: number;
-  goal: number;
-  history: Record<string, number>;
-};
-
-export async function loadPersistedNutrition(): Promise<PersistedNutritionState | null> {
-  try {
-    const raw = await AsyncStorage.getItem(NUTRITION_STORAGE_KEY);
-    if (!raw) {
-      const backup = await AsyncStorage.getItem(NUTRITION_BACKUP_KEY);
-      return backup ? JSON.parse(backup) : null;
-    }
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+/** Requests an immediate cloud backup after all local meal records were written. */
+export function requestNutritionCloudSave() {
+  nutritionCloudSaveListeners.forEach((listener) => listener());
 }
 
-export async function savePersistedNutrition(meals: Meal[], eaten: Record<string, boolean> = {}): Promise<void> {
-  try {
-    const payload: PersistedNutritionState = {
-      meals,
-      eaten,
-      updatedAt: new Date().toISOString(),
-    };
-    await AsyncStorage.setItem(NUTRITION_STORAGE_KEY, JSON.stringify(payload));
-    await AsyncStorage.setItem(NUTRITION_BACKUP_KEY, JSON.stringify(payload));
-  } catch (error) {
-    console.error("Failed to save nutrition state:", error);
-  }
-}
-
-export async function loadPersistedWater(dateKey: string): Promise<{ consumed: number; goal: number }> {
-  try {
-    const raw = await AsyncStorage.getItem(WATER_STORAGE_KEY);
-    if (!raw) return { consumed: 0, goal: 2000 };
-    const parsed: PersistedWaterState = JSON.parse(raw);
-    return {
-      consumed: parsed.history[dateKey] ?? 0,
-      goal: parsed.goal || 2000,
-    };
-  } catch {
-    return { consumed: 0, goal: 2000 };
-  }
-}
-
-export async function savePersistedWater(dateKey: string, consumed: number, goal: number = 2000): Promise<void> {
-  try {
-    const raw = await AsyncStorage.getItem(WATER_STORAGE_KEY);
-    const parsed: PersistedWaterState = raw ? JSON.parse(raw) : { consumed: 0, goal: 2000, history: {} };
-    parsed.history[dateKey] = consumed;
-    parsed.goal = goal;
-    await AsyncStorage.setItem(WATER_STORAGE_KEY, JSON.stringify(parsed));
-  } catch (error) {
-    console.error("Failed to save water state:", error);
-  }
+/** Used by the account synchronizer to receive completed meal-save events. */
+export function subscribeNutritionCloudSave(listener: () => void) {
+  nutritionCloudSaveListeners.add(listener);
+  return () => {
+    nutritionCloudSaveListeners.delete(listener);
+  };
 }

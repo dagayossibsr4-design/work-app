@@ -245,28 +245,15 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
       const source = sourceForMealFood(food);
       if (source) {
         const explicitGrams = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/)?.[1];
-        const preserveCommercialPortion = source.sourceType === "מסחרי" && Boolean(explicitGrams) && food.protein > 0;
-        if (preserveCommercialPortion) {
-          const portionGrams = Number(explicitGrams);
-          return {
-            ...food,
-            name: source.name,
-            quantity: `${portionGrams} גרם`,
-            reference: source.reference,
-            servingGrams: portionGrams,
-            weightMode: food.weightMode ?? "cooked",
-            ...macrosForGrams(source, portionGrams),
-          };
-
-        }
+        const portionGrams = Number(explicitGrams ?? source.servingGrams ?? 100);
         return {
           ...food,
           name: source.name,
-          quantity: "100 גרם",
+          quantity: `${portionGrams} גרם`,
           reference: source.reference,
           weightMode: food.weightMode ?? "cooked",
-          servingGrams: 100,
-          ...macrosForGrams(source, 100),
+          servingGrams: portionGrams,
+          ...macrosForGrams(source, portionGrams),
         };
       }
       const gramsMatch = food.quantity.match(/^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*גרם/);

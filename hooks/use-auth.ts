@@ -19,35 +19,31 @@ export function useAuth(options?: UseAuthOptions) {
       setLoading(true);
       setError(null);
 
-      // --- 1. בדיקת התחברות מקומית ל-24 שעות ---
       const authTimestamp = await AsyncStorage.getItem("auth_timestamp");
       const authKey = await AsyncStorage.getItem("auth_user_key");
       const ONE_DAY_MS = 24 * 60 * 60 * 1000;
       const now = Date.now();
 
       if (authTimestamp && authKey) {
-        const timePassed = now - parseInt(authTimestamp, 10);
-        
+        const timePassed = now - Number.parseInt(authTimestamp, 10);
+
         if (timePassed < ONE_DAY_MS) {
-          // המשתמש מחובר ויש תוקף! יוצרים משתמש פעיל
           setUser({
-            id: authKey,
+            id: Number.parseInt(authKey, 10) || 0,
             openId: authKey,
             name: authKey.includes("_") ? authKey.split("_")[0] : authKey,
             email: `${authKey}@local.app`,
             loginMethod: "local",
-            lastSignedIn: new Date(parseInt(authTimestamp, 10)),
+            lastSignedIn: new Date(Number.parseInt(authTimestamp, 10)),
           });
           setLoading(false);
           return;
-        } else {
-          // פג תוקף - מנקים
-          await AsyncStorage.removeItem("auth_timestamp");
-          await AsyncStorage.removeItem("auth_user_key");
         }
+
+        await AsyncStorage.removeItem("auth_timestamp");
+        await AsyncStorage.removeItem("auth_user_key");
       }
 
-      // --- 2. אם אין חיבור מקומי, מנסים חיבור רשת (Web/Native) ---
       if (Platform.OS === "web") {
         const apiUser = await Api.getMe();
         if (apiUser) {
@@ -75,14 +71,10 @@ export function useAuth(options?: UseAuthOptions) {
       }
 
       const cachedUser = await Auth.getUserInfo();
-      if (cachedUser) {
-        setUser(cachedUser);
-      } else {
-        setUser(null);
-      }
+      setUser(cachedUser ?? null);
     } catch (err) {
-      const error = err instanceof Error ? err : new Error("Failed to fetch user");
-      setError(error);
+      const authError = err instanceof Error ? err : new Error("Failed to fetch user");
+      setError(authError);
       setUser(null);
     } finally {
       setLoading(false);
@@ -92,8 +84,8 @@ export function useAuth(options?: UseAuthOptions) {
   const logout = useCallback(async () => {
     try {
       await Api.logout();
-    } catch (err) {
-      // Continue with logout even if API call fails
+    } catch {
+      // ממשיכים לנקות את ההתחברות המקומית גם אם הקריאה לרשת נכשלה.
     } finally {
       await AsyncStorage.removeItem("auth_timestamp");
       await AsyncStorage.removeItem("auth_user_key");
