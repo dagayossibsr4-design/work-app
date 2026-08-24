@@ -4,7 +4,6 @@ import { router, usePathname } from "expo-router";
 import {
   ActivityIndicator,
   Animated,
-  Easing,
   Modal,
   Platform,
   Pressable,
@@ -30,24 +29,20 @@ import {
 } from "@/lib/meal-plan";
 import { useWorkoutStore as useNutritionStore } from "@/lib/workout-store";
 import {
-  convertMealFoodWeight,
   cookingConversionInfo,
   weightModeLabels,
   type WeightMode,
 } from "@/lib/cooking-weight";
 import { todayKey } from "@/lib/weekly-nutrition";
 import {
-  alternativesFor,
   conversionFoods,
-  gramsForMacroTarget,
-  recommendSwap,
+  macrosForGrams,
   sourceForFood,
   type ConversionFood,
   type ConversionGroup,
 } from "@/lib/food-conversions";
 import {
   mealPlanGoalLabel,
-  scaleMealsToTargets,
 } from "@/lib/meal-plan-targets";
 import {
   completeMenuProfile,
@@ -57,27 +52,14 @@ import {
 } from "@/lib/menu-profiles";
 import {
   cloneMeals,
-  emptyMealPlanVersions,
-  type MealPlanVersion,
-  type MealPlanVersions,
 } from "@/lib/meal-plan-versions";
-import { calculateMacroDistribution, type MacroDistribution } from "@/lib/macro-distribution";
-import { foodItems, macrosForGrams, type FoodGroup } from "@/lib/food-nutrition";
+import { calculateMacroDistribution } from "@/lib/macro-distribution";
+import { foodItems, type FoodGroup } from "@/lib/food-nutrition";
 
 type WaterEntry = {
   id: string;
   amount: number;
   at: string;
-};
-
-type PendingSwap = {
-  mealIndex: number;
-  foodIndex: number;
-  sourceName: string;
-  sourceQuantity: string;
-  sourceTotals: ReturnType<typeof mealFoodTotals>;
-  target: ConversionFood;
-  result: ReturnType<typeof recommendSwap>;
 };
 
 type NutritionDraft = {
@@ -96,10 +78,8 @@ export default function MealPlanScreen() {
   const standalone = usePathname() === "/meals";
   const { nutritionProfile, updateNutritionProfile } = useNutritionStore();
   const mealFoods = useMemo(() => [...(nutritionProfile.customFoods ?? []), ...foodItems], [nutritionProfile.customFoods]);
-  const mealConversionFoods = useMemo(() => [...conversionFoods, ...(nutritionProfile.customFoods ?? []).filter((food) => food.group !== "ירק ופרי").map((food) => ({ id: food.id, name: food.name, group: food.group as ConversionGroup, calories: food.calories, protein: food.protein, carbohydrates: food.carbohydrates, fats: food.fats }))], [nutritionProfile.customFoods]);
   
   const [meals, setMeals] = useState<Meal[]>(defaultMeals);
-  const [pending, setPending] = useState<PendingSwap | null>(null);
   const [eaten, setEaten] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<"planned" | "eaten">("planned");
   const [selectedDate, setSelectedDate] = useState(todayKey());
@@ -118,14 +98,12 @@ export default function MealPlanScreen() {
   const [saveButtonColor, setSaveButtonColor] = useState("#F59E0B");
   const [menuProfiles, setMenuProfiles] = useState<MenuProfiles>(() => createMenuProfiles(nutritionProfile));
   const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
-  const [expandedFoodId, setExpandedFoodId] = useState<string | null>(null);
   const [weightInfoFoodId, setWeightInfoFoodId] = useState<string | null>(null);
+  
+  // מצבי עריכת כמויות אישית למזון
   const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState("");
-  const [editingNutritionKey, setEditingNutritionKey] = useState<string | null>(null);
-  const [nutritionDraft, setNutritionDraft] = useState<NutritionDraft>({ calories: "", protein: "", carbohydrates: "", fats: "" });
-  const [activeSwapKey, setActiveSwapKey] = useState<string | null>(null);
-  const [swapGroup, setSwapGroup] = useState<ConversionGroup | null>(null);
+
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1", "meal-2", "meal-3", "meal-4", "meal-5"]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [mealEditBackup, setMealEditBackup] = useState<Meal | null>(null);
@@ -133,11 +111,6 @@ export default function MealPlanScreen() {
   const [addFoodGroupFilter, setAddFoodGroupFilter] = useState<FoodGroup | null>(null);
   const [selectedAddFoodKey, setSelectedAddFoodKey] = useState<string | null>(null);
   const mealPlanScrollRef = useRef<ScrollView>(null);
-  const [conversionSearch, setConversionSearch] = useState("");
-  const [favoriteConversionIds, setFavoriteConversionIds] = useState<string[]>([]);
-  const [animatedFavoriteId, setAnimatedFavoriteId] = useState<string | null>(null);
-  const [mealConversionId, setMealConversionId] = useState<string | null>(null);
-  const [mealConversionSelection, setMealConversionSelection] = useState<Record<string, ConversionFood | null>>({});
 
   useEffect(() => {
     if (Platform.OS === "android") {
@@ -147,17 +120,7 @@ export default function MealPlanScreen() {
 
   const activeWater = waterHistory[selectedDate] ?? { consumed: 0, goal: 2000 };
   const waterProgress = activeWater.goal > 0 ? Math.min(activeWater.consumed / activeWater.goal, 1) : 0;
-  const activeWaterEvents = [...(waterEvents[selectedDate] ?? [])].sort((a, b) => b.at.localeCompare(a.at));
-  const favoriteScale = useRef(new Animated.Value(1)).current;
   const mealPlanOpacity = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    AsyncStorage.getItem("conversion-favorites")
-      .then((value) => {
-        if (value) setFavoriteConversionIds(JSON.parse(value) as string[]);
-      })
-      .catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -482,41 +445,39 @@ export default function MealPlanScreen() {
   };
 
   const updateMealFoodQuantity = (mealId: string, foodId: string, quantity: string) => {
-    const next = meals.map((meal) =>
-      meal.id !== mealId
-        ? meal
-        : {
-            ...meal,
-            foods: meal.foods.map((food) =>
-              food.id === foodId
-                ? {
-                    ...food,
-                    quantity,
-                    servingGrams:
-                      food.servingGrams ??
-                      Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100),
-                  }
-                : food
-            ),
-          }
-    );
+    const next = meals.map((meal) => {
+      if (meal.id !== mealId) return meal;
+      return {
+        ...meal,
+        foods: meal.foods.map((food) => {
+          if (food.id !== foodId) return food;
+          const match = quantity.match(/^([0-9]+(?:\.[0-9]+)?)/);
+          const grams = match ? Number(match[1]) : 100;
+          const baseItem = foodItems.find((i) => i.name === food.name) ?? { calories: 100, protein: 10, carbohydrates: 10, fats: 5 };
+          const calculatedMacros = macrosForGrams(baseItem, grams);
+          return {
+            ...food,
+            quantity,
+            ...calculatedMacros,
+          };
+        }),
+      };
+    });
     setMeals(next);
-    void persistEverything(next);
   };
 
   const saveMealFoodQuantity = (mealId: string, foodId: string, draftOverride?: string) => {
-    const meal = meals.find((item) => item.id === mealId);
-    const food = meal?.foods.find((item) => item.id === foodId);
-    const raw = (draftOverride ?? food?.quantity ?? "").trim().replace(",", ".");
+    const raw = (draftOverride ?? "").trim().replace(",", ".");
     const match = raw.match(/^([0-9]+(?:\.[0-9]+)?)/);
-    const parsed = match ? Number(match[1]) : 0;
-    const normalized = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * 10) / 10) : 0;
+    const parsed = match ? Number(match[1]) : 100;
+    const normalized = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * 10) / 10) : 100;
     updateMealFoodQuantity(mealId, foodId, `${normalized} גרם`);
+    void persistEverything();
   };
 
   const resetMealFoodQuantity = (mealId: string, foodId: string) => {
-    setQuantityDraft("100");
     updateMealFoodQuantity(mealId, foodId, "100 גרם");
+    void persistEverything();
   };
 
   const removeMealFood = (mealId: string, foodId: string) => {
@@ -544,7 +505,7 @@ export default function MealPlanScreen() {
                 name: item.name,
                 quantity: `${grams} גרם`,
                 reference: item.reference,
-                weightMode: "cooked",
+                weightMode: "cooked" as WeightMode,
                 ...macros,
                 servingGrams: grams,
               },
@@ -578,8 +539,6 @@ export default function MealPlanScreen() {
     .filter((item) => !addFoodGroupFilter || item.group === addFoodGroupFilter)
     .filter((item) => `${item.name} ${item.group} ${item.reference}`.includes(mealFoodSearch.trim()))
     .slice(0, 20);
-
-  const macroDistribution = useMemo(() => calculateMacroDistribution(displayedTotals), [displayedTotals]);
 
   return (
     <ScreenContainer className="px-5 pt-5" containerClassName="bg-[#07111E]">
@@ -724,7 +683,7 @@ export default function MealPlanScreen() {
           </View>
         </Modal>
 
-        {/* 💧 רכיב מעקב המים שחזר למקום */}
+        {/* 💧 רכיב מעקב המים */}
         <View style={styles.waterCard}>
           <View style={styles.waterHeader}>
             <View style={styles.waterHeaderCopy}>
@@ -964,33 +923,32 @@ export default function MealPlanScreen() {
                             </Pressable>
                           ) : null}
 
+                          {/* ✏️ אזור עריכת כמות עצמאית למזון */}
                           <View style={styles.foodEdit}>
                             {quantityEditOpen ? (
                               <>
-                                {quantityGrams !== null ? (
-                                  <View style={styles.quantityStepper}>
-                                    <Pressable
-                                      onPress={() => {
-                                        const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
-                                        const next = Math.max(0, cur - 10);
-                                        updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
-                                      }}
-                                      style={styles.quantityStepButton}
-                                    >
-                                      <Text style={styles.quantityStepText}>−10</Text>
-                                    </Pressable>
-                                    <Pressable
-                                      onPress={() => {
-                                        const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
-                                        const next = cur + 10;
-                                        updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
-                                      }}
-                                      style={styles.quantityStepButton}
-                                    >
-                                      <Text style={styles.quantityStepText}>+10</Text>
-                                    </Pressable>
-                                  </View>
-                                ) : null}
+                                <View style={styles.quantityStepper}>
+                                  <Pressable
+                                    onPress={() => {
+                                      const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
+                                      const next = Math.max(0, cur - 10);
+                                      updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
+                                    }}
+                                    style={styles.quantityStepButton}
+                                  >
+                                    <Text style={styles.quantityStepText}>−10</Text>
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => {
+                                      const cur = Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100);
+                                      const next = cur + 10;
+                                      updateMealFoodQuantity(meal.id, food.id, `${next} גרם`);
+                                    }}
+                                    style={styles.quantityStepButton}
+                                  >
+                                    <Text style={styles.quantityStepText}>+10</Text>
+                                  </Pressable>
+                                </View>
                                 <TextInput
                                   value={quantityDraft}
                                   editable
@@ -1023,28 +981,26 @@ export default function MealPlanScreen() {
                             ) : null}
                           </View>
 
-                          {quantityGrams !== null ? (
-                            <Pressable
-                              onPress={() => {
-                                if (quantityEditOpen) {
-                                  setEditingQuantityKey(null);
-                                  Keyboard.dismiss();
-                                } else {
-                                  const numericQuantity = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? "100";
-                                  setQuantityDraft(numericQuantity);
-                                  setEditingQuantityKey(quantityEditKey);
-                                }
-                              }}
-                              style={[styles.quantityEditButton, quantityEditOpen && styles.quantityEditButtonActive]}
-                            >
-                              <View style={styles.quantityEditButtonContent}>
-                                <IconSymbol name={macroIcon} size={14} color={quantityEditOpen ? "#07111E" : "#93C5FD"} />
-                                <Text style={styles.quantityEditButtonText}>
-                                  {quantityEditOpen ? "סגור עריכת כמות" : "ערוך כמות"}
-                                </Text>
-                              </View>
-                            </Pressable>
-                          ) : null}
+                          <Pressable
+                            onPress={() => {
+                              if (quantityEditOpen) {
+                                setEditingQuantityKey(null);
+                                Keyboard.dismiss();
+                              } else {
+                                const numericQuantity = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? "100";
+                                setQuantityDraft(numericQuantity);
+                                setEditingQuantityKey(quantityEditKey);
+                              }
+                            }}
+                            style={[styles.quantityEditButton, quantityEditOpen && styles.quantityEditButtonActive]}
+                          >
+                            <View style={styles.quantityEditButtonContent}>
+                              <IconSymbol name={macroIcon} size={14} color={quantityEditOpen ? "#07111E" : "#93C5FD"} />
+                              <Text style={styles.quantityEditButtonText}>
+                                {quantityEditOpen ? "סגור עריכת כמות" : "ערוך כמות מזון"}
+                              </Text>
+                            </View>
+                          </Pressable>
                         </View>
                       );
                     })}
@@ -1149,14 +1105,6 @@ export default function MealPlanScreen() {
             <Stat label="מוצג · שומן" value={`${Math.round(displayedTotals.fats)} ג׳`} />
           </View>
         </View>
-
-        <View style={styles.chart}>
-          <Text style={styles.chartTitle}>צריכה יומית מול יעד</Text>
-          <ProgressBar label="קלוריות" value={displayedTotals.calories} target={targets.calories} color="#60A5FA" unit="קק״ל" />
-          <ProgressBar label="חלבון" value={displayedTotals.protein} target={targets.protein} color="#93C5FD" unit="ג׳" />
-          <ProgressBar label="פחמימות" value={displayedTotals.carbohydrates} target={targets.carbohydrates} color="#FBBF24" unit="ג׳" />
-          <ProgressBar label="שומן" value={displayedTotals.fats} target={targets.fats} color="#F87171" unit="ג׳" />
-        </View>
       </ScrollView>
     </ScreenContainer>
   );
@@ -1231,22 +1179,6 @@ function Stat({ label, value }: { label: string; value: string }) {
     <View style={styles.stat}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function ProgressBar({ label, value, target, color, unit }: { label: string; value: number; target: number; color: string; unit: string }) {
-  const ratio = target > 0 ? Math.min(value / target, 1) : 0;
-  const percent = target > 0 ? Math.round((value / target) * 100) : 0;
-  return (
-    <View style={styles.progress}>
-      <View style={styles.progressHeader}>
-        <Text style={styles.progressValue}>{Math.round(value)} / {Math.round(target)} {unit} · {percent}%</Text>
-        <Text style={styles.progressLabel}>{label}</Text>
-      </View>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: `${Math.round(ratio * 100)}%`, backgroundColor: color }]} />
-      </View>
     </View>
   );
 }
@@ -1391,8 +1323,6 @@ const styles = StyleSheet.create({
   mealFoodResult: { backgroundColor: "#1E293B", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: "#334E68", flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
   mealFoodResultName: { color: "#FFFFFF", fontWeight: "800", textAlign: "right", fontSize: 13 },
   mealFoodResultMeta: { color: "#94A3B8", fontSize: 11, textAlign: "right" },
-  removeFoodButton: { backgroundColor: "#7F1D1D", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, marginTop: 4 },
-  removeFoodText: { color: "#FCA5A5", fontSize: 11, fontWeight: "900" },
   removeMealFoodButton: { alignSelf: "flex-start", backgroundColor: "#450A0A", borderColor: "#7F1D1D", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, marginTop: 6 },
   removeMealFoodPressed: { opacity: 0.75 },
   removeMealFoodText: { color: "#FCA5A5", fontSize: 11, fontWeight: "900" },
@@ -1454,14 +1384,6 @@ const styles = StyleSheet.create({
   viewModeTextActive: { color: "#000000", fontWeight: "900" },
   summaryTitle: { color: "#FFFFFF", fontSize: 17, fontWeight: "900", textAlign: "right" },
   summaryGrid: { flexDirection: "row-reverse", justifyContent: "space-between" },
-  chart: { backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
-  chartTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", textAlign: "right" },
-  progress: { gap: 5 },
-  progressHeader: { flexDirection: "row-reverse", justifyContent: "space-between" },
-  progressLabel: { color: "#E2E8F0", fontSize: 11, fontWeight: "800" },
-  progressValue: { color: "#94A3B8", fontSize: 10 },
-  track: { height: 8, backgroundColor: "#09111D", borderRadius: 6, overflow: "hidden" },
-  fill: { height: 8, borderRadius: 6 },
   stat: { alignItems: "flex-end" },
   statValue: { color: "#60A5FA", fontSize: 20, fontWeight: "900" },
   statLabel: { color: "#94A3B8", fontSize: 11, marginTop: 3 },
