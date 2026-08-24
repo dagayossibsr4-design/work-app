@@ -106,6 +106,8 @@ export default function MealPlanScreen() {
   const [hydrated, setHydrated] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [savingActive, setSavingActive] = useState(false);
+  const [saveButtonText, setSaveButtonText] = useState("💾 שמור שינויים בתפריט");
+  const [saveButtonColor, setSaveButtonColor] = useState("#F59E0B");
   const [menuProfiles, setMenuProfiles] = useState<MenuProfiles>(() => createMenuProfiles(nutritionProfile));
   const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
   const [expandedFoodId, setExpandedFoodId] = useState<string | null>(null);
@@ -225,14 +227,29 @@ export default function MealPlanScreen() {
   const manualSaveAction = async () => {
     if (savingActive) return;
     setSavingActive(true);
+    setSaveButtonText("⏳ שומר נתונים...");
+    setSaveButtonColor("#2563EB");
     try {
       await persistEverything();
       if (Platform.OS !== "web") {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
       }
+      setSaveButtonText("✓ נשמר בהצלחה!");
+      setSaveButtonColor("#10B981");
       setSaveSuccessNotice(true);
-      setTimeout(() => setSaveSuccessNotice(false), 3000);
-    } catch {} finally {
+      setTimeout(() => {
+        setSaveSuccessNotice(false);
+        setSaveButtonText("💾 שמור שינויים בתפריט");
+        setSaveButtonColor("#F59E0B");
+      }, 2500);
+    } catch {
+      setSaveButtonText("! שגיאה בשמירה");
+      setSaveButtonColor("#EF4444");
+      setTimeout(() => {
+        setSaveButtonText("💾 שמור שינויים בתפריט");
+        setSaveButtonColor("#F59E0B");
+      }, 3000);
+    } finally {
       setSavingActive(false);
     }
   };
@@ -531,12 +548,12 @@ export default function MealPlanScreen() {
           <Pressable
             onPress={manualSaveAction}
             disabled={savingActive}
-            style={[styles.mainSaveButton, savingActive && styles.busyButton]}
+            style={[styles.mainSaveButton, { backgroundColor: saveButtonColor }, savingActive && styles.busyButton]}
           >
             {savingActive ? (
-              <ActivityIndicator color="#000000" size="small" />
+              <ActivityIndicator color="#FFFFFF" size="small" />
             ) : (
-              <Text style={styles.mainSaveButtonText}>💾 שמור שינויים בתפריט</Text>
+              <Text style={styles.mainSaveButtonText}>{saveButtonText}</Text>
             )}
           </Pressable>
 
@@ -1104,7 +1121,7 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#60A5FA", fontSize: 13, fontWeight: "800" },
   title: { color: "#FFFFFF", fontSize: 30, fontWeight: "900" },
   subtitle: { color: "#CBD5E1", fontSize: 13, marginTop: 5 },
-  mainSaveButton: { alignSelf: "stretch", minHeight: 50, borderRadius: 12, backgroundColor: "#F59E0B", alignItems: "center", justifyContent: "center", marginTop: 12 },
+  mainSaveButton: { alignSelf: "stretch", minHeight: 50, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 12 },
   mainSaveButtonText: { color: "#000000", fontSize: 16, fontWeight: "900", writingDirection: "rtl" },
   saveSuccessBanner: { alignSelf: "stretch", minHeight: 44, borderRadius: 10, backgroundColor: "#064E3B", borderColor: "#10B981", borderWidth: 1, alignItems: "center", justifyContent: "center", marginTop: 8 },
   saveSuccessBannerText: { color: "#D1FAE5", fontSize: 13, fontWeight: "900", writingDirection: "rtl" },
