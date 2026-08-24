@@ -158,7 +158,6 @@ export default function MealPlanScreen() {
   const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
   const [mealConversionId, setMealConversionId] = useState<string | null>(null);
   const [mealConversionSelection, setMealConversionSelection] = useState<Record<string, ConversionFood | null>>({});
-  const manualMealEditRef = useRef(false);
 
   useEffect(() => {
     if (Platform.OS === "android") {
@@ -193,7 +192,6 @@ export default function MealPlanScreen() {
       AsyncStorage.getItem("meal-plan-favorite"),
       AsyncStorage.getItem("meal-plan-profiles"),
       AsyncStorage.getItem("meal-plan-versions"),
-      AsyncStorage.getItem("meal-plan-defaults-v100"),
       AsyncStorage.getItem("nutrition-water-history"),
       AsyncStorage.getItem("nutrition-water-events"),
     ])
@@ -205,108 +203,82 @@ export default function MealPlanScreen() {
           favorite,
           profiles,
           versions,
-          defaultsVersion,
           waterHistoryValue,
           waterEventsValue,
         ]) => {
-          if (value) {
-            const saved = JSON.parse(value) as {
-              meals?: Meal[];
-              eaten?: Record<string, boolean>;
-              appliedTarget?: string;
-            };
-            if (saved.meals) {
-              setMeals(normalizeMealsTo100Grams(saved.meals));
-            }
-            if (defaultsVersion !== "1") {
-              AsyncStorage.setItem("meal-plan-defaults-v100", "1").catch(() => undefined);
-            }
-            if (saved.appliedTarget) setAppliedTarget(saved.appliedTarget);
-            if (saved.eaten) setEaten(saved.eaten);
-          }
-          if (eatenHistoryValue) {
-            const savedHistory = JSON.parse(eatenHistoryValue) as Record<string, Record<string, boolean>>;
-            setEatenHistory(savedHistory);
-            setEaten(savedHistory[todayKey()] ?? {});
-          } else if (value) {
-            const saved = JSON.parse(value) as { eaten?: Record<string, boolean> };
-            if (saved.eaten) {
-              setEaten(saved.eaten);
-              setEatenHistory({ [todayKey()]: saved.eaten });
-            }
-          }
+          let hasLoadedMeals = false;
+
           if (mealHistoryValue) {
-            const savedHistory = JSON.parse(mealHistoryValue) as Record<string, DailyMealSnapshot>;
-            const normalizedHistory = Object.fromEntries(
-              Object.entries(savedHistory).map(([date, snapshot]) => [
-                date,
-                {
-                  meals: normalizeMealsTo100Grams(snapshot?.meals ?? []),
-                  eaten: snapshot?.eaten ?? {},
-                },
-              ])
-            ) as Record<string, DailyMealSnapshot>;
-            setMealHistoryByDate(normalizedHistory);
-            const todaySnapshot = normalizedHistory[todayKey()];
-            if (todaySnapshot?.meals.length) {
-              setMeals(todaySnapshot.meals);
-              setEaten(todaySnapshot.eaten);
-            }
+            try {
+              const savedHistory = JSON.parse(mealHistoryValue) as Record<string, DailyMealSnapshot>;
+              const todaySnapshot = savedHistory[todayKey()];
+              if (todaySnapshot?.meals?.length) {
+                setMeals(normalizeMealsTo100Grams(todaySnapshot.meals));
+                setEaten(todaySnapshot.eaten ?? {});
+                hasLoadedMeals = true;
+              }
+              setMealHistoryByDate(savedHistory);
+            } catch {}
           }
+
+          if (!hasLoadedMeals && value) {
+            try {
+              const saved = JSON.parse(value) as {
+                meals?: Meal[];
+                eaten?: Record<string, boolean>;
+                appliedTarget?: string;
+              };
+              if (saved.meals?.length) {
+                setMeals(normalizeMealsTo100Grams(saved.meals));
+              }
+              if (saved.appliedTarget) setAppliedTarget(saved.appliedTarget);
+              if (saved.eaten) setEaten(saved.eaten);
+            } catch {}
+          }
+
+          if (eatenHistoryValue) {
+            try {
+              const savedHistory = JSON.parse(eatenHistoryValue) as Record<string, Record<string, boolean>>;
+              setEatenHistory(savedHistory);
+              if (!hasLoadedMeals) setEaten(savedHistory[todayKey()] ?? {});
+            } catch {}
+          }
+
           setHasFavorite(Boolean(favorite));
+
           if (versions) {
-            const savedVersions = JSON.parse(versions) as MealPlanVersions;
-            const normalizedVersions = Object.fromEntries(
-              Object.entries(savedVersions).map(([goal, goalVersions]) => [
-                goal,
-                goalVersions.map((version) => ({
-                  ...version,
-                  meals: normalizeMealsTo100Grams(version.meals),
-                })),
-              ])
-            ) as MealPlanVersions;
-            setVersionsByGoal({ ...emptyMealPlanVersions(), ...normalizedVersions });
+            try {
+              const savedVersions = JSON.parse(versions) as MealPlanVersions;
+              setVersionsByGoal({ ...emptyMealPlanVersions(), ...savedVersions });
+            } catch {}
           }
+
           if (waterHistoryValue) {
-            const savedWater = JSON.parse(waterHistoryValue) as Record<string, { consumed?: number; goal?: number }>;
-            const normalizedWater = Object.fromEntries(
-              Object.entries(savedWater).map(([date, val]) => [
-                date,
-                {
-                  consumed: Math.max(0, Number(val?.consumed) || 0),
-                  goal: Math.max(250, Number(val?.goal) || 2000),
-                },
-              ])
-            );
-            setWaterHistory(normalizedWater);
+            try {
+              setWaterHistory(JSON.parse(waterHistoryValue));
+            } catch {}
           }
+
           if (waterEventsValue) {
-            const savedEvents = JSON.parse(waterEventsValue) as Record<string, WaterEntry[]>;
-            const normalizedEvents = Object.fromEntries(
-              Object.entries(savedEvents).map(([date, entries]) => [
-                date,
-                (entries ?? [])
-                  .filter((entry) => Number(entry?.amount) > 0 && Boolean(entry?.at))
-                  .map((entry) => ({
-                    id: String(entry.id ?? entry.at),
-                    amount: Math.round(Number(entry.amount)),
-                    at: String(entry.at),
-                  })),
-              ])
-            ) as Record<string, WaterEntry[]>;
-            setWaterEvents(normalizedEvents);
+            try {
+              setWaterEvents(JSON.parse(waterEventsValue));
+            } catch {}
           }
+
           if (profiles) {
-            const savedProfiles = JSON.parse(profiles) as MenuProfiles;
-            setMenuProfiles(savedProfiles);
-            const savedActive = savedProfiles[nutritionProfile.goal] ?? savedProfiles.ניטרלי;
-            setActiveGoal(savedActive.goal);
+            try {
+              const savedProfiles = JSON.parse(profiles) as MenuProfiles;
+              setMenuProfiles(savedProfiles);
+              const savedActive = savedProfiles[nutritionProfile.goal] ?? savedProfiles.ניטרלי;
+              if (savedActive) setActiveGoal(savedActive.goal);
+            } catch {}
           }
+
           setHydrated(true);
         }
       )
       .catch(() => setHydrated(true));
-  }, [nutritionProfile.goal]);
+  }, []);
 
   useEffect(() => {
     if (hydrated) {
@@ -500,33 +472,15 @@ export default function MealPlanScreen() {
       syncedProfile.fats !== activeProfile.fats;
     if (changed) {
       setMenuProfiles((current) => ({ ...current, [activeGoal]: syncedProfile }));
-      setAppliedTarget("");
     }
   }, [activeGoal, activeProfile, hydrated, nutritionProfile.goal, nutritionProfile.calorieTarget, nutritionProfile.proteinTarget, nutritionProfile.carbohydratesTarget, nutritionProfile.fatsTarget]);
 
-  const targetKey = `${activeProfile.goal}:${targetCalories}:${activeProfile.protein}:${activeProfile.carbohydrates}:${activeProfile.fats}`;
-  const currentPlanTotals = useMemo(() => dailyMealTotals(meals), [meals]);
-  const targetAligned =
-    (!activeProfile.protein || Math.abs(currentPlanTotals.protein - Number(activeProfile.protein)) <= 2) &&
-    (!activeProfile.carbohydrates || Math.abs(currentPlanTotals.carbohydrates - Number(activeProfile.carbohydrates)) <= 2) &&
-    (!activeProfile.fats || Math.abs(currentPlanTotals.fats - Number(activeProfile.fats)) <= 2);
-
-  useEffect(() => {
-    if (manualMealEditRef.current) {
-      manualMealEditRef.current = false;
-      return;
-    }
-    if (!hydrated || !targetCalories || (appliedTarget === targetKey && targetAligned)) return;
-    setMeals((current) =>
-      scaleMealsToTargets(current, {
-        calories: targetCalories,
-        protein: Number(activeProfile.protein) || 0,
-        carbohydrates: Number(activeProfile.carbohydrates) || 0,
-        fats: Number(activeProfile.fats) || 0,
-      })
-    );
-    setAppliedTarget(targetKey);
-  }, [hydrated, targetCalories, targetKey, appliedTarget, targetAligned, activeProfile.protein, activeProfile.carbohydrates, activeProfile.fats]);
+  const targets = {
+    calories: targetCalories || dailyMealTotals(meals).calories,
+    protein: Number(activeProfile.protein) || 0,
+    carbohydrates: Number(activeProfile.carbohydrates) || 0,
+    fats: Number(activeProfile.fats) || 0,
+  };
 
   const toggleEaten = (id: string) => setEaten((current) => ({ ...current, [id]: !current[id] }));
 
@@ -570,13 +524,11 @@ export default function MealPlanScreen() {
         fats: Number(activeProfile.fats) || 0,
       })
     );
-    setAppliedTarget(targetKey);
     setRebalanceMessage(`הכמויות אוזנו מחדש ליעד של ${targetCalories} קק״ל.`);
   };
 
   const resetToOriginal = () => {
     setMeals(JSON.parse(JSON.stringify(defaultMeals)) as Meal[]);
-    setAppliedTarget(targetKey);
     setRebalanceMessage("התפריט חזר לתפריט המקורי. סימוני נאכל נשמרו.");
   };
 
@@ -650,7 +602,6 @@ export default function MealPlanScreen() {
           "meal-plan-favorite",
           JSON.stringify({
             meals: normalizeMealsTo100Grams(meals),
-            targetKey,
             savedAt: new Date().toISOString(),
           })
         ),
@@ -676,9 +627,8 @@ export default function MealPlanScreen() {
         setFavoriteStatus({ type: "error", message: "עדיין לא נשמר תפריט מועדף." });
         return;
       }
-      const saved = JSON.parse(value) as { meals?: Meal[]; targetKey?: string };
+      const saved = JSON.parse(value) as { meals?: Meal[] };
       if (saved.meals) setMeals(normalizeMealsTo100Grams(saved.meals));
-      if (saved.targetKey) setAppliedTarget(saved.targetKey);
       setFavoriteStatus({ type: "success", message: "התפריט המועדף נטען בהצלחה." });
     } catch {
       setFavoriteStatus({ type: "error", message: "טעינת התפריט המועדף נכשלה. נסה שוב." });
@@ -687,7 +637,6 @@ export default function MealPlanScreen() {
     }
   };
 
-  const totals = useMemo(() => dailyMealTotals(meals), [meals]);
   const displayedMeals = useMemo(
     () =>
       viewMode === "planned"
@@ -735,13 +684,6 @@ export default function MealPlanScreen() {
       })
       .catch(() => undefined);
   }, [consumed, hydrated, selectedDate]);
-
-  const targets = {
-    calories: targetCalories || totals.calories,
-    protein: Number(activeProfile.protein) || 0,
-    carbohydrates: Number(activeProfile.carbohydrates) || 0,
-    fats: Number(activeProfile.fats) || 0,
-  };
 
   const macroDistribution = useMemo(() => calculateMacroDistribution(displayedTotals), [displayedTotals]);
 
@@ -895,7 +837,6 @@ export default function MealPlanScreen() {
   };
 
   const updateMealFoodQuantity = (mealId: string, foodId: string, quantity: string) => {
-    manualMealEditRef.current = true;
     setMeals((current) =>
       current.map((meal) =>
         meal.id !== mealId
@@ -980,7 +921,6 @@ export default function MealPlanScreen() {
             }
       )
     );
-    manualMealEditRef.current = true;
     setEditingNutritionKey(null);
     Keyboard.dismiss();
     setRebalanceMessage("ערכי התזונה נשמרו ידנית והסיכומים עודכנו.");
@@ -1109,7 +1049,7 @@ export default function MealPlanScreen() {
   const filteredMealFoods = mealFoods
     .filter((item) => !addFoodGroupFilter || item.group === addFoodGroupFilter)
     .filter((item) => `${item.name} ${item.group} ${item.reference}`.includes(mealFoodSearch.trim()))
-    .slice(0, 10);
+    .slice(0, 15);
 
   const openSwap = (mealId: string, foodId: string, group: ConversionGroup) => {
     setActiveSwapKey(`${mealId}:${foodId}`);
