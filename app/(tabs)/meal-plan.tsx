@@ -101,9 +101,9 @@ export default function MealPlanScreen() {
   const [fullCarbsDraft, setFullCarbsDraft] = useState("");
   const [fullFatsDraft, setFullFatsDraft] = useState("");
 
+  // מצבים להמרת ארוחה והחלפת פריט מזון
   const [replacingFoodKey, setReplacingFoodKey] = useState<string | null>(null);
   const [mealConversionOpenId, setMealConversionOpenId] = useState<string | null>(null);
-  // מצב בחירת שיטת המרה בתוך בלוק המרת ארוחה
   const [conversionMode, setConversionMode] = useState<"100g" | "proportional">("100g");
 
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1", "meal-2", "meal-3", "meal-4", "meal-5"]);
@@ -508,7 +508,6 @@ export default function MealPlanScreen() {
     void persistEverything(next);
   };
 
-  // פעולת המרת ארוחה (המרת כלל הרכיבים לפי בחירה)
   const applyMealConversion = (mealId: string) => {
     const next = meals.map((meal) => {
       if (meal.id !== mealId) return meal;
@@ -527,8 +526,11 @@ export default function MealPlanScreen() {
       };
     });
     setMeals(next);
+    setMealConversionOpenId(null);
     void persistEverything(next);
-    alert(conversionMode === "100g" ? "הארוחה הומרה והותאמה לפי 100 גרם לכל רכיב!" : "הארוחה הותאמה פרופורציונלית!");
+    if (Platform.OS !== "web") {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    }
   };
 
   const saveMealFoodQuantity = (mealId: string, foodId: string, draftOverride?: string) => {
@@ -909,7 +911,7 @@ export default function MealPlanScreen() {
 
                 {isExpanded ? (
                   <View style={styles.mealFoodEditor}>
-                    {/* בלוק המרת ארוחה */}
+                    {/* בלוק המרת ארוחה פעיל לחלוטין */}
                     <View style={styles.mealConversionBlock}>
                       <Pressable
                         onPress={() => setMealConversionOpenId(isConversionOpen ? null : meal.id)}
@@ -923,9 +925,7 @@ export default function MealPlanScreen() {
                       </Pressable>
                       {isConversionOpen ? (
                         <View style={styles.mealConversionContent}>
-                          <Text style={styles.mealConversionDesc}>
-                            בחר שיטת המרה לרכיבי הארוחה:
-                          </Text>
+                          <Text style={styles.mealConversionDesc}>בחר שיטת המרה לרכיבי הארוחה:</Text>
                           <View style={styles.conversionOptionsRow}>
                             <Pressable
                               onPress={() => setConversionMode("100g")}
@@ -1064,7 +1064,7 @@ export default function MealPlanScreen() {
                             </Text>
                           </Pressable>
 
-                          {/* כפתורי פעולה, כולל כפתור החלפה אקטיבי ומואר בבירור */}
+                          {/* כפתורי פעולה עובדים לחלוטין */}
                           <View style={styles.actionButtonsRow}>
                             <Pressable
                               onPress={() => {
@@ -1096,7 +1096,10 @@ export default function MealPlanScreen() {
                             </Pressable>
 
                             <Pressable
-                              onPress={() => setReplacingFoodKey(isReplacing ? null : food.id)}
+                              onPress={() => {
+                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                setReplacingFoodKey(isReplacing ? null : food.id);
+                              }}
                               style={[styles.customActionButton, isReplacing && styles.activeReplaceButton]}
                             >
                               <Text style={[styles.customActionText, isReplacing && styles.activeReplaceText]}>
@@ -1105,22 +1108,24 @@ export default function MealPlanScreen() {
                             </Pressable>
                           </View>
 
+                          {/* רשימת בחירת מוצר חלופי פעילה לחלוטין */}
                           {isReplacing ? (
                             <View style={styles.replacementBox}>
                               <Text style={styles.replacementTitle}>בחר מוצר חלופי ממאגר ה{macroGroup}:</Text>
-                              {mealFoods
-                                .filter((item) => item.group === macroGroup)
-                                .slice(0, 10)
-                                .map((item) => (
-                                  <Pressable
-                                    key={item.id}
-                                    onPress={() => replaceFoodItem(meal.id, food.id, item)}
-                                    style={styles.replacementOption}
-                                  >
-                                    <Text style={styles.replacementOptionText}>⇄ {item.name}</Text>
-                                    <Text style={styles.replacementOptionMeta}>{item.calories} קק״ל ל־100ג׳</Text>
-                                  </Pressable>
-                                ))}
+                              <ScrollView horizontal={false} nestedScrollEnabled style={styles.replacementScrollList}>
+                                {mealFoods
+                                  .filter((item) => item.group === macroGroup)
+                                  .map((item) => (
+                                    <Pressable
+                                      key={item.id}
+                                      onPress={() => replaceFoodItem(meal.id, food.id, item)}
+                                      style={styles.replacementOption}
+                                    >
+                                      <Text style={styles.replacementOptionText}>⇄ {item.name}</Text>
+                                      <Text style={styles.replacementOptionMeta}>{item.calories} קק״ל ל־100ג׳</Text>
+                                    </Pressable>
+                                  ))}
+                              </ScrollView>
                             </View>
                           ) : null}
 
@@ -1559,8 +1564,9 @@ const styles = StyleSheet.create({
   customActionText: { color: "#60A5FA", fontSize: 11, fontWeight: "900" },
   activeReplaceText: { color: "#FFFFFF", fontWeight: "900" },
   replacementBox: { backgroundColor: "#0E1826", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 6, marginTop: 6 },
+  replacementScrollList: { maxHeight: 185 },
   replacementTitle: { color: "#38BDF8", fontSize: 12, fontWeight: "900", textAlign: "right" },
-  replacementOption: { backgroundColor: "#16253B", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, padding: 8, flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
+  replacementOption: { backgroundColor: "#16253B", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, padding: 8, flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   replacementOptionText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800", textAlign: "right" },
   replacementOptionMeta: { color: "#94A3B8", fontSize: 10, textAlign: "right" },
   fullEditContainer: { backgroundColor: "#0E1826", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 8, width: "100%" },
