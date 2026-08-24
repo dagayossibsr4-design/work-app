@@ -7,7 +7,6 @@ export default function GarminSyncScreen() {
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState("היום, 08:30");
 
-  // נתוני דמה ראשוניים עד לחיבור המלא למכשיר
   const [metrics, setMetrics] = useState({
     sleepScore: 84,
     sleepHours: "7 שעות ו-42 דקות",
@@ -121,7 +120,7 @@ const styles = StyleSheet.create({
   syncButtonPressed: { opacity: 0.8 },
   syncButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "900", writingDirection: "rtl" },
   grid: { flexDirection: "row-reverse", flexWrap: "wrap", justifyContent: "space-between", gap: 12 },
-  card: { width: "48%”, backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
+  card: { width: "48%", backgroundColor: "#132137", borderColor: "#334E68", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
   cardHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 6 },
   cardIcon: { fontSize: 16 },
   cardTitle: { color: "#CBD5E1", fontSize: 12, fontWeight: "800", textAlign: "right" },
