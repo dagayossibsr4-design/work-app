@@ -94,8 +94,13 @@ export default function MealPlanScreen() {
   
   const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState("");
-  const [editingInlineFoodId, setEditingInlineFoodId] = useState<string | null>(null);
-  const [inlineCaloriesDraft, setInlineCaloriesDraft] = useState("");
+
+  // עריכת ערכים מלאה פר מוצר (חלבון, שומן, פחמימה, קלוריות)
+  const [editingFullFoodKey, setEditingFullFoodKey] = useState<string | null>(null);
+  const [fullCaloriesDraft, setFullCaloriesDraft] = useState("");
+  const [fullProteinDraft, setFullProteinDraft] = useState("");
+  const [fullCarbsDraft, setFullCarbsDraft] = useState("");
+  const [fullFatsDraft, setFullFatsDraft] = useState("");
 
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1", "meal-2", "meal-3", "meal-4", "meal-5"]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
@@ -452,26 +457,26 @@ export default function MealPlanScreen() {
     setMeals(next);
   };
 
-  const updateInlineFoodCalories = (mealId: string, foodId: string, newCalories: number) => {
+  // שמירת עריכת ערכים מלאה (קלוריות, חלבון, פחמימה, שומן)
+  const saveFullFoodMacros = (mealId: string, foodId: string) => {
     const next = meals.map((meal) => {
       if (meal.id !== mealId) return meal;
       return {
         ...meal,
         foods: meal.foods.map((food) => {
           if (food.id !== foodId) return food;
-          const currentCals = mealFoodTotals(food).calories || 1;
-          const ratio = newCalories / currentCals;
           return {
             ...food,
-            calories: Math.round(newCalories),
-            protein: Math.round((food.protein * ratio) * 10) / 10,
-            carbohydrates: Math.round((food.carbohydrates * ratio) * 10) / 10,
-            fats: Math.round((food.fats * ratio) * 10) / 10,
+            calories: Number(fullCaloriesDraft) || food.calories,
+            protein: Number(fullProteinDraft) || food.protein,
+            carbohydrates: Number(fullCarbsDraft) || food.carbohydrates,
+            fats: Number(fullFatsDraft) || food.fats,
           };
         }),
       };
     });
     setMeals(next);
+    setEditingFullFoodKey(null);
     void persistEverything(next);
   };
 
@@ -867,51 +872,59 @@ export default function MealPlanScreen() {
                       const weightInfoOpen = weightInfoFoodId === weightInfoKey;
                       const quantityEditKey = `${meal.id}:${food.id}`;
                       const quantityEditOpen = editingQuantityKey === quantityEditKey;
-                      const inlineEditKey = `${meal.id}:${food.id}`;
-                      const inlineEditOpen = editingInlineFoodId === inlineEditKey;
-                      const currentCalories = mealFoodTotals(food).calories;
+                      const fullEditKey = `${meal.id}:${food.id}`;
+                      const fullEditOpen = editingFullFoodKey === fullEditKey;
+                      const currentMacros = mealFoodTotals(food);
 
                       return (
                         <View key={food.id} style={styles.food}>
                           <View style={styles.foodTop}>
-                            <View style={styles.foodInlineEditWrapper}>
-                              {inlineEditOpen ? (
-                                <View style={styles.inlineEditBox}>
-                                  <TextInput
-                                    value={inlineCaloriesDraft}
-                                    onChangeText={setInlineCaloriesDraft}
-                                    keyboardType="numeric"
-                                    placeholder="קלוריות"
-                                    placeholderTextColor="#8A9BB5"
-                                    style={styles.inlineCaloriesInput}
-                                    autoFocus
-                                  />
-                                  <Pressable
-                                    onPress={() => {
-                                      const parsed = Number(inlineCaloriesDraft) || currentCalories;
-                                      updateInlineFoodCalories(meal.id, food.id, parsed);
-                                      setEditingInlineFoodId(null);
-                                      Keyboard.dismiss();
-                                    }}
-                                    style={styles.inlineSaveButton}
-                                  >
-                                    <Text style={styles.inlineSaveText}>אישור</Text>
+                            {fullEditOpen ? (
+                              <View style={styles.fullEditContainer}>
+                                <Text style={styles.fullEditTitle}>עריכת ערכים מלאה למוצר</Text>
+                                <View style={styles.fullEditGrid}>
+                                  <View style={styles.fullEditField}>
+                                    <Text style={styles.fullEditLabel}>קלוריות</Text>
+                                    <TextInput value={fullCaloriesDraft} onChangeText={setFullCaloriesDraft} keyboardType="numeric" style={styles.fullEditInput} />
+                                  </View>
+                                  <View style={styles.fullEditField}>
+                                    <Text style={styles.fullEditLabel}>חלבון</Text>
+                                    <TextInput value={fullProteinDraft} onChangeText={setFullProteinDraft} keyboardType="numeric" style={styles.fullEditInput} />
+                                  </View>
+                                  <View style={styles.fullEditField}>
+                                    <Text style={styles.fullEditLabel}>פחמימה</Text>
+                                    <TextInput value={fullCarbsDraft} onChangeText={setFullCarbsDraft} keyboardType="numeric" style={styles.fullEditInput} />
+                                  </View>
+                                  <View style={styles.fullEditField}>
+                                    <Text style={styles.fullEditLabel}>שומן</Text>
+                                    <TextInput value={fullFatsDraft} onChangeText={setFullFatsDraft} keyboardType="numeric" style={styles.fullEditInput} />
+                                  </View>
+                                </View>
+                                <View style={styles.fullEditActions}>
+                                  <Pressable onPress={() => saveFullFoodMacros(meal.id, food.id)} style={styles.fullEditSaveButton}>
+                                    <Text style={styles.fullEditSaveText}>שמור ערכים</Text>
+                                  </Pressable>
+                                  <Pressable onPress={() => setEditingFullFoodKey(null)} style={styles.fullEditCancelButton}>
+                                    <Text style={styles.fullEditCancelText}>ביטול</Text>
                                   </Pressable>
                                 </View>
-                              ) : (
-                                <Pressable
-                                  onPress={() => {
-                                    setInlineCaloriesDraft(String(currentCalories));
-                                    setEditingInlineFoodId(inlineEditKey);
-                                  }}
-                                  style={styles.inlineCaloriesButton}
-                                >
-                                  <Text style={styles.foodMacros}>
-                                    {currentCalories} קק״ל (ערוך ערכים) · חלבון {mealFoodTotals(food).protein} · פחמ׳ {mealFoodTotals(food).carbohydrates} · שומן {mealFoodTotals(food).fats}
-                                  </Text>
-                                </Pressable>
-                              )}
-                            </View>
+                              </View>
+                            ) : (
+                              <Pressable
+                                onPress={() => {
+                                  setFullCaloriesDraft(String(currentMacros.calories));
+                                  setFullProteinDraft(String(currentMacros.protein));
+                                  setFullCarbsDraft(String(currentMacros.carbohydrates));
+                                  setFullFatsDraft(String(currentMacros.fats));
+                                  setEditingFullFoodKey(fullEditKey);
+                                }}
+                                style={styles.clickableMacrosRow}
+                              >
+                                <Text style={styles.foodMacros}>
+                                  {currentMacros.calories} קק״ל <Text style={styles.editPromptText}>(ערוך ערכים)</Text> · חלבון {currentMacros.protein} · פחמ׳ {currentMacros.carbohydrates} · שומן {currentMacros.fats}
+                                </Text>
+                              </Pressable>
+                            )}
                             <Text style={styles.foodName}>{food.name}</Text>
                           </View>
 
@@ -1381,12 +1394,19 @@ const styles = StyleSheet.create({
   foodTop: { flexDirection: "row-reverse", justifyContent: "space-between", gap: 8 },
   foodName: { color: "#FFFFFF", fontWeight: "900", flex: 1, textAlign: "right", fontSize: 14 },
   foodMacros: { color: "#94A3B8", fontSize: 11, textAlign: "right", writingDirection: "rtl" },
-  foodInlineEditWrapper: { flex: 1 },
-  inlineEditBox: { flexDirection: "row-reverse", alignItems: "center", gap: 6 },
-  inlineCaloriesInput: { backgroundColor: "#09111D", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 6, color: "#FFFFFF", paddingHorizontal: 8, paddingVertical: 4, fontSize: 12, minWidth: 70, textAlign: "right" },
-  inlineSaveButton: { backgroundColor: "#3B82F6", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5 },
-  inlineSaveText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
-  inlineCaloriesButton: { alignSelf: "flex-start" },
+  clickableMacrosRow: { alignSelf: "flex-start" },
+  editPromptText: { color: "#38BDF8", fontWeight: "800" },
+  fullEditContainer: { backgroundColor: "#0E1826", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 8, width: "100%" },
+  fullEditTitle: { color: "#38BDF8", fontSize: 12, fontWeight: "900", textAlign: "right" },
+  fullEditGrid: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 6 },
+  fullEditField: { width: "48%", gap: 2 },
+  fullEditLabel: { color: "#94A3B8", fontSize: 10, fontWeight: "700", textAlign: "right" },
+  fullEditInput: { backgroundColor: "#09111D", borderColor: "#334E68", borderWidth: 1, borderRadius: 6, color: "#FFFFFF", paddingHorizontal: 8, paddingVertical: 4, fontSize: 12, textAlign: "right", fontWeight: "700" },
+  fullEditActions: { flexDirection: "row-reverse", gap: 6, marginTop: 4 },
+  fullEditSaveButton: { backgroundColor: "#3B82F6", borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6, alignItems: "center" },
+  fullEditSaveText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
+  fullEditCancelButton: { backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" },
+  fullEditCancelText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
   foodMetaRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   weightInfoButton: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: "#60A5FA", backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center" },
   weightInfoButtonText: { color: "#60A5FA", fontSize: 12, fontWeight: "900", fontStyle: "italic" },
