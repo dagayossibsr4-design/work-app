@@ -92,7 +92,6 @@ export default function MealPlanScreen() {
   const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
   const [weightInfoFoodId, setWeightInfoFoodId] = useState<string | null>(null);
   
-  // מצבי עריכת כמויות וערכים בצד
   const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState("");
   const [editingInlineFoodId, setEditingInlineFoodId] = useState<string | null>(null);
@@ -312,13 +311,6 @@ export default function MealPlanScreen() {
     });
   };
 
-  const targets = {
-    calories: targetCalories || dailyMealTotals(meals).calories,
-    protein: Number(activeProfile.protein) || 0,
-    carbohydrates: Number(activeProfile.carbohydrates) || 0,
-    fats: Number(activeProfile.fats) || 0,
-  };
-
   const toggleEaten = (id: string) => setEaten((current) => ({ ...current, [id]: !current[id] }));
 
   const selectMealDate = (nextDate: string) => {
@@ -460,7 +452,6 @@ export default function MealPlanScreen() {
     setMeals(next);
   };
 
-  // עריכה ישירה של סך קלוריות מוצר בצד
   const updateInlineFoodCalories = (mealId: string, foodId: string, newCalories: number) => {
     const next = meals.map((meal) => {
       if (meal.id !== mealId) return meal;
@@ -975,7 +966,6 @@ export default function MealPlanScreen() {
                             </Pressable>
                           ) : null}
 
-                          {/* ✏️ אזור עריכת כמות עצמאית למזון */}
                           <View style={styles.foodEdit}>
                             {quantityEditOpen ? (
                               <>
