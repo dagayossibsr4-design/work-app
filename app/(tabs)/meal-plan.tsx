@@ -95,7 +95,7 @@ export default function MealPlanScreen() {
   const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState("");
 
-  // עריכת ערכים מלאה פר מוצר (חלבון, שומן, פחמימה, קלוריות)
+  // עריכת ערכים מלאה פר מוצר
   const [editingFullFoodKey, setEditingFullFoodKey] = useState<string | null>(null);
   const [fullCaloriesDraft, setFullCaloriesDraft] = useState("");
   const [fullProteinDraft, setFullProteinDraft] = useState("");
@@ -457,7 +457,6 @@ export default function MealPlanScreen() {
     setMeals(next);
   };
 
-  // שמירת עריכת ערכים מלאה (קלוריות, חלבון, פחמימה, שומן)
   const saveFullFoodMacros = (mealId: string, foodId: string) => {
     const next = meals.map((meal) => {
       if (meal.id !== mealId) return meal;
