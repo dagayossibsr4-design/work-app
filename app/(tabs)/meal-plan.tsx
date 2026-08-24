@@ -53,20 +53,12 @@ import {
 import {
   cloneMeals,
 } from "@/lib/meal-plan-versions";
-import { calculateMacroDistribution } from "@/lib/macro-distribution";
 import { foodItems, type FoodGroup } from "@/lib/food-nutrition";
 
 type WaterEntry = {
   id: string;
   amount: number;
   at: string;
-};
-
-type NutritionDraft = {
-  calories: string;
-  protein: string;
-  carbohydrates: string;
-  fats: string;
 };
 
 type DailyMealSnapshot = {
@@ -100,9 +92,11 @@ export default function MealPlanScreen() {
   const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
   const [weightInfoFoodId, setWeightInfoFoodId] = useState<string | null>(null);
   
-  // מצבי עריכת כמויות אישית למזון
+  // מצבי עריכת כמויות וערכים בצד
   const [editingQuantityKey, setEditingQuantityKey] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState("");
+  const [editingInlineFoodId, setEditingInlineFoodId] = useState<string | null>(null);
+  const [inlineCaloriesDraft, setInlineCaloriesDraft] = useState("");
 
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1", "meal-2", "meal-3", "meal-4", "meal-5"]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
@@ -464,6 +458,30 @@ export default function MealPlanScreen() {
       };
     });
     setMeals(next);
+  };
+
+  // עריכה ישירה של סך קלוריות מוצר בצד
+  const updateInlineFoodCalories = (mealId: string, foodId: string, newCalories: number) => {
+    const next = meals.map((meal) => {
+      if (meal.id !== mealId) return meal;
+      return {
+        ...meal,
+        foods: meal.foods.map((food) => {
+          if (food.id !== foodId) return food;
+          const currentCals = mealFoodTotals(food).calories || 1;
+          const ratio = newCalories / currentCals;
+          return {
+            ...food,
+            calories: Math.round(newCalories),
+            protein: Math.round((food.protein * ratio) * 10) / 10,
+            carbohydrates: Math.round((food.carbohydrates * ratio) * 10) / 10,
+            fats: Math.round((food.fats * ratio) * 10) / 10,
+          };
+        }),
+      };
+    });
+    setMeals(next);
+    void persistEverything(next);
   };
 
   const saveMealFoodQuantity = (mealId: string, foodId: string, draftOverride?: string) => {
@@ -852,21 +870,57 @@ export default function MealPlanScreen() {
                       const macroGroup = foodMacroLabel(food.name, food.protein, food.carbohydrates, food.fats);
                       const macroIcon: IconSymbolName =
                         macroGroup === "חלבון" ? "fork.knife" : macroGroup === "פחמימה" ? "leaf.fill" : "drop.fill";
-                      const quantityGramsMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/);
-                      const quantityGrams = quantityGramsMatch ? Number(quantityGramsMatch[1]) : null;
                       const weightMode = food.weightMode ?? "cooked";
                       const weightInfo = cookingConversionInfo(food.id, weightMode);
                       const weightInfoKey = `${meal.id}:${food.id}`;
                       const weightInfoOpen = weightInfoFoodId === weightInfoKey;
                       const quantityEditKey = `${meal.id}:${food.id}`;
                       const quantityEditOpen = editingQuantityKey === quantityEditKey;
+                      const inlineEditKey = `${meal.id}:${food.id}`;
+                      const inlineEditOpen = editingInlineFoodId === inlineEditKey;
+                      const currentCalories = mealFoodTotals(food).calories;
 
                       return (
                         <View key={food.id} style={styles.food}>
                           <View style={styles.foodTop}>
-                            <Text style={styles.foodMacros}>
-                              {mealFoodTotals(food).calories} קק״ל · חלבון {mealFoodTotals(food).protein} · פחמ׳ {mealFoodTotals(food).carbohydrates} · שומן {mealFoodTotals(food).fats}
-                            </Text>
+                            <View style={styles.foodInlineEditWrapper}>
+                              {inlineEditOpen ? (
+                                <View style={styles.inlineEditBox}>
+                                  <TextInput
+                                    value={inlineCaloriesDraft}
+                                    onChangeText={setInlineCaloriesDraft}
+                                    keyboardType="numeric"
+                                    placeholder="קלוריות"
+                                    placeholderTextColor="#8A9BB5"
+                                    style={styles.inlineCaloriesInput}
+                                    autoFocus
+                                  />
+                                  <Pressable
+                                    onPress={() => {
+                                      const parsed = Number(inlineCaloriesDraft) || currentCalories;
+                                      updateInlineFoodCalories(meal.id, food.id, parsed);
+                                      setEditingInlineFoodId(null);
+                                      Keyboard.dismiss();
+                                    }}
+                                    style={styles.inlineSaveButton}
+                                  >
+                                    <Text style={styles.inlineSaveText}>אישור</Text>
+                                  </Pressable>
+                                </View>
+                              ) : (
+                                <Pressable
+                                  onPress={() => {
+                                    setInlineCaloriesDraft(String(currentCalories));
+                                    setEditingInlineFoodId(inlineEditKey);
+                                  }}
+                                  style={styles.inlineCaloriesButton}
+                                >
+                                  <Text style={styles.foodMacros}>
+                                    {currentCalories} קק״ל (ערוך ערכים) · חלבון {mealFoodTotals(food).protein} · פחמ׳ {mealFoodTotals(food).carbohydrates} · שומן {mealFoodTotals(food).fats}
+                                  </Text>
+                                </Pressable>
+                              )}
+                            </View>
                             <Text style={styles.foodName}>{food.name}</Text>
                           </View>
 
@@ -886,15 +940,13 @@ export default function MealPlanScreen() {
                             <Text style={styles.foodMeta}>
                               {food.quantity} · {food.reference}
                             </Text>
-                            {quantityGrams !== null ? (
-                              <Pressable
-                                onPress={() => setWeightInfoFoodId(weightInfoOpen ? null : weightInfoKey)}
-                                accessibilityRole="button"
-                                style={styles.weightInfoButton}
-                              >
-                                <Text style={styles.weightInfoButtonText}>i</Text>
-                              </Pressable>
-                            ) : null}
+                            <Pressable
+                              onPress={() => setWeightInfoFoodId(weightInfoOpen ? null : weightInfoKey)}
+                              accessibilityRole="button"
+                              style={styles.weightInfoButton}
+                            >
+                              <Text style={styles.weightInfoButtonText}>i</Text>
+                            </Pressable>
                           </View>
 
                           {weightInfoOpen ? (
@@ -1338,7 +1390,13 @@ const styles = StyleSheet.create({
   food: { backgroundColor: "#111D2E", borderColor: "#223955", borderWidth: 1, borderRadius: 12, padding: 12, gap: 8, marginBottom: 4 },
   foodTop: { flexDirection: "row-reverse", justifyContent: "space-between", gap: 8 },
   foodName: { color: "#FFFFFF", fontWeight: "900", flex: 1, textAlign: "right", fontSize: 14 },
-  foodMacros: { color: "#94A3B8", fontSize: 11, textAlign: "right", writingDirection: "rtl", flex: 1 },
+  foodMacros: { color: "#94A3B8", fontSize: 11, textAlign: "right", writingDirection: "rtl" },
+  foodInlineEditWrapper: { flex: 1 },
+  inlineEditBox: { flexDirection: "row-reverse", alignItems: "center", gap: 6 },
+  inlineCaloriesInput: { backgroundColor: "#09111D", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 6, color: "#FFFFFF", paddingHorizontal: 8, paddingVertical: 4, fontSize: 12, minWidth: 70, textAlign: "right" },
+  inlineSaveButton: { backgroundColor: "#3B82F6", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5 },
+  inlineSaveText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
+  inlineCaloriesButton: { alignSelf: "flex-start" },
   foodMetaRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   weightInfoButton: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: "#60A5FA", backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center" },
   weightInfoButtonText: { color: "#60A5FA", fontSize: 12, fontWeight: "900", fontStyle: "italic" },
