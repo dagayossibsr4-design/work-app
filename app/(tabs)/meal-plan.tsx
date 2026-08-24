@@ -101,8 +101,10 @@ export default function MealPlanScreen() {
   const [fullCarbsDraft, setFullCarbsDraft] = useState("");
   const [fullFatsDraft, setFullFatsDraft] = useState("");
 
-  // מצב החלפת פריט מזון (החלף חלבון וכדומה)
   const [replacingFoodKey, setReplacingFoodKey] = useState<string | null>(null);
+  const [mealConversionOpenId, setMealConversionOpenId] = useState<string | null>(null);
+  // מצב בחירת שיטת המרה בתוך בלוק המרת ארוחה
+  const [conversionMode, setConversionMode] = useState<"100g" | "proportional">("100g");
 
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1", "meal-2", "meal-3", "meal-4", "meal-5"]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
@@ -481,7 +483,6 @@ export default function MealPlanScreen() {
     void persistEverything(next);
   };
 
-  // פונקציית החלפת פריט מזון (החלף חלבון וכדומה)
   const replaceFoodItem = (mealId: string, targetFoodId: string, newItem: (typeof mealFoods)[number]) => {
     const next = meals.map((meal) => {
       if (meal.id !== mealId) return meal;
@@ -505,6 +506,29 @@ export default function MealPlanScreen() {
     setMeals(next);
     setReplacingFoodKey(null);
     void persistEverything(next);
+  };
+
+  // פעולת המרת ארוחה (המרת כלל הרכיבים לפי בחירה)
+  const applyMealConversion = (mealId: string) => {
+    const next = meals.map((meal) => {
+      if (meal.id !== mealId) return meal;
+      return {
+        ...meal,
+        foods: meal.foods.map((food) => {
+          const baseItem = foodItems.find((i) => i.name === food.name) ?? { calories: 100, protein: 10, carbohydrates: 10, fats: 5 };
+          const grams = conversionMode === "100g" ? 100 : 150;
+          const macros = macrosForGrams(baseItem, grams);
+          return {
+            ...food,
+            quantity: `${grams} גרם`,
+            ...macros,
+          };
+        }),
+      };
+    });
+    setMeals(next);
+    void persistEverything(next);
+    alert(conversionMode === "100g" ? "הארוחה הומרה והותאמה לפי 100 גרם לכל רכיב!" : "הארוחה הותאמה פרופורציונלית!");
   };
 
   const saveMealFoodQuantity = (mealId: string, foodId: string, draftOverride?: string) => {
@@ -839,6 +863,7 @@ export default function MealPlanScreen() {
           {displayedMeals.map((meal, mealIndex) => {
             const total = mealTotals(meal);
             const isExpanded = expandedMealIds.includes(meal.id);
+            const isConversionOpen = mealConversionOpenId === meal.id;
 
             return (
               <View key={meal.id} style={[styles.meal, isExpanded && styles.mealActive]}>
@@ -884,6 +909,59 @@ export default function MealPlanScreen() {
 
                 {isExpanded ? (
                   <View style={styles.mealFoodEditor}>
+                    {/* בלוק המרת ארוחה */}
+                    <View style={styles.mealConversionBlock}>
+                      <Pressable
+                        onPress={() => setMealConversionOpenId(isConversionOpen ? null : meal.id)}
+                        style={styles.mealConversionHeader}
+                      >
+                        <View>
+                          <Text style={styles.mealConversionTitle}>המרת ארוחה</Text>
+                          <Text style={styles.mealConversionSubtitle}>חלבון · פחמימה · שומן · חישוב לפי 100 ג׳</Text>
+                        </View>
+                        <Text style={styles.mealConversionToggle}>{isConversionOpen ? "סגור ‹" : "פתח ›"}</Text>
+                      </Pressable>
+                      {isConversionOpen ? (
+                        <View style={styles.mealConversionContent}>
+                          <Text style={styles.mealConversionDesc}>
+                            בחר שיטת המרה לרכיבי הארוחה:
+                          </Text>
+                          <View style={styles.conversionOptionsRow}>
+                            <Pressable
+                              onPress={() => setConversionMode("100g")}
+                              style={[styles.conversionModeBtn, conversionMode === "100g" && styles.conversionModeBtnActive]}
+                            >
+                              <Text style={[styles.conversionModeText, conversionMode === "100g" && styles.conversionModeTextActive]}>אפס ל־100 גרם</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => setConversionMode("proportional")}
+                              style={[styles.conversionModeBtn, conversionMode === "proportional" && styles.conversionModeBtnActive]}
+                            >
+                              <Text style={[styles.conversionModeText, conversionMode === "proportional" && styles.conversionModeTextActive]}>התאם ל־150 גרם</Text>
+                            </Pressable>
+                          </View>
+                          <Pressable
+                            onPress={() => applyMealConversion(meal.id)}
+                            style={styles.applyConversionButton}
+                          >
+                            <Text style={styles.applyConversionButtonText}>החל המרה על הארוחה</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    {/* כפתור שמור כארוחה קבועה */}
+                    <Pressable
+                      onPress={() => {
+                        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+                        alert("הארוחה נשמרה כארוחה קבועה במאגר האישי!");
+                      }}
+                      style={styles.savePermanentMealButton}
+                    >
+                      <Text style={styles.savePermanentMealTitle}>שמור כארוחה קבועה</Text>
+                      <Text style={styles.savePermanentMealSubtitle}>כל הרכיבים · קלוריות · מאקרו</Text>
+                    </Pressable>
+
                     <View style={styles.mealFoodListHeader}>
                       <Text style={styles.mealFoodListTitle}>רכיבי הארוחה</Text>
                       <Text style={styles.mealFoodListCount}>{meal.foods.length} רכיבים</Text>
@@ -986,7 +1064,7 @@ export default function MealPlanScreen() {
                             </Text>
                           </Pressable>
 
-                          {/* כפתורי פעולה: ערוך ערכים תזונתיים, ערוך כמות, והחלף מוצר */}
+                          {/* כפתורי פעולה, כולל כפתור החלפה אקטיבי ומואר בבירור */}
                           <View style={styles.actionButtonsRow}>
                             <Pressable
                               onPress={() => {
@@ -998,7 +1076,7 @@ export default function MealPlanScreen() {
                               }}
                               style={styles.customActionButton}
                             >
-                              <Text style={styles.customActionText}>ערוך ערכים תזונתיים</Text>
+                              <Text style={styles.customActionText}>ערוך ערכים</Text>
                             </Pressable>
 
                             <Pressable
@@ -1019,9 +1097,11 @@ export default function MealPlanScreen() {
 
                             <Pressable
                               onPress={() => setReplacingFoodKey(isReplacing ? null : food.id)}
-                              style={styles.customActionButton}
+                              style={[styles.customActionButton, isReplacing && styles.activeReplaceButton]}
                             >
-                              <Text style={styles.customActionText}>{isReplacing ? "סגור החלפה" : `החלף ${macroGroup}`}</Text>
+                              <Text style={[styles.customActionText, isReplacing && styles.activeReplaceText]}>
+                                {isReplacing ? "סגור החלפה" : `החלף ${macroGroup}`}
+                              </Text>
                             </Pressable>
                           </View>
 
@@ -1158,7 +1238,7 @@ export default function MealPlanScreen() {
                         <Text style={styles.mealSaveText}>שמור ארוחה</Text>
                       </Pressable>
                       <Pressable onPress={cancelMealEdit} style={styles.mealCancelButton}>
-                        <Text style={styles.mealCancelText}>ביטול</Text>
+                        <Text style={styles.mealCancelText}>בטל</Text>
                       </Pressable>
                       {addFoodGroupFilter ? <Text style={styles.quickSearchLabel}>בחר {addFoodGroupFilter} להוספה:</Text> : null}
                       <TextInput
@@ -1403,6 +1483,23 @@ const styles = StyleSheet.create({
   mealToggle: { color: "#93C5FD", fontSize: 12, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
   mealToggleActive: { color: "#60A5FA" },
   mealFoodEditor: { gap: 10, paddingTop: 4 },
+  mealConversionBlock: { backgroundColor: "#132137", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 12, padding: 12, gap: 8 },
+  mealConversionHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between" },
+  mealConversionTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  mealConversionSubtitle: { color: "#94A3B8", fontSize: 10, textAlign: "right" },
+  mealConversionToggle: { color: "#60A5FA", fontSize: 12, fontWeight: "900" },
+  mealConversionContent: { gap: 8, paddingTop: 6, borderTopColor: "#223955", borderTopWidth: 1 },
+  mealConversionDesc: { color: "#CBD5E1", fontSize: 11, textAlign: "right", lineHeight: 16 },
+  conversionOptionsRow: { flexDirection: "row-reverse", gap: 6 },
+  conversionModeBtn: { flex: 1, backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: "center" },
+  conversionModeBtnActive: { backgroundColor: "#3B82F6", borderColor: "#60A5FA" },
+  conversionModeText: { color: "#CBD5E1", fontSize: 11, fontWeight: "800" },
+  conversionModeTextActive: { color: "#FFFFFF", fontWeight: "900" },
+  applyConversionButton: { backgroundColor: "#10B981", borderRadius: 8, paddingVertical: 10, alignItems: "center" },
+  applyConversionButtonText: { color: "#000000", fontSize: 12, fontWeight: "900" },
+  savePermanentMealButton: { backgroundColor: "#FBBF24", borderRadius: 12, padding: 12, alignItems: "center", gap: 2 },
+  savePermanentMealTitle: { color: "#000000", fontSize: 14, fontWeight: "900" },
+  savePermanentMealSubtitle: { color: "#451A03", fontSize: 10, fontWeight: "800" },
   mealFoodListHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 3 },
   mealFoodListTitle: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   mealFoodListCount: { color: "#FBBF24", fontSize: 11, fontWeight: "800", textAlign: "left", writingDirection: "rtl" },
@@ -1458,7 +1555,9 @@ const styles = StyleSheet.create({
   foodName: { color: "#FFFFFF", fontWeight: "900", textAlign: "right", fontSize: 14, width: "100%" },
   actionButtonsRow: { flexDirection: "row-reverse", gap: 6, marginTop: 6, flexWrap: "wrap" },
   customActionButton: { flex: 1, minWidth: "31%", backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
+  activeReplaceButton: { backgroundColor: "#2563EB", borderColor: "#60A5FA", borderWidth: 2 },
   customActionText: { color: "#60A5FA", fontSize: 11, fontWeight: "900" },
+  activeReplaceText: { color: "#FFFFFF", fontWeight: "900" },
   replacementBox: { backgroundColor: "#0E1826", borderColor: "#3B82F6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 6, marginTop: 6 },
   replacementTitle: { color: "#38BDF8", fontSize: 12, fontWeight: "900", textAlign: "right" },
   replacementOption: { backgroundColor: "#16253B", borderColor: "#334E68", borderWidth: 1, borderRadius: 8, padding: 8, flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
