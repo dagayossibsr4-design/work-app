@@ -104,9 +104,9 @@ type DailyMealSnapshot = {
 export default function MealPlanScreen() {
   const standalone = usePathname() === "/meals";
   const { nutritionProfile, updateNutritionProfile } = useNutritionStore();
-  const user = null;
   const mealFoods = useMemo(() => [...(nutritionProfile.customFoods ?? []), ...foodItems], [nutritionProfile.customFoods]);
   const mealConversionFoods = useMemo(() => [...conversionFoods, ...(nutritionProfile.customFoods ?? []).filter((food) => food.group !== "ירק ופרי").map((food) => ({ id: food.id, name: food.name, group: food.group as ConversionGroup, calories: food.calories, protein: food.protein, carbohydrates: food.carbohydrates, fats: food.fats }))], [nutritionProfile.customFoods]);
+  
   const [meals, setMeals] = useState<Meal[]>(defaultMeals);
   const [pending, setPending] = useState<PendingSwap | null>(null);
   const [eaten, setEaten] = useState<Record<string, boolean>>({});
@@ -121,7 +121,8 @@ export default function MealPlanScreen() {
   const [waterEvents, setWaterEvents] = useState<Record<string, WaterEntry[]>>({});
   const [waterGoalDraft, setWaterGoalDraft] = useState("2000");
   const [hydrated, setHydrated] = useState(false);
-  const [appliedTarget, setAppliedTarget] = useState("");
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [rebalanceMessage, setRebalanceMessage] = useState("");
   const [hasFavorite, setHasFavorite] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState<"save" | "load" | null>(null);
@@ -143,7 +144,7 @@ export default function MealPlanScreen() {
   const [nutritionDraft, setNutritionDraft] = useState<NutritionDraft>({ calories: "", protein: "", carbohydrates: "", fats: "" });
   const [activeSwapKey, setActiveSwapKey] = useState<string | null>(null);
   const [swapGroup, setSwapGroup] = useState<ConversionGroup | null>(null);
-  const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1"]);
+  const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1", "meal-2", "meal-3"]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [mealEditBackup, setMealEditBackup] = useState<Meal | null>(null);
   const [mealFoodSearch, setMealFoodSearch] = useState("");
@@ -180,8 +181,9 @@ export default function MealPlanScreen() {
   }, []);
 
   useEffect(() => {
-    if (hydrated)
+    if (hydrated) {
       AsyncStorage.setItem("conversion-favorites", JSON.stringify(favoriteConversionIds)).catch(() => undefined);
+    }
   }, [favoriteConversionIds, hydrated]);
 
   useEffect(() => {
@@ -206,7 +208,15 @@ export default function MealPlanScreen() {
           waterHistoryValue,
           waterEventsValue,
         ]) => {
-          let hasLoadedMeals = false;
+          let baseMeals = defaultMeals;
+          if (value) {
+            try {
+              const saved = JSON.parse(value) as { meals?: Meal[] };
+              if (saved.meals?.length) {
+                baseMeals = normalizeMealsTo100Grams(saved.meals);
+              }
+            } catch {}
+          }
 
           if (mealHistoryValue) {
             try {
@@ -215,32 +225,22 @@ export default function MealPlanScreen() {
               if (todaySnapshot?.meals?.length) {
                 setMeals(normalizeMealsTo100Grams(todaySnapshot.meals));
                 setEaten(todaySnapshot.eaten ?? {});
-                hasLoadedMeals = true;
+              } else {
+                setMeals(baseMeals);
+                setEaten({});
               }
               setMealHistoryByDate(savedHistory);
-            } catch {}
-          }
-
-          if (!hasLoadedMeals && value) {
-            try {
-              const saved = JSON.parse(value) as {
-                meals?: Meal[];
-                eaten?: Record<string, boolean>;
-                appliedTarget?: string;
-              };
-              if (saved.meals?.length) {
-                setMeals(normalizeMealsTo100Grams(saved.meals));
-              }
-              if (saved.appliedTarget) setAppliedTarget(saved.appliedTarget);
-              if (saved.eaten) setEaten(saved.eaten);
-            } catch {}
+            } catch {
+              setMeals(baseMeals);
+            }
+          } else {
+            setMeals(baseMeals);
           }
 
           if (eatenHistoryValue) {
             try {
               const savedHistory = JSON.parse(eatenHistoryValue) as Record<string, Record<string, boolean>>;
               setEatenHistory(savedHistory);
-              if (!hasLoadedMeals) setEaten(savedHistory[todayKey()] ?? {});
             } catch {}
           }
 
@@ -280,16 +280,23 @@ export default function MealPlanScreen() {
       .catch(() => setHydrated(true));
   }, []);
 
-  useEffect(() => {
-    if (hydrated) {
+  // שמירה יזומה בלחיצת כפתור
+  const handleExplicitSave = async () => {
+    if (saveBusy) return;
+    setSaveBusy(true);
+    setSaveMessage(null);
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    }
+    try {
       const nextMealsState = JSON.stringify({
         meals,
         eaten: selectedDate === todayKey() ? eaten : eatenHistory[todayKey()] ?? {},
-        appliedTarget,
       });
       const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
       const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(meals), eaten } });
-      void AsyncStorage.multiSet([
+      
+      await AsyncStorage.multiSet([
         ["meal-plan-state", nextMealsState],
         ["meal-plan-eaten-history", nextEatenHistory],
         ["meal-plan-day-history", nextDayHistory],
@@ -297,11 +304,34 @@ export default function MealPlanScreen() {
         ["meal-plan-versions", JSON.stringify(versionsByGoal)],
         ["nutrition-water-history", JSON.stringify(waterHistory)],
         ["nutrition-water-events", JSON.stringify(waterEvents)],
+      ]);
+      await requestNutritionCloudSave();
+      setSaveMessage("✓ התפריט והערכים נשמרו בהצלחה במכשיר ובענן!");
+    } catch {
+      setSaveMessage("! שגיאה בשמירה. נסה שוב.");
+    } finally {
+      setSaveBusy(false);
+      setTimeout(() => setSaveMessage(null), 3500);
+    }
+  };
+
+  useEffect(() => {
+    if (hydrated) {
+      const nextMealsState = JSON.stringify({
+        meals,
+        eaten: selectedDate === todayKey() ? eaten : eatenHistory[todayKey()] ?? {},
+      });
+      const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
+      const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(meals), eaten } });
+      void AsyncStorage.multiSet([
+        ["meal-plan-state", nextMealsState],
+        ["meal-plan-eaten-history", nextEatenHistory],
+        ["meal-plan-day-history", nextDayHistory],
       ])
         .then(requestNutritionCloudSave)
         .catch(() => undefined);
     }
-  }, [meals, eaten, eatenHistory, mealHistoryByDate, selectedDate, hydrated, appliedTarget, menuProfiles, versionsByGoal, waterHistory, waterEvents]);
+  }, [meals, eaten, eatenHistory, mealHistoryByDate, selectedDate, hydrated]);
 
   const activeProfile = menuProfiles[activeGoal];
   const targetCalories = Number(activeProfile.calories) || 0;
@@ -413,7 +443,6 @@ export default function MealPlanScreen() {
       setActiveGoal(version.goal);
       setMeals(normalizeMealsTo100Grams(cloneMeals(version.meals)));
       commitProfile({ ...version.profile });
-      setAppliedTarget(`${version.profile.goal}:${version.profile.calories}:${version.profile.protein}:${version.profile.carbohydrates}:${version.profile.fats}`);
       setVersionName(version.name);
       setRebalanceMessage(`הגרסה "${version.name}" נטענה בהצלחה.`);
       Animated.timing(mealPlanOpacity, {
@@ -456,25 +485,6 @@ export default function MealPlanScreen() {
     });
   };
 
-  useEffect(() => {
-    if (!hydrated || nutritionProfile.goal !== activeGoal) return;
-    const syncedProfile: MenuProfile = {
-      ...activeProfile,
-      calories: nutritionProfile.calorieTarget ?? activeProfile.calories,
-      protein: nutritionProfile.proteinTarget ?? activeProfile.protein,
-      carbohydrates: nutritionProfile.carbohydratesTarget ?? activeProfile.carbohydrates,
-      fats: nutritionProfile.fatsTarget ?? activeProfile.fats,
-    };
-    const changed =
-      syncedProfile.calories !== activeProfile.calories ||
-      syncedProfile.protein !== activeProfile.protein ||
-      syncedProfile.carbohydrates !== activeProfile.carbohydrates ||
-      syncedProfile.fats !== activeProfile.fats;
-    if (changed) {
-      setMenuProfiles((current) => ({ ...current, [activeGoal]: syncedProfile }));
-    }
-  }, [activeGoal, activeProfile, hydrated, nutritionProfile.goal, nutritionProfile.calorieTarget, nutritionProfile.proteinTarget, nutritionProfile.carbohydratesTarget, nutritionProfile.fatsTarget]);
-
   const targets = {
     calories: targetCalories || dailyMealTotals(meals).calories,
     protein: Number(activeProfile.protein) || 0,
@@ -489,13 +499,14 @@ export default function MealPlanScreen() {
     const nextSnapshot = mealHistoryByDate[nextDate];
     setMealHistoryByDate((current) => ({ ...current, [selectedDate]: currentSnapshot }));
     setSelectedDate(nextDate);
-    if (nextSnapshot?.meals.length) {
+    if (nextSnapshot?.meals?.length) {
       setMeals(normalizeMealsTo100Grams(nextSnapshot.meals));
       setEaten(nextSnapshot.eaten);
     } else {
+      setMeals(cloneMeals(defaultMeals));
       setEaten({});
     }
-    setViewMode("eaten");
+    setViewMode("planned");
   };
 
   const changeSelectedDate = (offset: number) => selectMealDate(shiftDateKey(selectedDate, offset));
@@ -538,7 +549,7 @@ export default function MealPlanScreen() {
     if (pdfBusy) return;
     setPdfBusy(true);
     setShareStatus(null);
-    const html = buildMealPlanHtml(activeGoal, activeProfile, targetCalories, meals, user?.name ?? "", bodyWeight);
+    const html = buildMealPlanHtml(activeGoal, activeProfile, targetCalories, meals, "יוסי דגה", bodyWeight);
     try {
       if (Platform.OS === "web") {
         await Print.printAsync({ html });
@@ -1022,7 +1033,6 @@ export default function MealPlanScreen() {
       )
     );
     setSelectedMealFoodKey(`${mealId}:${item.id}`);
-    setPressedAddFoodGroup(null);
     setRebalanceMessage(`נוסף ${item.name} ל${meals.find((meal) => meal.id === mealId)?.title ?? "ארוחה"}.`);
   };
 
@@ -1140,6 +1150,30 @@ export default function MealPlanScreen() {
           <Text style={styles.subtitle}>
             יעד פעיל: {mealPlanGoalLabel(activeGoal)} · {targetCalories || "לא הוגדר"} קק״ל · לפי המחשבון הקלורי
           </Text>
+
+          {/* כפתור שמירה ראשי בולט */}
+          <Pressable
+            disabled={saveBusy}
+            onPress={handleExplicitSave}
+            style={({ pressed }) => [
+              styles.primarySaveButton,
+              saveBusy && styles.busyButton,
+              pressed && styles.bannerPressed,
+            ]}
+          >
+            {saveBusy ? (
+              <ActivityIndicator color="#000000" size="small" />
+            ) : (
+              <Text style={styles.primarySaveButtonText}>💾 שמור תפריט וערכים כעת</Text>
+            )}
+          </Pressable>
+
+          {saveMessage ? (
+            <View style={styles.explicitSaveFeedback}>
+              <Text style={styles.explicitSaveFeedbackText}>{saveMessage}</Text>
+            </View>
+          ) : null}
+
           <Pressable onPress={() => router.push("/scroll-test")} style={styles.scrollTestButton}>
             <Text style={styles.scrollTestButtonText}>בדיקת גלילה</Text>
           </Pressable>
@@ -2473,6 +2507,32 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#60A5FA", fontSize: 13, fontWeight: "800" },
   title: { color: "#FFFFFF", fontSize: 30, fontWeight: "900" },
   subtitle: { color: "#CBD5E1", fontSize: 13, marginTop: 5 },
+  primarySaveButton: {
+    alignSelf: "stretch",
+    minHeight: 48,
+    backgroundColor: "#F59E0B",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+    shadowColor: "#F59E0B",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  primarySaveButtonText: { color: "#000000", fontSize: 15, fontWeight: "900", writingDirection: "rtl" },
+  explicitSaveFeedback: {
+    alignSelf: "stretch",
+    backgroundColor: "#064E3B",
+    borderColor: "#10B981",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    marginTop: 6,
+  },
+  explicitSaveFeedbackText: { color: "#D1FAE5", fontSize: 12, fontWeight: "800", writingDirection: "rtl" },
   scrollTestButton: { alignSelf: "stretch", minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: "#F59E0B", alignItems: "center", justifyContent: "center", marginTop: 8, backgroundColor: "#17253B" },
   scrollTestButtonText: { color: "#FBBF24", fontSize: 14, fontWeight: "900", writingDirection: "rtl" },
   menuButton: {
