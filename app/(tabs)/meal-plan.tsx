@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, usePathname } from "expo-router";
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Modal,
@@ -104,6 +105,7 @@ export default function MealPlanScreen() {
   const [mealHistoryByDate, setMealHistoryByDate] = useState<Record<string, DailyMealSnapshot>>({});
   const [hydrated, setHydrated] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
+  const [savingActive, setSavingActive] = useState(false);
   const [menuProfiles, setMenuProfiles] = useState<MenuProfiles>(() => createMenuProfiles(nutritionProfile));
   const [activeGoal, setActiveGoal] = useState(nutritionProfile.goal);
   const [expandedFoodId, setExpandedFoodId] = useState<string | null>(null);
@@ -221,6 +223,8 @@ export default function MealPlanScreen() {
   };
 
   const manualSaveAction = async () => {
+    if (savingActive) return;
+    setSavingActive(true);
     try {
       await persistEverything();
       if (Platform.OS !== "web") {
@@ -228,7 +232,9 @@ export default function MealPlanScreen() {
       }
       setSaveSuccessNotice(true);
       setTimeout(() => setSaveSuccessNotice(false), 3000);
-    } catch {}
+    } catch {} finally {
+      setSavingActive(false);
+    }
   };
 
   useEffect(() => {
@@ -522,8 +528,16 @@ export default function MealPlanScreen() {
             יעד פעיל: {mealPlanGoalLabel(activeGoal)} · {targetCalories || "לא הוגדר"} קק״ל
           </Text>
 
-          <Pressable onPress={manualSaveAction} style={styles.mainSaveButton}>
-            <Text style={styles.mainSaveButtonText}>💾 שמור שינויים בתפריט</Text>
+          <Pressable
+            onPress={manualSaveAction}
+            disabled={savingActive}
+            style={[styles.mainSaveButton, savingActive && styles.busyButton]}
+          >
+            {savingActive ? (
+              <ActivityIndicator color="#000000" size="small" />
+            ) : (
+              <Text style={styles.mainSaveButtonText}>💾 שמור שינויים בתפריט</Text>
+            )}
           </Pressable>
 
           {saveSuccessNotice ? (
@@ -1094,6 +1108,7 @@ const styles = StyleSheet.create({
   mainSaveButtonText: { color: "#000000", fontSize: 16, fontWeight: "900", writingDirection: "rtl" },
   saveSuccessBanner: { alignSelf: "stretch", minHeight: 44, borderRadius: 10, backgroundColor: "#064E3B", borderColor: "#10B981", borderWidth: 1, alignItems: "center", justifyContent: "center", marginTop: 8 },
   saveSuccessBannerText: { color: "#D1FAE5", fontSize: 13, fontWeight: "900", writingDirection: "rtl" },
+  busyButton: { opacity: 0.6 },
   utilityNavButton: { alignSelf: "stretch", minHeight: 42, borderRadius: 10, borderWidth: 1, borderColor: "#334E68", alignItems: "center", justifyContent: "center", marginTop: 8, backgroundColor: "#132137" },
   utilityNavButtonText: { color: "#FBBF24", fontSize: 13, fontWeight: "800", writingDirection: "rtl" },
   menuButton: { backgroundColor: "#1E293B", borderColor: "#475569", borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 8 },
