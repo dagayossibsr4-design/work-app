@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { hydrateMealPlan, type Meal } from "@/lib/meal-plan";
 import { useWorkoutStore, type AccountState } from "@/lib/workout-store";
 import {
   NUTRITION_PERSISTENCE_KEYS,
@@ -17,6 +18,28 @@ const LOCAL_KEYS = [
 type StoredAccountState = Partial<AccountState> & {
   localStorage?: Record<string, string>;
 };
+
+function repairCloudMealStorage(localStorage: Record<string, string>) {
+  const repaired = { ...localStorage };
+  try {
+    const state = JSON.parse(repaired["meal-plan-state"] ?? "{}") as { meals?: Meal[] };
+    if (Array.isArray(state.meals)) {
+      repaired["meal-plan-state"] = JSON.stringify({ ...state, meals: hydrateMealPlan(state.meals) });
+    }
+  } catch {
+    // שמירת ענן פגומה לא תעצור את טעינת שאר הנתונים המקומיים.
+  }
+  try {
+    const history = JSON.parse(repaired["meal-plan-day-history"] ?? "{}") as Record<string, { meals?: Meal[]; eaten?: Record<string, boolean> }>;
+    repaired["meal-plan-day-history"] = JSON.stringify(Object.fromEntries(Object.entries(history).map(([date, snapshot]) => [date, {
+      ...snapshot,
+      meals: Array.isArray(snapshot?.meals) ? hydrateMealPlan(snapshot.meals) : [],
+    }])));
+  } catch {
+    // אין היסטוריה תקינה לתיקון.
+  }
+  return repaired;
+}
 
 /** Saves each authenticated Supabase user's workout account independently. */
 export function AccountSync() {
@@ -68,7 +91,7 @@ export function AccountSync() {
       } else if (data?.payload && typeof data.payload === "object") {
         const remote = data.payload as StoredAccountState;
         applyAccountState(remote);
-        if (remote.localStorage) await AsyncStorage.multiSet(Object.entries(remote.localStorage));
+        if (remote.localStorage) await AsyncStorage.multiSet(Object.entries(repairCloudMealStorage(remote.localStorage)));
       }
       setSyncReady(true);
     })();

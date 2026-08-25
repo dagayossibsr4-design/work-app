@@ -233,7 +233,7 @@ function sourceForMealFood(food: MealFood) {
 export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
   return meals.map((meal) => ({
     ...meal,
-    foods: meal.foods.map((food) => {
+    foods: (Array.isArray(meal.foods) ? meal.foods : []).map((food) => {
       if (food.manualNutrition) {
         const gramsMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/);
         const currentGrams = gramsMatch ? Number(gramsMatch[1]) : undefined;
@@ -274,6 +274,29 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
 }
 
 export const defaultMeals: Meal[] = normalizeMealsTo100Grams(rawDefaultMeals);
+
+/**
+ * משחזר רק ארוחות מובנות שנשמרו בטעות בלי רכיבים. ארוחה אישית נשארת כפי
+ * שהמשתמש יצר אותה, ולכן אין כאן יצירה אוטומטית של רכיבים בארוחות חדשות.
+ */
+export function restoreDefaultMealFoods(meals: Meal[]): Meal[] {
+  const defaultsById = new Map(defaultMeals.map((meal) => [meal.id, meal]));
+  return meals.map((meal) => {
+    const foods = Array.isArray(meal.foods) ? meal.foods : [];
+    const fallback = defaultsById.get(meal.id);
+    if (foods.length > 0 || !fallback) return { ...meal, foods };
+    return {
+      ...meal,
+      title: meal.title?.trim() || fallback.title,
+      foods: fallback.foods.map((food) => ({ ...food })),
+    };
+  });
+}
+
+/** מנרמל ארוחות קיימות ומתקן מידע פגום לפני שהוא מגיע למסך או לשמירה. */
+export function hydrateMealPlan(meals: Meal[]): Meal[] {
+  return restoreDefaultMealFoods(normalizeMealsTo100Grams(meals));
+}
 
 export function mealFoodTotals(food: MealFood) {
   const quantityMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/);

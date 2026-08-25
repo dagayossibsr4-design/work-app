@@ -27,6 +27,7 @@ import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import {
   dailyMealTotals,
   defaultMeals,
+  hydrateMealPlan,
   mealFoodTotals,
   mealTotals,
   normalizeMealsTo100Grams,
@@ -255,7 +256,7 @@ export default function MealPlanScreen() {
               appliedTarget?: string;
             };
             if (saved.meals) {
-                setMeals(normalizeMealsTo100Grams(saved.meals));
+                setMeals(hydrateMealPlan(saved.meals));
             }
             if (defaultsVersion !== "1") {
               AsyncStorage.setItem("meal-plan-defaults-v100", "1").catch(
@@ -284,7 +285,7 @@ export default function MealPlanScreen() {
           if (mealHistoryValue) {
             const savedHistory = JSON.parse(mealHistoryValue) as Record<string, DailyMealSnapshot>;
             const normalizedHistory = Object.fromEntries(Object.entries(savedHistory).map(([date, snapshot]) => [date, {
-              meals: normalizeMealsTo100Grams(snapshot?.meals ?? []),
+              meals: hydrateMealPlan(snapshot?.meals ?? []),
               eaten: snapshot?.eaten ?? {},
             }])) as Record<string, DailyMealSnapshot>;
             setMealHistoryByDate(normalizedHistory);
@@ -302,7 +303,7 @@ export default function MealPlanScreen() {
                 goal,
                 goalVersions.map((version) => ({
                   ...version,
-                  meals: normalizeMealsTo100Grams(version.meals),
+                  meals: hydrateMealPlan(version.meals),
                 })),
               ]),
             ) as MealPlanVersions;
@@ -505,7 +506,7 @@ export default function MealPlanScreen() {
       useNativeDriver: true,
     }).start(() => {
       setActiveGoal(version.goal);
-      setMeals(normalizeMealsTo100Grams(cloneMeals(version.meals)));
+      setMeals(hydrateMealPlan(cloneMeals(version.meals)));
       commitProfile({ ...version.profile });
       setAppliedTarget(
         `${version.profile.goal}:${version.profile.calories}:${version.profile.protein}:${version.profile.carbohydrates}:${version.profile.fats}`,
@@ -632,7 +633,7 @@ export default function MealPlanScreen() {
     setMealHistoryByDate((current) => ({ ...current, [selectedDate]: currentSnapshot }));
     setSelectedDate(nextDate);
     if (nextSnapshot?.meals.length) {
-      setMeals(normalizeMealsTo100Grams(nextSnapshot.meals));
+      setMeals(hydrateMealPlan(nextSnapshot.meals));
       setEaten(nextSnapshot.eaten);
     } else {
       setEaten({});
@@ -809,7 +810,7 @@ export default function MealPlanScreen() {
         return;
       }
       const saved = JSON.parse(value) as { meals?: Meal[]; targetKey?: string };
-      if (saved.meals) setMeals(normalizeMealsTo100Grams(saved.meals));
+      if (saved.meals) setMeals(hydrateMealPlan(saved.meals));
       if (saved.targetKey) setAppliedTarget(saved.targetKey);
       setFavoriteStatus({
         type: "success",
@@ -825,16 +826,9 @@ export default function MealPlanScreen() {
     }
   };
   const totals = useMemo(() => dailyMealTotals(meals), [meals]);
-  const displayedMeals = useMemo(
-    () =>
-      viewMode === "planned"
-        ? meals
-        : meals.map((meal) => ({
-            ...meal,
-            foods: meal.foods.filter((food) => eaten[food.id]),
-          })),
-    [meals, eaten, viewMode],
-  );
+  // כרטיסי הארוחות תמיד מציגים את התפריט המלא. מצב "נאכל" משנה את סיכום
+  // הצריכה בלבד; סינון הרשימה כאן היה גורם לעריכה ושמירה של ארוחה חלקית/ריקה.
+  const displayedMeals = meals;
   const displayedTotals = useMemo(
     () => dailyMealTotals(displayedMeals),
     [displayedMeals],
