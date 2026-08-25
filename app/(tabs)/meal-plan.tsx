@@ -88,6 +88,7 @@ import {
 } from "@/lib/macro-distribution";
 import { foodItems, macrosForGrams, type FoodGroup } from "@/lib/food-nutrition";
 import { removeWaterHistoryEntry, type WaterEntry } from "@/lib/water-history";
+import { buildImmediateMealSave } from "@/lib/meal-plan-immediate-save";
 
 type PendingSwap = {
   mealIndex: number;
@@ -160,6 +161,9 @@ export default function MealPlanScreen() {
     emptyMealPlanVersions,
   );
   const [savedMeals, setSavedMeals] = useState<SavedMeal[]>([]);
+  const [mealSaveState, setMealSaveState] = useState<
+    Record<string, "saving" | "saved" | "failed">
+  >({});
   const [versionName, setVersionName] = useState("גרסה חדשה");
   const [bodyWeight, setBodyWeight] = useState("");
   const [versionTransitionBusy, setVersionTransitionBusy] = useState(false);
@@ -1230,6 +1234,37 @@ export default function MealPlanScreen() {
     setRebalanceMessage(
       `הארוחה "${savedMeal.name}" נשמרה עם ${Math.round(savedMeal.totals.calories)} קק״ל וכל ערכי המאקרו.`,
     );
+  };
+  const saveMealImmediately = async (meal: Meal) => {
+    if (!hydrated || mealSaveState[meal.id] === "saving") return;
+    setMealSaveState((current) => ({ ...current, [meal.id]: "saving" }));
+    const payload = buildImmediateMealSave({
+      meals,
+      eaten,
+      selectedDate,
+      today: todayKey(),
+      eatenHistory,
+      mealHistoryByDate,
+      appliedTarget,
+    });
+    try {
+      await AsyncStorage.multiSet(payload.entries);
+      setEatenHistory(payload.nextEatenHistory);
+      setMealHistoryByDate(payload.nextMealHistoryByDate);
+      requestNutritionCloudSave();
+      setMealSaveState((current) => ({ ...current, [meal.id]: "saved" }));
+      setRebalanceMessage(`${meal.title} נשמרה במכשיר עם כל הרכיבים והערכים.`);
+      setTimeout(() => {
+        setMealSaveState((current) =>
+          current[meal.id] === "saved"
+            ? { ...current, [meal.id]: undefined as never }
+            : current,
+        );
+      }, 2400);
+    } catch {
+      setMealSaveState((current) => ({ ...current, [meal.id]: "failed" }));
+      setRebalanceMessage(`שמירת ${meal.title} נכשלה. נסה שוב.`);
+    }
   };
   const loadReusableMeal = (targetMealId: string, savedMeal: SavedMeal) => {
     setMeals((current) =>
@@ -2534,6 +2569,30 @@ export default function MealPlanScreen() {
                   </View>
                 ) : null}
                 <View style={styles.mealActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`שמור עכשיו את ${meal.title}`}
+                    disabled={mealSaveState[meal.id] === "saving"}
+                    onPress={() => void saveMealImmediately(meal)}
+                    style={({ pressed }) => [
+                      styles.saveMealNowButton,
+                      mealSaveState[meal.id] === "saving" && styles.saveMealNowButtonBusy,
+                      mealSaveState[meal.id] === "saved" && styles.saveMealNowButtonSaved,
+                      mealSaveState[meal.id] === "failed" && styles.saveMealNowButtonFailed,
+                      pressed && mealSaveState[meal.id] !== "saving" && styles.saveMealNowButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.saveMealNowText}>
+                      {mealSaveState[meal.id] === "saving"
+                        ? "שומר…"
+                        : mealSaveState[meal.id] === "saved"
+                          ? "נשמר ✓"
+                          : mealSaveState[meal.id] === "failed"
+                            ? "נסה לשמור שוב"
+                            : "שמור ארוחה עכשיו"}
+                    </Text>
+                    <Text style={styles.saveMealNowHint}>רכיבים · כמויות · קלוריות · מאקרו</Text>
+                  </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`שמור את ${meal.title} כארוחה קבועה`}
@@ -4053,6 +4112,13 @@ const styles = StyleSheet.create({
   mealSummaryCarbs: { color: "#5B9FE3", fontSize: 10, fontWeight: "800", writingDirection: "rtl" },
   mealSummaryFats: { color: "#F5B72C", fontSize: 10, fontWeight: "800", writingDirection: "rtl" },
   mealActions: { gap: 8, marginTop: 8, paddingTop: 8, borderTopColor: "#2C4565", borderTopWidth: 1 },
+  saveMealNowButton: { backgroundColor: "#1B5F52", borderColor: "#55D6B3", borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, alignItems: "flex-end", gap: 2 },
+  saveMealNowButtonPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
+  saveMealNowButtonBusy: { backgroundColor: "#244762", borderColor: "#6EBAE9" },
+  saveMealNowButtonSaved: { backgroundColor: "#187047", borderColor: "#86E6AD" },
+  saveMealNowButtonFailed: { backgroundColor: "#6E2633", borderColor: "#FB8C9E" },
+  saveMealNowText: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  saveMealNowHint: { color: "#D6F7EC", fontSize: 10, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
   saveReusableMealButton: { backgroundColor: "#F5B72C", borderColor: "#FFE58A", borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, alignItems: "flex-end", gap: 2 },
   saveReusableMealButtonPressed: { backgroundColor: "#FFE08A", transform: [{ scale: 0.98 }], opacity: 0.94 },
   saveReusableMealText: { color: "#0B1224", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
