@@ -19,6 +19,11 @@ export const NUTRITION_PERSISTENCE_KEYS = [
 ] as const;
 
 const nutritionCloudSaveListeners = new Set<() => void>();
+export type NutritionCloudSaveStatus = "idle" | "saving" | "saved" | "failed";
+let nutritionCloudSaveStatus: NutritionCloudSaveStatus = "idle";
+const nutritionCloudStatusListeners = new Set<
+  (status: NutritionCloudSaveStatus) => void
+>();
 
 /** Requests an immediate cloud backup after all local meal records were written. */
 export function requestNutritionCloudSave() {
@@ -30,5 +35,25 @@ export function subscribeNutritionCloudSave(listener: () => void) {
   nutritionCloudSaveListeners.add(listener);
   return () => {
     nutritionCloudSaveListeners.delete(listener);
+  };
+}
+
+/** Exposes the real result of cloud persistence to the nutrition screen. */
+export function setNutritionCloudSaveStatus(status: NutritionCloudSaveStatus) {
+  nutritionCloudSaveStatus = status;
+  nutritionCloudStatusListeners.forEach((listener) => listener(status));
+}
+
+export function getNutritionCloudSaveStatus() {
+  return nutritionCloudSaveStatus;
+}
+
+export function subscribeNutritionCloudSaveStatus(
+  listener: (status: NutritionCloudSaveStatus) => void,
+) {
+  nutritionCloudStatusListeners.add(listener);
+  listener(nutritionCloudSaveStatus);
+  return () => {
+    nutritionCloudStatusListeners.delete(listener);
   };
 }

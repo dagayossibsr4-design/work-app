@@ -1,69 +1,125 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCallback, useEffect, useRef } from "react";
-import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/hooks/use-auth";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import { useWorkoutStore, type AccountState } from "@/lib/workout-store";
+import {
+  NUTRITION_PERSISTENCE_KEYS,
+  setNutritionCloudSaveStatus,
+  subscribeNutritionCloudSave,
+} from "@/lib/nutrition-persistence";
 
 const LOCAL_KEYS = [
-  "meal-plan-state",
-  "meal-plan-eaten-history",
-  "meal-plan-favorite",
-  "meal-plan-profiles",
-  "meal-plan-versions",
-  "nutrition-water-history",
-  "nutrition-water-events",
-  "nutrition-daily-history",
+  ...NUTRITION_PERSISTENCE_KEYS,
   "workout-schedule-overrides-v1",
   "weekly-goals-v1",
 ] as const;
 
-/** Synchronizes the core workout state for the authenticated user. */
+type StoredAccountState = Partial<AccountState> & {
+  localStorage?: Record<string, string>;
+};
+
+/** Saves each authenticated Supabase user's workout account independently. */
 export function AccountSync() {
-  const { isAuthenticated } = useAuth();
   const { hydrated, getAccountState, applyAccountState } = useWorkoutStore();
-  const remoteState = trpc.appState.get.useQuery(undefined, { enabled: isAuthenticated });
-  const saveRemoteState = trpc.appState.save.useMutation();
-  const remoteApplied = useRef(false);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [syncReady, setSyncReady] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const saveSnapshot = useCallback(async () => {
-    const pairs = await AsyncStorage.multiGet([...LOCAL_KEYS]);
-    const localStorage = Object.fromEntries(
-      pairs.filter(([, value]) => value !== null),
-    ) as Record<string, string>;
-    saveRemoteState.mutate({ payload: { ...getAccountState(), localStorage } });
-  }, [getAccountState, saveRemoteState]);
-
   useEffect(() => {
-    if (!isAuthenticated) {
-      remoteApplied.current = false;
+    if (!supabase) {
+      setNutritionCloudSaveStatus("failed");
+      setSyncReady(true);
       return;
     }
-    if (!remoteState.isSuccess || remoteApplied.current) return;
-    if (remoteState.data) {
-      const remote = remoteState.data as Partial<AccountState> & {
-        localStorage?: Record<string, string>;
-      };
-      applyAccountState(remote);
-      if (remote.localStorage) void AsyncStorage.multiSet(Object.entries(remote.localStorage));
-    }
-    remoteApplied.current = true;
-  }, [applyAccountState, isAuthenticated, remoteState.data, remoteState.isSuccess]);
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setAccountId(data.session?.user.id ?? null);
+      setSyncReady(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccountId(session?.user.id ?? null);
+      setSyncReady(false);
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !hydrated || !remoteApplied.current) return;
+    if (!hydrated) return;
+    if (!supabase || !accountId) {
+      setNutritionCloudSaveStatus("idle");
+      setSyncReady(true);
+      return;
+    }
+    let active = true;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("account_state")
+        .select("payload")
+        .eq("account_id", accountId)
+        .maybeSingle();
+      if (!active) return;
+      if (error) {
+        console.warn("Unable to load cloud account state", error.message);
+        setNutritionCloudSaveStatus("failed");
+      } else if (data?.payload && typeof data.payload === "object") {
+        const remote = data.payload as StoredAccountState;
+        applyAccountState(remote);
+        if (remote.localStorage) await AsyncStorage.multiSet(Object.entries(remote.localStorage));
+      }
+      setSyncReady(true);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [accountId, applyAccountState, hydrated]);
+
+  const saveSnapshot = useCallback(async () => {
+    if (!supabase || !accountId) return false;
+    setNutritionCloudSaveStatus("saving");
+    try {
+      const pairs = await AsyncStorage.multiGet([...LOCAL_KEYS]);
+      const localStorage = Object.fromEntries(pairs.filter(([, value]) => value !== null)) as Record<string, string>;
+      const { error } = await supabase.from("account_state").upsert(
+        { account_id: accountId, payload: { ...getAccountState(), localStorage }, updated_at: new Date().toISOString() },
+        { onConflict: "account_id" },
+      );
+      if (error) {
+        console.warn("Unable to save cloud account state", error.message);
+        setNutritionCloudSaveStatus("failed");
+        return false;
+      }
+      setNutritionCloudSaveStatus("saved");
+      return true;
+    } catch (error) {
+      console.warn("Unexpected cloud account save failure", error);
+      setNutritionCloudSaveStatus("failed");
+      return false;
+    }
+  }, [accountId, getAccountState]);
+
+  useEffect(() => subscribeNutritionCloudSave(() => {
+    if (!hydrated || !syncReady || !accountId) return;
+    void saveSnapshot();
+  }), [accountId, hydrated, saveSnapshot, syncReady]);
+
+  useEffect(() => {
+    if (!hydrated || !syncReady || !accountId) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void saveSnapshot(); }, 900);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [hydrated, isAuthenticated, saveSnapshot]);
+  }, [accountId, hydrated, saveSnapshot, syncReady]);
 
   useEffect(() => {
-    if (!isAuthenticated || !hydrated || !remoteApplied.current) return;
+    if (!hydrated || !syncReady || !accountId) return;
     const timer = setInterval(() => { void saveSnapshot(); }, 4000);
     return () => clearInterval(timer);
-  }, [hydrated, isAuthenticated, saveSnapshot]);
+  }, [accountId, hydrated, saveSnapshot, syncReady]);
 
   return null;
 }

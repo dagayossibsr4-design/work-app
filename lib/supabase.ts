@@ -1,9 +1,26 @@
-export const SUPABASE_URL = "https://sovkcnzxystytgczpzic.supabase.co";
-export const SUPABASE_ANON_KEY = "sb_publishable_RloyhngS45WwfOTnuBCk-Q_v4yYW048";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { Platform } from "react-native";
 
-export const supabase = {
-  url: SUPABASE_URL,
-  key: SUPABASE_ANON_KEY,
+const projectUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
+const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const isWebRuntime = Platform.OS === "web";
+const hasBrowserStorage = typeof window !== "undefined";
+const serverSafeStorage = {
+  getItem: async () => null,
+  setItem: async () => undefined,
+  removeItem: async () => undefined,
 };
 
-export default supabase;
+export const isSupabaseConfigured = Boolean(projectUrl && publishableKey);
+
+export const supabase: SupabaseClient | null = isSupabaseConfigured
+  ? createClient(projectUrl, publishableKey, {
+      auth: {
+        storage: isWebRuntime ? (hasBrowserStorage ? undefined : serverSafeStorage) : AsyncStorage,
+        persistSession: !isWebRuntime || hasBrowserStorage,
+        autoRefreshToken: !isWebRuntime || hasBrowserStorage,
+        detectSessionInUrl: isWebRuntime && hasBrowserStorage,
+      },
+    })
+  : null;
