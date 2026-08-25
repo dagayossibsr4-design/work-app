@@ -352,3 +352,22 @@ export function dailyMealTotals(meals: Meal[]) {
     { calories: 0, protein: 0, carbohydrates: 0, fats: 0 },
   );
 }
+
+/** מחשב רק רכיבים שסומנו כנאכלו, בלי לשנות את ארוחות התכנון עצמן. */
+export function eatenMealTotals(meals: Meal[], eaten: Record<string, boolean>) {
+  return meals
+    .flatMap((meal) => meal.foods)
+    .filter((food) => eaten[food.id])
+    .reduce(
+      (sum, food) => {
+        const current = mealFoodTotals(food);
+        return {
+          calories: sum.calories + current.calories,
+          protein: sum.protein + current.protein,
+          carbohydrates: sum.carbohydrates + current.carbohydrates,
+          fats: sum.fats + current.fats,
+        };
+      },
+      { calories: 0, protein: 0, carbohydrates: 0, fats: 0 },
+    );
+}

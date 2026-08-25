@@ -27,6 +27,7 @@ import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import {
   dailyMealTotals,
   defaultMeals,
+  eatenMealTotals,
   hydrateMealPlan,
   mealFoodTotals,
   mealTotals,
@@ -829,29 +830,14 @@ export default function MealPlanScreen() {
   // כרטיסי הארוחות תמיד מציגים את התפריט המלא. מצב "נאכל" משנה את סיכום
   // הצריכה בלבד; סינון הרשימה כאן היה גורם לעריכה ושמירה של ארוחה חלקית/ריקה.
   const displayedMeals = meals;
-  const displayedTotals = useMemo(
-    () => dailyMealTotals(displayedMeals),
-    [displayedMeals],
-  );
   const consumed = useMemo(
-    () =>
-      meals
-        .flatMap((meal) => meal.foods)
-        .filter((food) => eaten[food.id])
-        .reduce(
-          (sum, food) => {
-            const values = mealFoodTotals(food);
-            return {
-              calories: sum.calories + values.calories,
-              protein: sum.protein + values.protein,
-              carbohydrates: sum.carbohydrates + values.carbohydrates,
-              fats: sum.fats + values.fats,
-            };
-          },
-          { calories: 0, protein: 0, carbohydrates: 0, fats: 0 },
-        ),
+    () => eatenMealTotals(meals, eaten),
     [meals, eaten],
   );
+  // הכרטיסים נשארים מלאים וניתנים לעריכה בשני המצבים; רק הנתונים המסוכמים
+  // והגרף משתנים בין מה שתוכנן לבין מה שסומן כנאכל בפועל.
+  const displayedTotals = viewMode === "planned" ? totals : consumed;
+  const summaryPrefix = viewMode === "planned" ? "מתוכנן" : "נאכל";
   useEffect(() => {
     if (!hydrated || selectedDate !== todayKey()) return;
     AsyncStorage.getItem("nutrition-daily-history")
@@ -2743,19 +2729,19 @@ export default function MealPlanScreen() {
           </View>
           <View style={styles.summaryGrid}>
             <Stat
-              label="מוצג · קלוריות"
+              label={`${summaryPrefix} · קלוריות`}
               value={`${Math.round(displayedTotals.calories)}`}
             />
             <Stat
-              label="מוצג · חלבון"
+              label={`${summaryPrefix} · חלבון`}
               value={`${Math.round(displayedTotals.protein)} ג׳`}
             />
             <Stat
-              label="מוצג · פחמימות"
+              label={`${summaryPrefix} · פחמימות`}
               value={`${Math.round(displayedTotals.carbohydrates)} ג׳`}
             />
             <Stat
-              label="מוצג · שומן"
+              label={`${summaryPrefix} · שומן`}
               value={`${Math.round(displayedTotals.fats)} ג׳`}
             />
           </View>

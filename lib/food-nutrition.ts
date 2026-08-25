@@ -35,7 +35,7 @@ export const foodItems: FoodItem[] = [
   base({ id: "cod", name: "בקלה", group: "חלבון", reference: "מבושל", servingGrams: 150, calories: 105, protein: 23, carbohydrates: 0, fats: 0.9 }),
   base({ id: "sardines", name: "סרדינים", group: "חלבון", reference: "במים, מסוננים", servingGrams: 100, calories: 185, protein: 25, carbohydrates: 0, fats: 8.5 }),
   base({ id: "egg", name: "ביצה", group: "חלבון", reference: "ביצה גדולה, כ־50 גרם", servingGrams: 50, calories: 143, protein: 12.6, carbohydrates: 0.7, fats: 9.5, aliases: ["ביצים"] }),
-  base({ id: "egg-whites", name: "חלבון ביצה", group: "חלבון", reference: "נוזלי או מבושל", servingGrams: 100, calories: 52, protein: 10.9, carbohydrates: 0.7, fats: 0.2 }),
+  base({ id: "egg-whites", name: "חלבון ביצה ללא חלמון", group: "חלבון", reference: "נוזלי או מבושל · ללא חלמון · ערכים ל־100 גרם", servingGrams: 33, calories: 52, protein: 10.9, carbohydrates: 0.7, fats: 0.2, aliases: ["חלבון ביצה", "ביצה ללא חלמון", "לבן ביצה", "חלבוני ביצה"] }),
   base({ id: "greek-yogurt", name: "יוגורט יווני 2%", group: "חלבון", reference: "ללא תוספת סוכר", servingGrams: 200, calories: 73, protein: 9.9, carbohydrates: 3.9, fats: 2, aliases: ["יוגורט"] }),
   commercial({ id: "cottage", name: "קוטג׳ 5%", group: "חלבון", reference: "תווית מוצר שסופקה · 95 קק״ל, 11 ג׳ חלבון, 1.5 ג׳ פחמימה ו־5 ג׳ שומן ל־100 גרם", servingGrams: 150, calories: 95, protein: 11, carbohydrates: 1.5, fats: 5, aliases: ["קוטג", "גבינה"] }),
   base({ id: "white-cheese", name: "גבינה לבנה 5%", group: "חלבון", reference: "ממוצע מוצר ארוז", servingGrams: 150, calories: 98, protein: 8.5, carbohydrates: 4, fats: 5 }),

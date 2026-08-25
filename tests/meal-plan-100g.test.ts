@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { foodItems, macrosForGrams } from "../lib/food-nutrition";
-import { mealFoodTotals, normalizeMealsTo100Grams, type Meal } from "../lib/meal-plan";
+import { eatenMealTotals, hydrateMealPlan, mealFoodTotals, normalizeMealsTo100Grams, type Meal } from "../lib/meal-plan";
 import { convertMealFoodWeight } from "../lib/cooking-weight";
 
-describe("meal plan 100 gram base", () => {
-  it("normalizes saved foods to 100 grams and recalculates macros", () => {
+describe("meal plan stored quantities", () => {
+  it("preserves saved grams and recalculates their macros from the canonical food", () => {
     const saved: Meal[] = [
       {
         id: "meal-old",
@@ -28,10 +28,11 @@ describe("meal plan 100 gram base", () => {
     const [food] = normalized.foods;
     const source = foodItems.find((item) => item.id === "chicken")!;
 
-    expect(food.quantity).toBe("100 גרם");
-    expect(food.calories).toBe(source.calories);
-    expect(food.protein).toBe(source.protein);
-    expect(food.fats).toBe(source.fats);
+    expect(food.quantity).toBe("200 גרם");
+    expect(food.calories).toBe(330);
+    expect(food.protein).toBe(62);
+    expect(food.fats).toBe(7.2);
+    expect(food.servingGrams).toBe(200);
     expect(food.weightMode).toBe("cooked");
   });
 
@@ -156,5 +157,29 @@ describe("meal plan 100 gram base", () => {
     const converted = convertMealFoodWeight(manual, "raw");
     const convertedWithServing = { ...converted, servingGrams: Number(converted.quantity.match(/^\s*([0-9.]+)/)?.[1]) };
     expect(mealFoodTotals(convertedWithServing)).toEqual({ calories: 250, protein: 45, carbohydrates: 0, fats: 5 });
+  });
+
+  it("restores components only for default meal slots that were saved empty", () => {
+    const restored = hydrateMealPlan([
+      { id: "meal-1", title: "ארוחה 1", foods: [{ id: "custom", name: "מזון אישי", quantity: "50 גרם", reference: "אישי", calories: 50, protein: 5, carbohydrates: 3, fats: 2 }] },
+      { id: "meal-2", title: "ארוחה 2", foods: [] },
+      { id: "meal-custom", title: "ארוחה אישית", foods: [] },
+    ]);
+    expect(restored.find((meal) => meal.id === "meal-1")?.foods).toHaveLength(1);
+    expect(restored.find((meal) => meal.id === "meal-2")?.foods.map((food) => food.name)).toEqual(["אבקת חלבון Dymatize Elite Whey", "שיבולת שועל / קוואקר", "אגוזי מלך"]);
+    expect(restored.find((meal) => meal.id === "meal-custom")?.foods).toEqual([]);
+  });
+
+  it("calculates only marked foods for the eaten-today summary without removing planned foods", () => {
+    const meals: Meal[] = [{
+      id: "meal-1",
+      title: "בדיקה",
+      foods: [
+        { id: "eaten", name: "נאכל", quantity: "100 גרם", reference: "בדיקה", calories: 100, protein: 10, carbohydrates: 5, fats: 2 },
+        { id: "planned", name: "מתוכנן", quantity: "100 גרם", reference: "בדיקה", calories: 200, protein: 20, carbohydrates: 10, fats: 4 },
+      ],
+    }];
+    expect(eatenMealTotals(meals, { eaten: true })).toEqual({ calories: 100, protein: 10, carbohydrates: 5, fats: 2 });
+    expect(meals[0].foods).toHaveLength(2);
   });
 });
