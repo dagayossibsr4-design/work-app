@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { isCardioWorkoutTemplate, splitSessionsForWorkoutDate, useWorkoutStore, type WorkoutSession } from "@/lib/workout-store";
+import { completedSessionForScheduleDay } from "@/lib/schedule-session";
 import type { WorkoutId, WorkoutTemplate } from "@/lib/workout-data";
 
 const SCHEDULE_KEY = "workout-schedule-overrides-v1";
@@ -117,8 +118,13 @@ export default function ScheduleScreen() {
     startWorkoutOnDate(templateId, selected.date);
     router.push("/active-workout" as never);
   };
-  const openSession = (sessionId: string) => router.push({ pathname: "/(tabs)/history", params: { sessionId, edit: "1" } } as never);
+  const openSession = (sessionId: string) => router.push({ pathname: "/(tabs)/history", params: { sessionId } } as never);
   const sessionName = (session: WorkoutSession) => templates.find((item) => item.id === session.templateId)?.name ?? "אימון ללא שם";
+  const openDayOrSelect = (day: ScheduledDay) => {
+    selectDay(day.date);
+    const completedSession = completedSessionForScheduleDay(sessions, day.date, day.kind);
+    if (completedSession) openSession(completedSession.id);
+  };
 
   return (
     <ScreenContainer className="px-5 pt-5" containerClassName="bg-background">
@@ -141,7 +147,7 @@ export default function ScheduleScreen() {
             const dayStrength = daySessions.strength.length;
             const dayCardio = daySessions.cardio.length;
             return (
-              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={`בחר ${day.label} בתאריך ${formatDate(day.date)}`} onPress={() => selectDay(day.date)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio]}>
+              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={daySessions.all.length ? `הצג מה בוצע ב${day.label} בתאריך ${formatDate(day.date)}` : `בחר ${day.label} בתאריך ${formatDate(day.date)}`} onPress={() => openDayOrSelect(day)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio]}>
                 <View style={styles.dayCardHeading}><Text style={[styles.dayDate, selected.date === day.date && styles.dayDateActive]}>{formatDate(day.date)}</Text><Text style={styles.dayName}>{day.dayName}</Text></View>
                 <Text style={[styles.dayLabel, selected.date === day.date && styles.dayLabelActive]}>{day.label}</Text>
                 <Text style={[styles.dayFocus, selected.date === day.date && styles.dayFocusActive]} numberOfLines={2}>{day.focus}</Text>
@@ -211,7 +217,7 @@ export default function ScheduleScreen() {
 
 function SessionRow({ session, name, onOpen, cardio = false }: { session: WorkoutSession; name: string; onOpen: () => void; cardio?: boolean }) {
   const completed = session.sets.filter((set) => set.completed).length;
-  return <Pressable accessibilityRole="button" onPress={onOpen} style={[styles.sessionRow, cardio && styles.sessionRowCardio]}><View><Text style={styles.sessionRowMeta}>{sessionTime(session)} · {completed}/{session.sets.length} {cardio ? "מקטעים" : "סטים"}</Text><Text style={styles.sessionRowName}>{name}</Text></View><Text style={styles.sessionEdit}>עריכה ›</Text></Pressable>;
+  return <Pressable accessibilityRole="button" onPress={onOpen} style={[styles.sessionRow, cardio && styles.sessionRowCardio]}><View><Text style={styles.sessionRowMeta}>{sessionTime(session)} · {completed}/{session.sets.length} {cardio ? "מקטעים" : "סטים"}</Text><Text style={styles.sessionRowName}>{name}</Text></View><Text style={styles.sessionEdit}>הצג מה בוצע ›</Text></Pressable>;
 }
 
 function ExercisePreview({ template }: { template: WorkoutTemplate }) {
