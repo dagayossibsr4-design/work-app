@@ -87,12 +87,7 @@ import {
   type MacroDistribution,
 } from "@/lib/macro-distribution";
 import { foodItems, macrosForGrams, type FoodGroup } from "@/lib/food-nutrition";
-
-type WaterEntry = {
-  id: string;
-  amount: number;
-  at: string;
-};
+import { removeWaterHistoryEntry, type WaterEntry } from "@/lib/water-history";
 
 type PendingSwap = {
   mealIndex: number;
@@ -436,6 +431,23 @@ export default function MealPlanScreen() {
         goal: Math.max(250, current[selectedDate]?.goal ?? 2000),
       },
     }));
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+    }
+  };
+
+  const removeWater = (entry: WaterEntry) => {
+    const result = removeWaterHistoryEntry(
+      waterEvents,
+      waterHistory,
+      selectedDate,
+      entry.id,
+    );
+    if (!result.removed) return;
+
+    setWaterEvents(result.eventsByDate);
+    setWaterHistory(result.historyByDate);
+    setRebalanceMessage(`${entry.amount} מ״ל הוסרו מהשתייה של היום.`);
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     }
@@ -1772,6 +1784,14 @@ export default function MealPlanScreen() {
                     <Text style={styles.waterHistoryCumulative}>מצטבר {cumulative} מ״ל</Text>
                     <Text style={styles.waterHistoryAmount}>+{entry.amount} מ״ל</Text>
                     <Text style={styles.waterHistoryTime}>{time}</Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`הסר ${entry.amount} מיליליטר שנרשמו בשעה ${time}`}
+                      onPress={() => removeWater(entry)}
+                      style={({ pressed }) => [styles.waterHistoryRemove, pressed && styles.waterHistoryRemovePressed]}
+                    >
+                      <Text style={styles.waterHistoryRemoveText}>הסר</Text>
+                    </Pressable>
                   </View>
                 );
               })}
@@ -3662,7 +3682,7 @@ const styles = StyleSheet.create({
     flexDirection: "row-reverse",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 32,
+    minHeight: 38,
     backgroundColor: "#0B1224",
     borderColor: "#2C3B55",
     borderWidth: 1,
@@ -3673,6 +3693,9 @@ const styles = StyleSheet.create({
   waterHistoryTime: { width: 62, color: "#F7F9FC", fontSize: 11, fontWeight: "900", textAlign: "right", writingDirection: "ltr" },
   waterHistoryAmount: { flex: 1, color: "#F5B72C", fontSize: 11, fontWeight: "900", textAlign: "center", writingDirection: "rtl" },
   waterHistoryCumulative: { color: "#AAB7C8", fontSize: 9, textAlign: "left", writingDirection: "rtl" },
+  waterHistoryRemove: { minWidth: 38, alignItems: "center", justifyContent: "center", backgroundColor: "#3A202A", borderColor: "#FB7185", borderWidth: 1, borderRadius: 7, paddingHorizontal: 7, paddingVertical: 5 },
+  waterHistoryRemovePressed: { opacity: 0.68, transform: [{ scale: 0.97 }] },
+  waterHistoryRemoveText: { color: "#FB7185", fontSize: 10, fontWeight: "900", writingDirection: "rtl" },
   waterCard: {
     backgroundColor: "#16233A",
     borderColor: "#8A6B20",
