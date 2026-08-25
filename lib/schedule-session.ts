@@ -17,9 +17,7 @@ export function completedSessionForScheduleDay(
     kind === "cardio"
       ? split.cardio
       : kind === "workout"
-        ? split.strength.length
-          ? split.strength
-          : split.cardio
+        ? split.strength
         : split.all;
 
   return candidates
