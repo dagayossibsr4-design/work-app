@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 
 import { ActionToast } from "@/components/action-toast";
@@ -19,6 +19,12 @@ import { localDateKey, sundayFirstMonthCells } from "@/lib/calendar-grid";
 import { libraryForWorkout, type ExerciseLibraryItem } from "@/lib/exercise-library";
 import { calculateVolume, useWorkoutStore, type SetLog } from "@/lib/workout-store";
 import { cardioPaceText, cardioTotalsForSets } from "@/lib/cardio-details";
+import {
+  getAccountBackupStatus,
+  requestAccountCloudBackup,
+  subscribeAccountBackupStatus,
+  type AccountBackupStatus,
+} from "@/lib/account-backup";
 
 const HEBREW_WEEKDAYS = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 const CARDIO_TEMPLATE_IDS = new Set(["cardio", "cycling", "elliptical", "stairs", "treadmill", "outdoor-run", "walking", "rowing", "swimming", "hiit"]);
@@ -40,9 +46,15 @@ function calendarRows(year: number, monthIndex: number) {
 }
 
 export default function ActiveWorkoutScreen() {
+  const { templateId: routeTemplateId, scheduledDate } = useLocalSearchParams<{ templateId?: string; scheduledDate?: string }>();
+  const routeStartKey = routeTemplateId && scheduledDate ? `${routeTemplateId}:${scheduledDate}` : null;
+  const startedRouteKey = useRef<string | null>(null);
   const {
     activeSession,
     activeTemplate,
+    templates,
+    hydrated,
+    startWorkoutOnDate,
     updateSet,
     updateActiveSession,
     updateExercise,
@@ -66,6 +78,22 @@ export default function ActiveWorkoutScreen() {
   const [exerciseNameDraft, setExerciseNameDraft] = useState("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [restSeconds, setRestSeconds] = useState(0);
+  const [lastLocalSaveAt, setLastLocalSaveAt] = useState<Date | null>(null);
+  const [cloudBackupStatus, setCloudBackupStatus] = useState<AccountBackupStatus>(getAccountBackupStatus());
+
+  useEffect(() => subscribeAccountBackupStatus(setCloudBackupStatus), []);
+
+  useEffect(() => {
+    if (activeSession) setLastLocalSaveAt(new Date());
+  }, [activeSession]);
+
+  useEffect(() => {
+    if (!hydrated || activeSession || !routeStartKey || !routeTemplateId || !scheduledDate || startedRouteKey.current === routeStartKey) return;
+    const requestedTemplate = templates.find((template) => template.id === routeTemplateId);
+    if (!requestedTemplate) return;
+    startedRouteKey.current = routeStartKey;
+    startWorkoutOnDate(requestedTemplate.id, scheduledDate);
+  }, [activeSession, hydrated, routeStartKey, routeTemplateId, scheduledDate, startWorkoutOnDate, templates]);
 
   useEffect(() => {
     if (activeSession?.startedAt) setDateDraft(activeSession.startedAt.slice(0, 10));
@@ -94,6 +122,17 @@ export default function ActiveWorkoutScreen() {
     ? libraryForWorkout(activeTemplate.name).filter((item) => !activeTemplate.exercises.some((exercise) => exercise.name === item.name))
     : [];
   const isCardioWorkout = Boolean(activeTemplate && CARDIO_TEMPLATE_IDS.has(activeTemplate.id));
+
+  if ((!activeSession || !activeTemplate) && routeStartKey) {
+    return (
+      <ScreenContainer className="px-5 pt-6" containerClassName="bg-background">
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>פותח את האימון…</Text>
+          <Text style={styles.emptyText}>טוען את התרגילים והסטים של האימון שנבחר.</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   if (!activeSession || !activeTemplate) {
     return (
@@ -153,6 +192,18 @@ export default function ActiveWorkoutScreen() {
     router.replace("/(tabs)" as never);
   };
 
+  const cloudBackupLabel = cloudBackupStatus === "saving"
+    ? "מגבה…"
+    : cloudBackupStatus === "saved"
+      ? "גיבוי ענן בוצע ✓"
+      : cloudBackupStatus === "failed"
+        ? "נסה גיבוי שוב"
+        : cloudBackupStatus === "sign-in"
+          ? "התחבר לגיבוי ענן"
+          : cloudBackupStatus === "unavailable"
+            ? "הגיבוי לא הוגדר"
+            : "גבה לענן עכשיו";
+
   const saveExerciseName = (exerciseId: string) => {
     const name = exerciseNameDraft.trim();
     if (!name) return;
@@ -174,6 +225,14 @@ export default function ActiveWorkoutScreen() {
       <View style={styles.header}>
         <Pressable onPress={() => setCloseConfirmVisible(true)} style={styles.closeButton}><Text style={styles.closeText}>סגור</Text></Pressable>
         <View><Text style={styles.kicker}>אימון פעיל</Text><Text style={styles.title}>{activeTemplate.name}</Text></View>
+      </View>
+
+      <View style={styles.saveStatusCard}>
+        <View style={styles.saveStatusTextBlock}>
+          <Text style={styles.saveStatusTitle}>השינויים נשמרים אוטומטית</Text>
+          <Text style={styles.saveStatusSubtitle}>{lastLocalSaveAt ? `נשמר מקומית ב־${new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" }).format(lastLocalSaveAt)} · רענון יחזיר את האימון` : "מכין שמירה לאימון הפעיל"}</Text>
+        </View>
+        <Pressable onPress={requestAccountCloudBackup} style={styles.backupButton}><Text style={styles.backupButtonText}>{cloudBackupLabel}</Text></Pressable>
       </View>
 
       <View style={styles.dateCard}>
@@ -277,6 +336,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
   closeButton: { minHeight: 40, paddingHorizontal: 12, justifyContent: "center" }, closeText: { color: "#F5B72C", fontSize: 13, fontWeight: "900" },
   kicker: { color: "#F5B72C", fontSize: 12, textAlign: "right", fontWeight: "800" }, title: { color: "#F7F9FC", fontSize: 26, fontWeight: "900", textAlign: "right" },
+  saveStatusCard: { flexDirection: "row-reverse", alignItems: "center", gap: 9, backgroundColor: "#102E2A", borderColor: "#367B68", borderWidth: 1, borderRadius: 13, padding: 10, marginBottom: 10 }, saveStatusTextBlock: { flex: 1, alignItems: "flex-end", gap: 2 }, saveStatusTitle: { color: "#8BE8C4", fontSize: 11, fontWeight: "900", textAlign: "right" }, saveStatusSubtitle: { color: "#B8EADD", fontSize: 9, textAlign: "right" }, backupButton: { backgroundColor: "#253653", borderColor: "#5B9FE3", borderWidth: 1, borderRadius: 9, paddingHorizontal: 9, paddingVertical: 7, maxWidth: 128 }, backupButtonText: { color: "#D9EEFF", fontSize: 9, fontWeight: "900", textAlign: "center" },
   dateCard: { backgroundColor: "#16233A", borderColor: "#3D5D7E", borderWidth: 1, borderRadius: 14, padding: 12, gap: 8 }, sectionTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right" },
   dateActions: { flexDirection: "row-reverse", gap: 8 }, dateButton: { flex: 1, minHeight: 44, backgroundColor: "#0B1224", borderColor: "#52759C", borderWidth: 1, borderRadius: 10, justifyContent: "center", paddingHorizontal: 10 }, dateButtonText: { color: "#F7F9FC", textAlign: "right", writingDirection: "ltr", fontWeight: "800" },
   smallButton: { minHeight: 42, paddingHorizontal: 13, justifyContent: "center", alignItems: "center", backgroundColor: "#253653", borderColor: "#5B9FE3", borderWidth: 1, borderRadius: 9 }, smallButtonText: { color: "#D9EEFF", fontSize: 11, fontWeight: "900" }, hint: { color: "#AAB7C8", fontSize: 10, textAlign: "right" },
