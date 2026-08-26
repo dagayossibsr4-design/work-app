@@ -11,6 +11,7 @@ export const conversionFoods: ConversionFood[] = [
   { id: "tuna-water", name: "טונה במים", group: "חלבון", calories: 116, protein: 26, carbohydrates: 0, fats: 0.8 },
   { id: "salmon-cooked", name: "סלמון", group: "חלבון", calories: 206, protein: 22, carbohydrates: 0, fats: 12 },
   { id: "eggs", name: "ביצים", group: "חלבון", calories: 143, protein: 13, carbohydrates: 1.1, fats: 9.5 },
+  { id: "egg-whites", name: "חלבון ביצה ללא חלמון", group: "חלבון", calories: 52, protein: 10.9, carbohydrates: 0.7, fats: 0.2 },
   { id: "cottage", name: "קוטג׳ 5% לפי תווית", group: "חלבון", calories: 95, protein: 11, carbohydrates: 1.5, fats: 5 },
   { id: "greek-yogurt", name: "יוגורט יווני", group: "חלבון", calories: 73, protein: 9.9, carbohydrates: 3.9, fats: 2 },
   { id: "protein-powder", name: "אבקת חלבון Dymatize", group: "חלבון", calories: 389, protein: 65.2, carbohydrates: 8.4, fats: 8.4 },
@@ -40,7 +41,7 @@ export const conversionFoods: ConversionFood[] = [
 ];
 
 const aliases: Record<string, string[]> = {
-  "chicken-cooked": ["עוף", "חזה עוף"], "turkey-cooked": ["הודו"], "baramundi-cooked": ["ברמונדי"], "tilapia-cooked": ["מושט"], "sirloin-cooked": ["שייטל", "סינטה"], "lean-beef": ["בקר"], "tuna-water": ["טונה"], "salmon-cooked": ["סלמון", "פילה סלמון"], "eggs": ["ביצים"], "cottage": ["קוטג"], "greek-yogurt": ["יוגורט"], "protein-powder": ["אבקת חלבון"], "protein-pudding": ["מעדן חלבון"], "tofu": ["טופו"],
+  "chicken-cooked": ["עוף", "חזה עוף"], "turkey-cooked": ["הודו"], "baramundi-cooked": ["ברמונדי"], "tilapia-cooked": ["מושט"], "sirloin-cooked": ["שייטל", "סינטה"], "lean-beef": ["בקר"], "tuna-water": ["טונה"], "salmon-cooked": ["סלמון", "פילה סלמון"], "eggs": ["ביצים"], "egg-whites": ["חלבון ביצה", "ביצה ללא חלמון", "לבן ביצה", "חלבוני ביצה"], "cottage": ["קוטג"], "greek-yogurt": ["יוגורט"], "protein-powder": ["אבקת חלבון"], "protein-pudding": ["מעדן חלבון"], "tofu": ["טופו"],
   "rice-cooked": ["אורז", "אורז לבן"], "potato-cooked": ["תפוח אדמה", "תפוא"], "sweet-potato-cooked": ["בטטה", "תפוח אדמה מתוק"], "bread-whole": ["לחם", "לחם מלא"], "pasta-cooked": ["פסטה"], "oats": ["שיבולת שועל"], "quinoa-cooked": ["קינואה"], "couscous-cooked": ["קוסקוס"], "corn": ["תירס"], "banana": ["בננה"],
   "tahini": ["טחינה"], "egg-yolk": ["חלמון"], "avocado": ["אבוקדו"], "almonds": ["שקדים"], "cashews": ["קשיו"], "peanut-butter": ["חמאת בוטנים"], "olive-oil": ["שמן זית"], "walnuts": ["אגוזי מלך", "אגוזים"], "pumpkin-seeds": ["גרעיני דלעת"], "flax-seeds": ["פשתן"], "butter": ["חמאה"],
 };
