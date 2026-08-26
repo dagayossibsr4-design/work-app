@@ -11,6 +11,9 @@ export const NUTRITION_PERSISTENCE_KEYS = [
   "meal-plan-profiles",
   "meal-plan-versions",
   "meal-plan-saved-meals",
+  "meal-plan-supplements",
+  "supplement-reminder-settings-v1",
+  "supplement-reminder-history-v1",
   "meal-plan-defaults-v100",
   "conversion-favorites",
   "nutrition-water-history",
@@ -18,7 +21,63 @@ export const NUTRITION_PERSISTENCE_KEYS = [
   "nutrition-daily-history",
 ] as const;
 
+export type NutritionStorage = Record<string, string>;
+
+type MealPlanStorageState = {
+  meals?: unknown[];
+  savedAt?: string;
+};
+
+function readMealPlanState(storage: NutritionStorage): MealPlanStorageState | null {
+  try {
+    const parsed = JSON.parse(storage["meal-plan-state"] ?? "{}") as MealPlanStorageState;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasStoredMeals(storage: NutritionStorage) {
+  const state = readMealPlanState(storage);
+  if (Array.isArray(state?.meals) && state.meals.length > 0) return true;
+  try {
+    const history = JSON.parse(storage["meal-plan-day-history"] ?? "{}") as Record<string, { meals?: unknown[] }>;
+    return Object.values(history).some((snapshot) => Array.isArray(snapshot?.meals) && snapshot.meals.length > 0);
+  } catch {
+    return false;
+  }
+}
+
+function savedAt(storage: NutritionStorage) {
+  const value = readMealPlanState(storage)?.savedAt;
+  const timestamp = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+/**
+ * בוחר אילו נתוני תזונה בטוחים לשחזר מהענן.
+ * נתון מקומי מלא לעולם אינו נדרס על ידי ענן חסר, פגום או ישן יותר.
+ */
+export function nutritionStorageSafeToRestore(
+  localStorage: NutritionStorage,
+  cloudStorage: NutritionStorage,
+): NutritionStorage {
+  const cloudHasMeals = hasStoredMeals(cloudStorage);
+  const localHasMeals = hasStoredMeals(localStorage);
+  if (!cloudHasMeals) return {};
+  if (!localHasMeals) return cloudStorage;
+
+  const cloudSavedAt = savedAt(cloudStorage);
+  const localSavedAt = savedAt(localStorage);
+  if (cloudSavedAt !== null && localSavedAt !== null && cloudSavedAt > localSavedAt) {
+    return cloudStorage;
+  }
+
+  return {};
+}
+
 const nutritionCloudSaveListeners = new Set<() => void>();
+const nutritionStorageRestoreListeners = new Set<() => void>();
 export type NutritionCloudSaveStatus = "idle" | "saving" | "saved" | "failed";
 let nutritionCloudSaveStatus: NutritionCloudSaveStatus = "idle";
 const nutritionCloudStatusListeners = new Set<
@@ -35,6 +94,18 @@ export function subscribeNutritionCloudSave(listener: () => void) {
   nutritionCloudSaveListeners.add(listener);
   return () => {
     nutritionCloudSaveListeners.delete(listener);
+  };
+}
+
+/** מודיע למסך התזונה שהגיבוי ששוחזר מהענן כבר נכתב מקומית ויש לטעון אותו מחדש. */
+export function notifyNutritionStorageRestored() {
+  nutritionStorageRestoreListeners.forEach((listener) => listener());
+}
+
+export function subscribeNutritionStorageRestored(listener: () => void) {
+  nutritionStorageRestoreListeners.add(listener);
+  return () => {
+    nutritionStorageRestoreListeners.delete(listener);
   };
 }
 

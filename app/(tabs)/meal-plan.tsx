@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router, usePathname } from "expo-router";
+import { router, useLocalSearchParams, usePathname } from "expo-router";
 import {
   ActivityIndicator,
   Animated,
@@ -35,7 +35,7 @@ import {
   restoreMissingDefaultMealSlots,
   type Meal,
 } from "@/lib/meal-plan";
-import { requestNutritionCloudSave } from "@/lib/nutrition-persistence";
+import { requestNutritionCloudSave, subscribeNutritionStorageRestored } from "@/lib/nutrition-persistence";
 import { useWorkoutStore } from "@/lib/workout-store";
 import {
   convertMealFoodWeight,
@@ -89,7 +89,28 @@ import {
 } from "@/lib/macro-distribution";
 import { foodItems, macrosForGrams, type FoodGroup } from "@/lib/food-nutrition";
 import { removeWaterHistoryEntry, type WaterEntry } from "@/lib/water-history";
+import {
+  initializeSupplementReminders,
+  loadSupplementReminderHistory,
+  loadSupplementReminderSettings,
+  saveAndScheduleSupplementReminders,
+  sendSupplementReminderTest,
+  type SupplementReminderEvent,
+} from "@/lib/supplement-reminders";
+import {
+  DEFAULT_SUPPLEMENT_REMINDER_SETTINGS,
+  type ReminderSlot,
+  type SupplementReminderSettings,
+} from "@/lib/supplement-reminder-types";
 import { buildImmediateMealSave } from "@/lib/meal-plan-immediate-save";
+import {
+  createMealSupplementEntry,
+  mealMenuSupplements,
+  normalizeMealSupplementSelections,
+  supplementUnits,
+  type MealSupplementSelections,
+  type SupplementUnit,
+} from "@/lib/meal-supplements";
 
 type PendingSwap = {
   mealIndex: number;
@@ -111,6 +132,7 @@ type DailyMealSnapshot = {
   eaten: Record<string, boolean>;
 };
 export default function MealPlanScreen() {
+  const { openSupplements } = useLocalSearchParams<{ openSupplements?: string }>();
   const standalone = usePathname() === "/meals";
   const { nutritionProfile, updateNutritionProfile } = useWorkoutStore();
   const { user } = useAuth();
@@ -180,6 +202,14 @@ export default function MealPlanScreen() {
   const [swapGroup, setSwapGroup] = useState<ConversionGroup | null>(null);
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1"]);
   const [advancedMealId, setAdvancedMealId] = useState<string | null>(null);
+  const [supplementMealId, setSupplementMealId] = useState<string | null>(null);
+  const [selectedSupplements, setSelectedSupplements] = useState<MealSupplementSelections>({});
+  const [reminderSettings, setReminderSettings] = useState<SupplementReminderSettings>(DEFAULT_SUPPLEMENT_REMINDER_SETTINGS);
+  const [reminderSettingsLoaded, setReminderSettingsLoaded] = useState(false);
+  const [reminderHistory, setReminderHistory] = useState<SupplementReminderEvent[]>([]);
+  const [reminderStatus, setReminderStatus] = useState<string>("");
+  const [reminderBusy, setReminderBusy] = useState(false);
+  const [nutritionStorageRevision, setNutritionStorageRevision] = useState(0);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [mealEditBackup, setMealEditBackup] = useState<Meal | null>(null);
   const [mealFoodSearch, setMealFoodSearch] = useState("");
@@ -200,6 +230,32 @@ export default function MealPlanScreen() {
   const [mealConversionSelection, setMealConversionSelection] = useState<Record<string, ConversionFood | null>>({});
   const manualMealEditRef = useRef(false);
   useEffect(() => {
+    void initializeSupplementReminders();
+    void loadSupplementReminderHistory().then(setReminderHistory);
+    void loadSupplementReminderSettings().then((settings) => {
+      setReminderSettings(settings);
+      setReminderSettingsLoaded(true);
+    });
+  }, [nutritionStorageRevision]);
+  useEffect(() => {
+    if (!hydrated || openSupplements !== "1" || supplementMealId) return;
+    const firstMeal = meals[0];
+    if (firstMeal) {
+      setExpandedMealIds((current) => current.includes(firstMeal.id) ? current : [...current, firstMeal.id]);
+      setSupplementMealId(firstMeal.id);
+    }
+  }, [hydrated, meals, openSupplements, supplementMealId]);
+  useEffect(() => {
+    if (nutritionStorageRevision === 0) return;
+    void loadSupplementReminderHistory().then(setReminderHistory);
+  }, [nutritionStorageRevision]);
+  useEffect(() => {
+    if (!reminderSettingsLoaded) return;
+    AsyncStorage.setItem("supplement-reminder-settings-v1", JSON.stringify(reminderSettings))
+      .then(requestNutritionCloudSave)
+      .catch(() => undefined);
+  }, [reminderSettings, reminderSettingsLoaded]);
+  useEffect(() => {
     if (Platform.OS === "android") {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
@@ -218,6 +274,9 @@ export default function MealPlanScreen() {
       })
       .catch(() => undefined);
   }, []);
+  useEffect(() => subscribeNutritionStorageRestored(() => {
+    setNutritionStorageRevision((current) => current + 1);
+  }), []);
   useEffect(() => {
     if (hydrated)
       AsyncStorage.setItem(
@@ -234,9 +293,11 @@ export default function MealPlanScreen() {
       AsyncStorage.getItem("meal-plan-profiles"),
       AsyncStorage.getItem("meal-plan-versions"),
       AsyncStorage.getItem("meal-plan-saved-meals"),
+      AsyncStorage.getItem("meal-plan-supplements"),
       AsyncStorage.getItem("meal-plan-defaults-v100"),
       AsyncStorage.getItem("nutrition-water-history"),
       AsyncStorage.getItem("nutrition-water-events"),
+      AsyncStorage.getItem("workout-tracker-water-state-v2"),
     ])
       .then(
         ([
@@ -247,9 +308,11 @@ export default function MealPlanScreen() {
           profiles,
           versions,
           savedMealsValue,
+          supplementsValue,
           defaultsVersion,
           waterHistoryValue,
           waterEventsValue,
+          legacyWaterStateValue,
         ]) => {
           if (value) {
             const saved = JSON.parse(value) as {
@@ -313,6 +376,17 @@ export default function MealPlanScreen() {
           if (savedMealsValue) {
             setSavedMeals(normalizeSavedMeals(JSON.parse(savedMealsValue)));
           }
+          if (supplementsValue) {
+            const savedSupplements = normalizeMealSupplementSelections(JSON.parse(supplementsValue));
+            const knownNames = new Set(mealMenuSupplements.map((supplement) => supplement.name));
+            const normalizedSupplements = Object.fromEntries(
+              Object.entries(savedSupplements).map(([mealId, entries]) => [
+                mealId,
+                entries.filter((entry) => knownNames.has(entry.name)),
+              ]),
+            );
+            setSelectedSupplements(normalizedSupplements);
+          }
           if (waterHistoryValue) {
             const savedWater = JSON.parse(waterHistoryValue) as Record<string, { consumed?: number; goal?: number }>;
             const normalizedWater = Object.fromEntries(
@@ -323,12 +397,31 @@ export default function MealPlanScreen() {
             );
             setWaterHistory(normalizedWater);
           }
+          let normalizedWaterEvents: Record<string, WaterEntry[]> = {};
           if (waterEventsValue) {
             const savedEvents = JSON.parse(waterEventsValue) as Record<string, WaterEntry[]>;
-            const normalizedEvents = Object.fromEntries(
+            normalizedWaterEvents = Object.fromEntries(
               Object.entries(savedEvents).map(([date, entries]) => [date, (entries ?? []).filter((entry) => Number(entry?.amount) > 0 && Boolean(entry?.at)).map((entry) => ({ id: String(entry.id ?? entry.at), amount: Math.round(Number(entry.amount)), at: String(entry.at) }))]),
             ) as Record<string, WaterEntry[]>;
-            setWaterEvents(normalizedEvents);
+            setWaterEvents(normalizedWaterEvents);
+          }
+          if (!waterHistoryValue && legacyWaterStateValue) {
+            try {
+              const legacy = JSON.parse(legacyWaterStateValue) as { goal?: number; history?: Record<string, number> };
+              const importedHistory = Object.fromEntries(Object.entries(legacy.history ?? {}).map(([date, consumed]) => [date, {
+                consumed: Math.max(0, Number(consumed) || 0),
+                goal: Math.max(250, Number(legacy.goal) || 2000),
+              }]));
+              if (Object.keys(importedHistory).length) setWaterHistory(importedHistory);
+            } catch {
+              // מפתח מים ישן פגום לא יעצור את טעינת שאר המסך.
+            }
+          } else if (!waterHistoryValue && Object.keys(normalizedWaterEvents).length) {
+            const reconstructedHistory = Object.fromEntries(Object.entries(normalizedWaterEvents).map(([date, entries]) => [date, {
+              consumed: entries.reduce((sum, entry) => sum + entry.amount, 0),
+              goal: 2000,
+            }]));
+            setWaterHistory(reconstructedHistory);
           }
           if (profiles) {
             const savedProfiles = JSON.parse(profiles) as MenuProfiles;
@@ -341,7 +434,7 @@ export default function MealPlanScreen() {
         },
       )
       .catch(() => setHydrated(true));
-  }, [nutritionProfile.goal]);
+  }, [nutritionProfile.goal, nutritionStorageRevision]);
   useEffect(() => {
     if (hydrated) {
       const nextMealsState = JSON.stringify({
@@ -363,6 +456,7 @@ export default function MealPlanScreen() {
         ["meal-plan-profiles", JSON.stringify(menuProfiles)],
         ["meal-plan-versions", JSON.stringify(versionsByGoal)],
         ["meal-plan-saved-meals", JSON.stringify(savedMeals)],
+        ["meal-plan-supplements", JSON.stringify(selectedSupplements)],
         ["nutrition-water-history", JSON.stringify(waterHistory)],
         ["nutrition-water-events", JSON.stringify(waterEvents)],
       ]).then(requestNutritionCloudSave).catch(() => undefined);
@@ -378,6 +472,7 @@ export default function MealPlanScreen() {
     menuProfiles,
     versionsByGoal,
     savedMeals,
+    selectedSupplements,
     waterHistory,
     waterEvents,
   ]);
@@ -477,6 +572,45 @@ export default function MealPlanScreen() {
       ...current,
       [selectedDate]: { consumed: 0, goal: current[selectedDate]?.goal ?? 2000 },
     }));
+  };
+  const updateReminderTime = (slot: ReminderSlot, value: string) => {
+    setReminderSettings((current) => ({
+      ...current,
+      times: { ...current.times, [slot]: value },
+    }));
+  };
+  const testSupplementReminder = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    setReminderStatus("");
+    try {
+      const sent = await sendSupplementReminderTest();
+      setReminderStatus(sent ? "התראת בדיקה נשלחה למכשיר." : "לא ניתן לשלוח התראה: אשר הרשאות ובדוק במכשיר Android או iPhone.");
+    } catch {
+      setReminderStatus("שליחת התראת הבדיקה נכשלה. בדוק הרשאות התראות במכשיר.");
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+  const saveReminderSettings = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    setReminderStatus("");
+    try {
+      const result = await saveAndScheduleSupplementReminders(reminderSettings);
+      if (result.permissionDenied) {
+        setReminderSettings((current) => ({ ...current, enabled: false }));
+        setReminderStatus("הרשאת ההתראות נדחתה. ניתן לאשר אותה בהגדרות המכשיר.");
+      } else if (result.enabled) {
+        setReminderStatus(`התזכורות נשמרו: ${result.scheduled} התראות יומיות פעילות.`);
+      } else {
+        setReminderStatus("התזכורות כבויות ונשמרו.");
+      }
+    } catch {
+      setReminderStatus("שמירת התזכורות נכשלה. נסה שוב.");
+    } finally {
+      setReminderBusy(false);
+    }
   };
 
   const saveActiveProfile = async () => {
@@ -854,6 +988,16 @@ export default function MealPlanScreen() {
   // והגרף משתנים בין מה שתוכנן לבין מה שסומן כנאכל בפועל.
   const displayedTotals = viewMode === "planned" ? totals : consumed;
   const summaryPrefix = viewMode === "planned" ? "מתוכנן" : "נאכל";
+  const dailySupplementEntries = useMemo(
+    () => meals.flatMap((meal) =>
+      (selectedSupplements[meal.id] ?? []).map((entry) => ({ ...entry, mealTitle: meal.title })),
+    ),
+    [meals, selectedSupplements],
+  );
+  const dailySupplementNames = useMemo(
+    () => [...new Set(dailySupplementEntries.map((entry) => entry.name))],
+    [dailySupplementEntries],
+  );
   useEffect(() => {
     if (!hydrated || selectedDate !== todayKey()) return;
     AsyncStorage.getItem("nutrition-daily-history")
@@ -958,6 +1102,31 @@ export default function MealPlanScreen() {
     );
     setPending(null);
   };
+  const toggleMealSupplement = (mealId: string, supplementName: string) => {
+    setSelectedSupplements((current) => {
+      const selected = current[mealId] ?? [];
+      const existing = selected.find((entry) => entry.name === supplementName);
+      const next = existing
+        ? selected.filter((entry) => entry.name !== supplementName)
+        : [...selected, createMealSupplementEntry(supplementName)];
+      return { ...current, [mealId]: next };
+    });
+  };
+  const updateMealSupplement = (
+    mealId: string,
+    supplementName: string,
+    field: "takenAt" | "quantity" | "unit",
+    value: string,
+  ) => {
+    setSelectedSupplements((current) => ({
+      ...current,
+      [mealId]: (current[mealId] ?? []).map((entry) =>
+        entry.name === supplementName
+          ? { ...entry, [field]: value }
+          : entry,
+      ),
+    }));
+  };
   const toggleMeal = (mealId: string) => {
     LayoutAnimation.configureNext(
       LayoutAnimation.create(
@@ -969,6 +1138,7 @@ export default function MealPlanScreen() {
     const isClosing = expandedMealIds.includes(mealId);
     setExpandedMealIds(isClosing ? [] : [mealId]);
     setAdvancedMealId(null);
+    setSupplementMealId(null);
   };
   const addMeal = () => {
     const mealNumber = meals.length + 1;
@@ -1002,6 +1172,11 @@ export default function MealPlanScreen() {
       return;
     }
     setMeals((current) => current.filter((item) => item.id !== meal.id));
+    setSelectedSupplements((current) => {
+      const next = { ...current };
+      delete next[meal.id];
+      return next;
+    });
     setExpandedMealIds((current) => current.filter((id) => id !== meal.id));
     if (editingMealId === meal.id) cancelMealEdit();
     setRebalanceMessage(`${meal.title} נמחקה ונשמרה בתאריך הנוכחי.`);
@@ -1413,6 +1588,67 @@ export default function MealPlanScreen() {
             >
               <Text style={styles.dateButtonText}>›</Text>
             </Pressable>
+          </View>
+          <View style={styles.supplementReminderCard}>
+            <View style={styles.supplementReminderHeader}>
+              <View style={styles.supplementReminderHeaderText}>
+                <Text style={styles.supplementReminderTitle}>תזכורות לתוספי תזונה</Text>
+                <Text style={styles.supplementReminderHint}>התראה יומית בבוקר, בצהריים ובערב — כולל GH אם הוא מסומן אצלך.</Text>
+              </View>
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: reminderSettings.enabled }}
+                accessibilityLabel="הפעל או כבה תזכורות לתוספים"
+                onPress={() => setReminderSettings((current) => ({ ...current, enabled: !current.enabled }))}
+                style={[styles.supplementReminderToggle, reminderSettings.enabled && styles.supplementReminderToggleOn]}
+              >
+                <Text style={styles.supplementReminderToggleText}>{reminderSettings.enabled ? "פעיל" : "כבוי"}</Text>
+              </Pressable>
+            </View>
+            {(["בוקר", "צהריים", "ערב"] as ReminderSlot[]).map((slot) => (
+              <View key={slot} style={styles.supplementReminderTimeRow}>
+                <Text style={styles.supplementReminderSlot}>{slot}</Text>
+                <TextInput
+                  value={reminderSettings.times[slot]}
+                  onChangeText={(value) => updateReminderTime(slot, value)}
+                  placeholder="08:00"
+                  placeholderTextColor="#7E8DA4"
+                  keyboardType="numbers-and-punctuation"
+                  returnKeyType="done"
+                  style={styles.supplementReminderTimeInput}
+                  accessibilityLabel={`שעת תזכורת ${slot}`}
+                />
+              </View>
+            ))}
+            <View style={styles.supplementReminderActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="שמור תזכורות לתוספים"
+                disabled={reminderBusy}
+                onPress={() => void saveReminderSettings()}
+                style={({ pressed }) => [styles.supplementReminderSave, reminderBusy && styles.supplementReminderSaveDisabled, pressed && styles.mealSimpleActionPressed]}
+              >
+                <Text style={styles.supplementReminderSaveText}>{reminderBusy ? "שומר…" : "שמור תזכורות"}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="שלח התראת בדיקה לתוספים"
+                disabled={reminderBusy}
+                onPress={() => void testSupplementReminder()}
+                style={({ pressed }) => [styles.supplementReminderTest, reminderBusy && styles.supplementReminderSaveDisabled, pressed && styles.mealSimpleActionPressed]}
+              >
+                <Text style={styles.supplementReminderTestText}>בדוק התראה</Text>
+              </Pressable>
+            </View>
+            {reminderStatus ? <Text style={styles.supplementReminderStatus}>{reminderStatus}</Text> : null}
+            <View style={styles.reminderHistoryBox}>
+              <Text style={styles.reminderHistoryTitle}>היסטוריית תזכורות</Text>
+              {reminderHistory.length ? reminderHistory.slice(0, 7).map((event) => (
+                <Text key={event.id} style={styles.reminderHistoryRow}>
+                  {event.dateKey} · {event.occurredAt.slice(11, 16)} · {event.slot} · {event.opened ? "נפתחה" : "התקבלה"}
+                </Text>
+              )) : <Text style={styles.reminderHistoryEmpty}>עדיין לא התקבלה תזכורת במכשיר.</Text>}
+            </View>
           </View>
         </View>
         <Modal
@@ -1861,6 +2097,7 @@ export default function MealPlanScreen() {
             const total = mealTotals(meal);
             const isMealExpanded = expandedMealIds.includes(meal.id);
             const isAdvancedMealOpen = advancedMealId === meal.id;
+            const selectedMealSupplements = selectedSupplements[meal.id] ?? [];
             const roundedProtein = Math.round(total.protein * 10) / 10;
             const roundedCarbohydrates = Math.round(total.carbohydrates * 10) / 10;
             const roundedFats = Math.round(total.fats * 10) / 10;
@@ -2580,24 +2817,127 @@ export default function MealPlanScreen() {
                 {isMealExpanded ? <View style={styles.mealSimpleActions}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`ערוך את ${meal.title}`}
+                    accessibilityLabel={supplementMealId === meal.id ? `סגור תוספי תזונה של ${meal.title}` : `פתח תוספי תזונה של ${meal.title}`}
                     onPress={() => {
-                      beginMealEdit(meal);
-                      setAdvancedMealId(meal.id);
+                      setSupplementMealId((current) => current === meal.id ? null : meal.id);
+                      setAdvancedMealId(null);
                     }}
-                    style={({ pressed }) => [styles.mealSimplePrimaryAction, pressed && styles.mealSimpleActionPressed]}
+                    style={({ pressed }) => [styles.mealSimplePrimaryAction, supplementMealId === meal.id && styles.mealSupplementActionActive, pressed && styles.mealSimpleActionPressed]}
                   >
-                    <Text style={styles.mealSimplePrimaryActionText}>ערוך או הוסף רכיב</Text>
+                    <Text style={styles.mealSimplePrimaryActionText}>{supplementMealId === meal.id ? "סגור תוספים" : "תוספי תזונה"}</Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={isAdvancedMealOpen ? `הסתר אפשרויות נוספות של ${meal.title}` : `פתח אפשרויות נוספות של ${meal.title}`}
-                    onPress={() => setAdvancedMealId((current) => current === meal.id ? null : meal.id)}
+                    onPress={() => {
+                      setAdvancedMealId((current) => current === meal.id ? null : meal.id);
+                      setSupplementMealId(null);
+                    }}
                     style={({ pressed }) => [styles.mealSimpleSecondaryAction, pressed && styles.mealSimpleActionPressed]}
                   >
                     <Text style={styles.mealSimpleSecondaryActionText}>{isAdvancedMealOpen ? "הסתר אפשרויות" : "אפשרויות נוספות"}</Text>
                   </Pressable>
                 </View> : null}
+                {supplementMealId === meal.id ? (
+                  <View style={styles.mealSupplementsPanel}>
+                    <Text style={styles.mealSupplementsTitle}>תוספי תזונה</Text>
+                    <Text style={styles.mealSupplementsHint}>רשימת מעקב בלבד. אין כאן המלצת מינון או ערכי מאקרו.</Text>
+                    <View style={styles.mealSupplementDailySummary}>
+                      <Text style={styles.mealSupplementDailyTitle}>סיכום יומי</Text>
+                      <Text style={styles.mealSupplementDailyText}>
+                        {dailySupplementNames.length
+                          ? `${dailySupplementNames.length} תוספים מסומנים · ${dailySupplementEntries.length} רישומים בארוחות`
+                          : "עדיין לא סומנו תוספים היום."}
+                      </Text>
+                      {dailySupplementEntries.map((entry) => (
+                        <Text key={`${entry.mealTitle}-${entry.name}`} style={styles.mealSupplementDailyItem}>
+                          ✓ {entry.name}{entry.quantity ? ` · ${entry.quantity} ${entry.unit}` : ` · ${entry.unit}`}{entry.takenAt ? ` · ${entry.takenAt}` : ""} · {entry.mealTitle}
+                        </Text>
+                      ))}
+                    </View>
+                    {mealMenuSupplements.map((supplement) => {
+                      const selectedEntry = selectedMealSupplements.find((entry) => entry.name === supplement.name);
+                      const isSelected = Boolean(selectedEntry);
+                      return (
+                        <Pressable
+                          key={supplement.name}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isSelected }}
+                          accessibilityLabel={`${isSelected ? "הסר" : "סמן"} ${supplement.name} עבור ${meal.title}`}
+                          onPress={() => toggleMealSupplement(meal.id, supplement.name)}
+                          style={({ pressed }) => [
+                            styles.mealSupplementRow,
+                            isSelected && styles.mealSupplementRowSelected,
+                            pressed && styles.mealSupplementRowPressed,
+                          ]}
+                        >
+                          <View style={styles.mealSupplementRowHeader}>
+                            <Text style={[styles.mealSupplementName, isSelected && styles.mealSupplementNameSelected]}>{supplement.name}</Text>
+                            <Text style={[styles.mealSupplementBadge, isSelected && styles.mealSupplementBadgeSelected]}>{isSelected ? "✓ מסומן" : "סמן"}</Text>
+                          </View>
+                          {supplement.evidence ? <Text style={styles.mealSupplementMeta}>מידע כללי · רמת ראיות: {supplement.evidence}</Text> : null}
+                          <Text style={styles.mealSupplementPurpose}>{supplement.purpose}</Text>
+                          {supplement.whenToConsider ? <Text style={styles.mealSupplementMeta}>מתי לשקול: {supplement.whenToConsider}</Text> : null}
+                          <Text style={styles.mealSupplementCaution}>זהירות: {supplement.caution}</Text>
+                          {supplement.source ? <Text style={styles.mealSupplementSource}>מקור: {supplement.source}</Text> : null}
+                          {isSelected ? (
+                            <View style={styles.mealSupplementFields}>
+                              <View style={styles.mealSupplementFieldRow}>
+                                <View style={styles.mealSupplementFieldGroup}>
+                                  <Text style={styles.mealSupplementFieldLabel}>שעת נטילה</Text>
+                                  <TextInput
+                                    value={selectedEntry?.takenAt ?? ""}
+                                    onChangeText={(value) => updateMealSupplement(meal.id, supplement.name, "takenAt", value)}
+                                    placeholder="08:00"
+                                    placeholderTextColor="#7E8DA4"
+                                    keyboardType="numbers-and-punctuation"
+                                    returnKeyType="done"
+                                    style={styles.mealSupplementInput}
+                                    accessibilityLabel={`שעת נטילה של ${supplement.name}`}
+                                  />
+                                </View>
+                                <View style={styles.mealSupplementFieldGroup}>
+                                  <Text style={styles.mealSupplementFieldLabel}>כמות</Text>
+                                  <TextInput
+                                    value={selectedEntry?.quantity ?? ""}
+                                    onChangeText={(value) => updateMealSupplement(meal.id, supplement.name, "quantity", value)}
+                                    placeholder="כמות"
+                                    placeholderTextColor="#7E8DA4"
+                                    keyboardType="decimal-pad"
+                                    returnKeyType="done"
+                                    style={styles.mealSupplementInput}
+                                    accessibilityLabel={`כמות ${supplement.name}`}
+                                  />
+                                </View>
+                              </View>
+                              <Text style={styles.mealSupplementFieldLabel}>יחידת מדידה</Text>
+                              <View style={styles.mealSupplementUnits}>
+                                {supplementUnits.map((unit) => (
+                                  <Pressable
+                                    key={unit}
+                                    accessibilityRole="radio"
+                                    accessibilityState={{ selected: selectedEntry?.unit === unit }}
+                                    onPress={(event) => {
+                                      event.stopPropagation();
+                                      updateMealSupplement(meal.id, supplement.name, "unit", unit as SupplementUnit);
+                                    }}
+                                    style={({ pressed }) => [
+                                      styles.mealSupplementUnit,
+                                      selectedEntry?.unit === unit && styles.mealSupplementUnitSelected,
+                                      pressed && styles.mealSupplementRowPressed,
+                                    ]}
+                                  >
+                                    <Text style={[styles.mealSupplementUnitText, selectedEntry?.unit === unit && styles.mealSupplementUnitTextSelected]}>{unit}</Text>
+                                  </Pressable>
+                                ))}
+                              </View>
+                            </View>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
                 {isAdvancedMealOpen ? <>
                 <View style={styles.mealActions}>
                   <Pressable
@@ -4214,6 +4554,58 @@ const styles = StyleSheet.create({
   mealSimpleSecondaryAction: { flex: 1, minHeight: 42, alignItems: "center", justifyContent: "center", backgroundColor: "#16233A", borderColor: "#526985", borderWidth: 1, borderRadius: 10 },
   mealSimpleSecondaryActionText: { color: "#B9CDE3", fontSize: 11, fontWeight: "900" },
   mealSimpleActionPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
+  mealSupplementActionActive: { backgroundColor: "#1B7050", borderColor: "#72E6A7" },
+  mealSupplementsPanel: { backgroundColor: "#0F1F35", borderColor: "#42D392", borderWidth: 1, borderRadius: 12, padding: 11, gap: 8, marginTop: 6 },
+  mealSupplementsTitle: { color: "#A7F3D0", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  mealSupplementsHint: { color: "#B8CBE0", fontSize: 10, textAlign: "right", lineHeight: 15, writingDirection: "rtl" },
+  mealSupplementRow: { backgroundColor: "#162943", borderColor: "#2F5275", borderWidth: 1, borderRadius: 9, padding: 9, gap: 3 },
+  mealSupplementRowSelected: { backgroundColor: "#173A36", borderColor: "#42D392" },
+  mealSupplementRowPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
+  mealSupplementRowHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  mealSupplementName: { color: "#F5D27A", fontSize: 12, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  mealSupplementNameSelected: { color: "#A7F3D0" },
+  mealSupplementBadge: { color: "#8FD3F4", fontSize: 9, fontWeight: "900", writingDirection: "rtl" },
+  mealSupplementBadgeSelected: { color: "#72E6A7" },
+  mealSupplementMeta: { color: "#8FD3F4", fontSize: 9, fontWeight: "800", textAlign: "right", writingDirection: "rtl", lineHeight: 14 },
+  mealSupplementPurpose: { color: "#D9E2EF", fontSize: 10, textAlign: "right", writingDirection: "rtl", lineHeight: 15 },
+  mealSupplementCaution: { color: "#FFCC9A", fontSize: 9, textAlign: "right", writingDirection: "rtl", lineHeight: 14 },
+  mealSupplementSource: { color: "#AAB7C8", fontSize: 8, textAlign: "right", writingDirection: "rtl" },
+  supplementReminderCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 14, padding: 12, gap: 8, marginTop: 10 },
+  supplementReminderHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10 },
+  supplementReminderHeaderText: { flex: 1, gap: 3 },
+  supplementReminderTitle: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  supplementReminderHint: { color: "#AAB7C8", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" },
+  supplementReminderToggle: { minWidth: 54, minHeight: 32, borderColor: "#52759C", borderWidth: 1, borderRadius: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  supplementReminderToggleOn: { backgroundColor: "#42D392", borderColor: "#42D392" },
+  supplementReminderToggleText: { color: "#F7F9FC", fontSize: 9, fontWeight: "900" },
+  supplementReminderTimeRow: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
+  supplementReminderSlot: { width: 62, color: "#D9E2EF", fontSize: 10, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  supplementReminderTimeInput: { flex: 1, minHeight: 38, backgroundColor: "#0B1224", borderColor: "#52759C", borderWidth: 1, borderRadius: 8, color: "#F7F9FC", paddingHorizontal: 10, textAlign: "center" },
+  supplementReminderActions: { flexDirection: "row-reverse", gap: 8, marginTop: 2 },
+  supplementReminderSave: { flex: 1, minHeight: 40, backgroundColor: "#F5B72C", borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  supplementReminderTest: { flex: 1, minHeight: 40, backgroundColor: "#1C3152", borderColor: "#52759C", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  supplementReminderTestText: { color: "#D9E2EF", fontSize: 11, fontWeight: "900" },
+  supplementReminderSaveDisabled: { opacity: 0.55 },
+  supplementReminderSaveText: { color: "#0B1224", fontSize: 11, fontWeight: "900" },
+  supplementReminderStatus: { color: "#A7F3D0", fontSize: 9, textAlign: "right", writingDirection: "rtl" },
+  reminderHistoryBox: { backgroundColor: "#101A2D", borderColor: "#2F5275", borderWidth: 1, borderRadius: 9, padding: 8, gap: 3, marginTop: 2 },
+  reminderHistoryTitle: { color: "#F5D27A", fontSize: 10, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  reminderHistoryRow: { color: "#A7F3D0", fontSize: 8, textAlign: "right", writingDirection: "rtl" },
+  reminderHistoryEmpty: { color: "#7E8DA4", fontSize: 8, textAlign: "right", writingDirection: "rtl" },
+  mealSupplementDailySummary: { backgroundColor: "#0B1224", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 10, padding: 9, gap: 3 },
+  mealSupplementDailyTitle: { color: "#F5D27A", fontSize: 11, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  mealSupplementDailyText: { color: "#D9E2EF", fontSize: 9, textAlign: "right", writingDirection: "rtl" },
+  mealSupplementDailyItem: { color: "#A7F3D0", fontSize: 9, textAlign: "right", writingDirection: "rtl", lineHeight: 14 },
+  mealSupplementFields: { gap: 6, marginTop: 5, paddingTop: 7, borderTopColor: "#2F5275", borderTopWidth: 1 },
+  mealSupplementFieldRow: { flexDirection: "row-reverse", gap: 7 },
+  mealSupplementFieldGroup: { flex: 1, gap: 3 },
+  mealSupplementFieldLabel: { color: "#AAB7C8", fontSize: 9, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
+  mealSupplementInput: { flex: 1, minHeight: 38, backgroundColor: "#0B1224", borderColor: "#52759C", borderWidth: 1, borderRadius: 8, color: "#F7F9FC", paddingHorizontal: 9, textAlign: "right", writingDirection: "rtl" },
+  mealSupplementUnits: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 5 },
+  mealSupplementUnit: { minHeight: 30, borderColor: "#52759C", borderWidth: 1, borderRadius: 7, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" },
+  mealSupplementUnitSelected: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" },
+  mealSupplementUnitText: { color: "#B9CDE3", fontSize: 9, fontWeight: "900", writingDirection: "rtl" },
+  mealSupplementUnitTextSelected: { color: "#0B1224" },
   mealMoveButton: {
     width: 30,
     height: 28,
