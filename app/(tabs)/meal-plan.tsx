@@ -601,6 +601,8 @@ export default function MealPlanScreen() {
       if (result.permissionDenied) {
         setReminderSettings((current) => ({ ...current, enabled: false }));
         setReminderStatus("הרשאת ההתראות נדחתה. ניתן לאשר אותה בהגדרות המכשיר.");
+      } else if (result.webUnsupported) {
+        setReminderStatus("ההגדרה נשמרה. ב-Web ניתן לבדוק התראה מיידית; תזכורות יומיות פועלות באפליקציה מותקנת.");
       } else if (result.enabled) {
         setReminderStatus(`התזכורות נשמרו: ${result.scheduled} התראות יומיות פעילות.`);
       } else {
@@ -2859,22 +2861,26 @@ export default function MealPlanScreen() {
                       const selectedEntry = selectedMealSupplements.find((entry) => entry.name === supplement.name);
                       const isSelected = Boolean(selectedEntry);
                       return (
-                        <Pressable
+                        <View
                           key={supplement.name}
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: isSelected }}
-                          accessibilityLabel={`${isSelected ? "הסר" : "סמן"} ${supplement.name} עבור ${meal.title}`}
-                          onPress={() => toggleMealSupplement(meal.id, supplement.name)}
-                          style={({ pressed }) => [
+                          style={[
                             styles.mealSupplementRow,
                             isSelected && styles.mealSupplementRowSelected,
-                            pressed && styles.mealSupplementRowPressed,
                           ]}
                         >
-                          <View style={styles.mealSupplementRowHeader}>
+                          <Pressable
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: isSelected }}
+                            accessibilityLabel={`${isSelected ? "הסר" : "סמן"} ${supplement.name} עבור ${meal.title}`}
+                            onPress={() => toggleMealSupplement(meal.id, supplement.name)}
+                            style={({ pressed }) => [
+                              styles.mealSupplementRowHeader,
+                              pressed && styles.mealSupplementRowPressed,
+                            ]}
+                          >
                             <Text style={[styles.mealSupplementName, isSelected && styles.mealSupplementNameSelected]}>{supplement.name}</Text>
                             <Text style={[styles.mealSupplementBadge, isSelected && styles.mealSupplementBadgeSelected]}>{isSelected ? "✓ מסומן" : "סמן"}</Text>
-                          </View>
+                          </Pressable>
                           {supplement.evidence ? <Text style={styles.mealSupplementMeta}>מידע כללי · רמת ראיות: {supplement.evidence}</Text> : null}
                           <Text style={styles.mealSupplementPurpose}>{supplement.purpose}</Text>
                           {supplement.whenToConsider ? <Text style={styles.mealSupplementMeta}>מתי לשקול: {supplement.whenToConsider}</Text> : null}
@@ -2933,7 +2939,7 @@ export default function MealPlanScreen() {
                               </View>
                             </View>
                           ) : null}
-                        </Pressable>
+                        </View>
                       );
                     })}
                   </View>

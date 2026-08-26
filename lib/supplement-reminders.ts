@@ -90,12 +90,15 @@ export async function requestSupplementReminderPermission(): Promise<boolean> {
 
 export async function saveAndScheduleSupplementReminders(
   settings: SupplementReminderSettings,
-): Promise<{ enabled: boolean; scheduled: number; permissionDenied: boolean }> {
+ ): Promise<{ enabled: boolean; scheduled: number; permissionDenied: boolean; webUnsupported?: boolean }> {
   const normalized = normalizeSupplementReminderSettings(settings);
   await AsyncStorage.setItem(SUPPLEMENT_REMINDER_SETTINGS_KEY, JSON.stringify(normalized));
   await cancelSavedReminders();
 
-  if (Platform.OS === "web" || !normalized.enabled) {
+  if (Platform.OS === "web") {
+    return { enabled: false, scheduled: 0, permissionDenied: false, webUnsupported: true };
+  }
+  if (!normalized.enabled) {
     return { enabled: false, scheduled: 0, permissionDenied: false };
   }
 
@@ -125,7 +128,18 @@ export async function saveAndScheduleSupplementReminders(
 }
 
 export async function sendSupplementReminderTest(): Promise<boolean> {
-  if (Platform.OS === "web") return false;
+  if (Platform.OS === "web") {
+    if (!("Notification" in globalThis)) return false;
+    const permission = Notification.permission === "granted"
+      ? "granted"
+      : await Notification.requestPermission();
+    if (permission !== "granted") return false;
+    new Notification("בדיקת תזכורת תוספים", {
+      body: "זו התראה מיידית מהדפדפן. תזכורות יומיות דורשות אפליקציה מותקנת או Push Web.",
+      tag: "supplement-reminder-test",
+    });
+    return true;
+  }
   const permitted = await requestSupplementReminderPermission();
   if (!permitted) return false;
   await Notifications.scheduleNotificationAsync({
