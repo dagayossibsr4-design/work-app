@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { isCardioWorkoutTemplate, splitSessionsForWorkoutDate, useWorkoutStore, type WorkoutSession } from "@/lib/workout-store";
@@ -49,6 +49,7 @@ function sessionTime(session: WorkoutSession) {
 
 export default function ScheduleScreen() {
   const router = useRouter();
+  const { demoFuture } = useLocalSearchParams<{ demoFuture?: string }>();
   const { templates, sessions, updateTemplate, startWorkoutOnDate } = useWorkoutStore();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
   const [weekStart, setWeekStart] = useState(() => {
@@ -57,6 +58,7 @@ export default function ScheduleScreen() {
   });
   const [overrides, setOverrides] = useState<Record<string, Override>>({});
   const [editing, setEditing] = useState(false);
+  const [futurePreviewDay, setFuturePreviewDay] = useState<ScheduledDay | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(SCHEDULE_KEY).then((value) => {
@@ -88,6 +90,11 @@ export default function ScheduleScreen() {
   const selectedSessions = splitSessionsForWorkoutDate(sessions, selected.date);
   const completedStrengthSessions = selectedSessions.strength;
   const completedCardioSessions = selectedSessions.cardio;
+  const demoTemplate = templates.find((item) => item.id === "push1") ?? strengthTemplates[0];
+  const demoFuturePreviewDay: ScheduledDay | null = demoFuture === "1" && demoTemplate
+    ? { date: selected.date, dayName: selected.dayName, kind: "workout", templateId: demoTemplate.id, label: demoTemplate.name, focus: demoTemplate.focus }
+    : null;
+  const visibleFuturePreviewDay = futurePreviewDay ?? demoFuturePreviewDay;
 
   const patchSelected = (patch: Override) => {
     setOverrides((current) => ({ ...current, [selected.date]: { ...current[selected.date], ...patch } }));
@@ -109,21 +116,21 @@ export default function ScheduleScreen() {
     if (!template) return;
     updateTemplate(template.id, { exercises: template.exercises.map((exercise) => exercise.id === exerciseId && exercise.sets.length > 1 ? { ...exercise, sets: exercise.sets.filter((_, index) => index !== setIndex) } : exercise) });
   };
-  const selectDay = (date: string) => {
-    setSelectedDate(date);
-    setWeekStart(addDays(date, -new Date(`${date}T12:00:00`).getDay()));
-    setEditing(false);
-  };
   const startForSelectedDate = (templateId: WorkoutId) => {
     startWorkoutOnDate(templateId, selected.date);
-    router.push("/active-workout" as never);
+    router.push({ pathname: "/active-workout", params: { templateId, scheduledDate: selected.date } } as never);
   };
-  const openSession = (sessionId: string) => router.push({ pathname: "/(tabs)/history", params: { sessionId } } as never);
+  const openCompletedSession = (sessionId: string) => router.push({ pathname: "/(tabs)/history", params: { sessionId } } as never);
   const sessionName = (session: WorkoutSession) => templates.find((item) => item.id === session.templateId)?.name ?? "אימון ללא שם";
-  const openDayOrSelect = (day: ScheduledDay) => {
-    selectDay(day.date);
+  const openDay = (day: ScheduledDay) => {
     const completedSession = completedSessionForScheduleDay(sessions, day.date, day.kind);
-    if (completedSession) openSession(completedSession.id);
+    if (completedSession) {
+      openCompletedSession(completedSession.id);
+      return;
+    }
+    setSelectedDate(day.date);
+    setEditing(false);
+    setFuturePreviewDay(day.kind === "workout" && day.templateId ? day : null);
   };
 
   return (
@@ -147,7 +154,7 @@ export default function ScheduleScreen() {
             const dayStrength = daySessions.strength.length;
             const dayCardio = daySessions.cardio.length;
             return (
-              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={daySessions.all.length ? `הצג מה בוצע ב${day.label} בתאריך ${formatDate(day.date)}` : `בחר ${day.label} בתאריך ${formatDate(day.date)}`} onPress={() => openDayOrSelect(day)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio]}>
+              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={daySessions.all.length ? `הצג מה בוצע ב${day.label} בתאריך ${formatDate(day.date)}` : `פתח את ${day.label} בתאריך ${formatDate(day.date)}`} onPress={() => openDay(day)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio]}>
                 <View style={styles.dayCardHeading}><Text style={[styles.dayDate, selected.date === day.date && styles.dayDateActive]}>{formatDate(day.date)}</Text><Text style={styles.dayName}>{day.dayName}</Text></View>
                 <Text style={[styles.dayLabel, selected.date === day.date && styles.dayLabelActive]}>{day.label}</Text>
                 <Text style={[styles.dayFocus, selected.date === day.date && styles.dayFocusActive]} numberOfLines={2}>{day.focus}</Text>
@@ -173,7 +180,7 @@ export default function ScheduleScreen() {
                 <Pressable onPress={() => setEditing((value) => !value)} style={[styles.secondarySmall, editing && styles.secondarySmallActive]}><Text style={styles.secondarySmallText}>{editing ? "סיום עריכה" : "עריכת התוכנית"}</Text></Pressable>
               </View>
               <View style={styles.templateSummary}><Text style={styles.templateSummaryTitle}>{template.name}</Text><Text style={styles.templateSummaryMeta}>{template.exercises.length} תרגילים · {template.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} סטים</Text></View>
-              {completedStrengthSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openSession(session.id)} />)}
+              {completedStrengthSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} />)}
               {editing ? <TemplateEditor template={template} onNameChange={updateExerciseName} onTargetChange={updateTarget} onAddSet={addSet} onRemoveSet={removeSet} /> : <ExercisePreview template={template} />}
             </View>
 
@@ -182,14 +189,14 @@ export default function ScheduleScreen() {
               {plannedCardioTemplate ? <>
                 <Text style={styles.cardioPlanText}>{plannedCardioTemplate.name} · {plannedCardioTemplate.focus}</Text>
                 <Pressable onPress={() => startForSelectedDate(plannedCardioTemplate.id)} style={styles.cardioStartButton}><Text style={styles.cardioStartText}>התחל אירובי</Text></Pressable>
-                {completedCardioSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openSession(session.id)} cardio />)}
+                {completedCardioSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} cardio />)}
               </> : <Text style={styles.emptyInline}>לא צורף אירובי ליום הזה. ניתן לבחור סוג אירובי באזור ההגדרה למטה.</Text>}
             </View>
           </> : <View style={styles.restMessage}>
             <Text style={styles.restTitle}>{selected.kind === "cardio" ? "יום אירובי והתאוששות פעילה" : "יום מנוחה"}</Text>
             <Text style={styles.restText}>{selected.kind === "cardio" ? "תעד אירובי נפרד עם זמן, מרחק ועצימות." : "אין תרגילי כוח מתוכננים ביום זה."}</Text>
             {selected.kind === "cardio" ? <Pressable onPress={() => startForSelectedDate("cardio")} style={styles.primarySmall}><Text style={styles.primarySmallText}>פתח אירובי</Text></Pressable> : null}
-            {selectedSessions.all.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openSession(session.id)} cardio={isCardioWorkoutTemplate(session.templateId)} />)}
+            {selectedSessions.all.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} cardio={isCardioWorkoutTemplate(session.templateId)} />)}
           </View>}
 
           <View style={styles.changeBox}>
@@ -211,6 +218,7 @@ export default function ScheduleScreen() {
           </View>
         </View>
       </ScrollView>
+      <FutureWorkoutPreview day={visibleFuturePreviewDay} templates={templates} onClose={() => { if (futurePreviewDay) { setFuturePreviewDay(null); return; } router.replace("/(tabs)/schedule" as never); }} onStart={(templateId) => { if (!futurePreviewDay) { router.replace("/(tabs)/schedule" as never); return; } startWorkoutOnDate(templateId, futurePreviewDay.date); setFuturePreviewDay(null); router.push({ pathname: "/active-workout", params: { templateId, scheduledDate: futurePreviewDay.date } } as never); }} />
     </ScreenContainer>
   );
 }
@@ -222,6 +230,11 @@ function SessionRow({ session, name, onOpen, cardio = false }: { session: Workou
 
 function ExercisePreview({ template }: { template: WorkoutTemplate }) {
   return <View style={styles.exercisePreview}>{template.exercises.slice(0, 5).map((exercise) => <Text key={exercise.id} numberOfLines={2} style={styles.exerciseText}>• {exercise.name || exercise.id || "תרגיל ללא שם"} · {exercise.sets.length} סטים</Text>)}{template.exercises.length > 5 ? <Text style={styles.moreText}>+ עוד {template.exercises.length - 5} תרגילים</Text> : null}</View>;
+}
+
+function FutureWorkoutPreview({ day, templates, onClose, onStart }: { day: ScheduledDay | null; templates: WorkoutTemplate[]; onClose: () => void; onStart: (templateId: WorkoutId) => void }) {
+  const template = day?.templateId ? templates.find((item) => item.id === day.templateId) : undefined;
+  return <Modal visible={Boolean(day)} animationType="slide" transparent onRequestClose={onClose}><View style={styles.previewBackdrop}><View style={styles.previewSheet}><View style={styles.previewHeader}><View><Text style={styles.previewTitle}>{template?.name ?? day?.label}</Text><Text style={styles.previewSubtitle}>{day?.focus}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="סגור תצוגת תרגילים" onPress={onClose} style={styles.previewClose}><Text style={styles.previewCloseText}>×</Text></Pressable></View><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.previewContent}>{template ? <><View style={styles.previewSummary}><Text style={styles.previewSummaryValue}>{template.exercises.length}</Text><Text style={styles.previewSummaryLabel}>תרגילים</Text><Text style={styles.previewSummaryValue}>{template.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)}</Text><Text style={styles.previewSummaryLabel}>סטים</Text></View><Text style={styles.previewSectionTitle}>כל התרגילים בתוכנית</Text>{template.exercises.map((exercise, index) => <View key={exercise.id} style={styles.previewExerciseRow}><View style={styles.previewExerciseNumber}><Text style={styles.previewExerciseNumberText}>{index + 1}</Text></View><View style={styles.previewExerciseInfo}><Text style={styles.previewExerciseName}>{exercise.name}</Text><Text style={styles.previewExerciseSets}>{exercise.sets.map((set, setIndex) => `סט ${setIndex + 1}: ${set.target}`).join(" · ")}</Text></View></View>)}</> : <Text style={styles.previewEmpty}>אין תרגילי כוח מתוכננים ביום הזה.</Text>}</ScrollView>{template ? <Pressable accessibilityRole="button" onPress={() => onStart(template.id)} style={styles.previewStart}><Text style={styles.previewStartText}>התחל {template.name}</Text></Pressable> : null}</View></View></Modal>;
 }
 
 function TemplateEditor({ template, onNameChange, onTargetChange, onAddSet, onRemoveSet }: { template: WorkoutTemplate; onNameChange: (exerciseId: string, name: string) => void; onTargetChange: (exerciseId: string, index: number, target: string) => void; onAddSet: (exerciseId: string) => void; onRemoveSet: (exerciseId: string, index: number) => void }) {
@@ -239,4 +252,5 @@ const styles = StyleSheet.create({
   exercisePreview: { gap: 7 }, exerciseText: { color: "#D9E2EF", fontSize: 12, textAlign: "right", writingDirection: "rtl", width: "100%", lineHeight: 19 }, moreText: { color: "#F5D27A", fontSize: 11, textAlign: "right", fontWeight: "800" }, editorBox: { gap: 10 }, editorTitle: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" }, exerciseBox: { backgroundColor: "#16233A", borderRadius: 12, padding: 10, gap: 8 }, exerciseInput: { color: "#F7F9FC", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 8, padding: 9, minHeight: 38 }, sets: { gap: 6 }, setsLabel: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, setRow: { flexDirection: "row-reverse", alignItems: "center", gap: 6 }, setInput: { flex: 1, backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 8, padding: 8, color: "#F7F9FC", textAlign: "right" }, setNumber: { color: "#AAB7C8", fontSize: 10, width: 34, textAlign: "right" }, removeSet: { width: 28, height: 28, borderRadius: 8, backgroundColor: "#432330", alignItems: "center", justifyContent: "center" }, removeText: { color: "#F16B7A", fontSize: 18 }, addSet: { borderColor: "#8A6B20", borderWidth: 1, borderRadius: 8, paddingVertical: 7, alignItems: "center" }, addSetText: { color: "#F5D27A", fontSize: 10, fontWeight: "900" },
   restMessage: { backgroundColor: "#0B1224", borderRadius: 12, padding: 12, gap: 8 }, restTitle: { color: "#F5B72C", fontWeight: "900", textAlign: "right" }, restText: { color: "#AAB7C8", fontSize: 11, textAlign: "right" },
   changeBox: { borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, gap: 8 }, changeTitle: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, templatePills: { flexDirection: "row", gap: 7 }, templatePill: { borderColor: "#2C3B55", borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 7 }, templatePillActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" }, templatePillText: { color: "#AAB7C8", fontSize: 10, fontWeight: "800" }, templatePillTextActive: { color: "#0B1224" }, cardioPill: { borderColor: "#3D806D" }, cardioPillActive: { backgroundColor: "#42D392", borderColor: "#42D392" }, cardioPillTextActive: { color: "#09221D" }, removeCardioButton: { borderColor: "#D86582", borderWidth: 1, borderRadius: 9, paddingVertical: 8, alignItems: "center" }, removeCardioText: { color: "#FFB1BE", fontSize: 10, fontWeight: "900" }, changeActions: { flexDirection: "row-reverse", gap: 8 }, changeButton: { flex: 1, borderColor: "#5E7CA5", borderWidth: 1, borderRadius: 9, paddingVertical: 8, alignItems: "center" }, changeButtonText: { color: "#D9E2EF", fontSize: 10, fontWeight: "800" }, disabled: { opacity: 0.25 },
+  previewBackdrop: { flex: 1, backgroundColor: "rgba(2, 8, 22, 0.78)", justifyContent: "flex-end" }, previewSheet: { maxHeight: "86%", backgroundColor: "#16233A", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderColor: "#F5B72C", borderWidth: 1, padding: 16, gap: 12 }, previewHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "flex-start" }, previewTitle: { color: "#F7F9FC", fontSize: 23, fontWeight: "900", textAlign: "right" }, previewSubtitle: { color: "#AAB7C8", fontSize: 11, lineHeight: 17, textAlign: "right", marginTop: 4 }, previewClose: { width: 34, height: 34, borderRadius: 17, borderColor: "#5E7CA5", borderWidth: 1, alignItems: "center", justifyContent: "center" }, previewCloseText: { color: "#F7F9FC", fontSize: 22, lineHeight: 24 }, previewContent: { gap: 9, paddingBottom: 14 }, previewSummary: { flexDirection: "row-reverse", justifyContent: "flex-start", alignItems: "baseline", gap: 7, backgroundColor: "#0B1224", borderRadius: 12, padding: 11 }, previewSummaryValue: { color: "#F5B72C", fontSize: 17, fontWeight: "900" }, previewSummaryLabel: { color: "#AAB7C8", fontSize: 10, marginLeft: 8 }, previewSectionTitle: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right", marginTop: 3 }, previewExerciseRow: { flexDirection: "row-reverse", gap: 10, backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 12, padding: 11, alignItems: "center" }, previewExerciseNumber: { width: 27, height: 27, borderRadius: 14, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" }, previewExerciseNumberText: { color: "#0B1224", fontWeight: "900", fontSize: 11 }, previewExerciseInfo: { flex: 1, alignItems: "flex-end", gap: 3 }, previewExerciseName: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right" }, previewExerciseSets: { color: "#AAB7C8", fontSize: 10, lineHeight: 16, textAlign: "right" }, previewEmpty: { color: "#AAB7C8", fontSize: 12, textAlign: "right" }, previewStart: { minHeight: 50, backgroundColor: "#F5B72C", borderRadius: 13, alignItems: "center", justifyContent: "center" }, previewStartText: { color: "#0B1224", fontSize: 14, fontWeight: "900" },
 });
