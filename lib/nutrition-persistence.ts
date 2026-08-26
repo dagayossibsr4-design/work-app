@@ -12,6 +12,8 @@ export const NUTRITION_PERSISTENCE_KEYS = [
   "meal-plan-versions",
   "meal-plan-saved-meals",
   "meal-plan-supplements",
+  "meal-plan-supplements-history",
+  "supplement-daily-targets-v1",
   "supplement-reminder-settings-v1",
   "supplement-reminder-history-v1",
   "meal-plan-defaults-v100",
@@ -64,16 +66,22 @@ export function nutritionStorageSafeToRestore(
 ): NutritionStorage {
   const cloudHasMeals = hasStoredMeals(cloudStorage);
   const localHasMeals = hasStoredMeals(localStorage);
-  if (!cloudHasMeals) return {};
+
+  // If local storage has not been initialized yet, restore every cloud key.
   if (!localHasMeals) return cloudStorage;
 
   const cloudSavedAt = savedAt(cloudStorage);
   const localSavedAt = savedAt(localStorage);
-  if (cloudSavedAt !== null && localSavedAt !== null && cloudSavedAt > localSavedAt) {
+  if (cloudHasMeals && cloudSavedAt !== null && localSavedAt !== null && cloudSavedAt > localSavedAt) {
     return cloudStorage;
   }
 
-  return {};
+  // Keep a newer/local meal plan, but still restore cloud-only records such as
+  // water history, supplement selections and reminder history. This prevents a
+  // partial account snapshot from silently deleting data on the next login.
+  return Object.fromEntries(
+    Object.entries(cloudStorage).filter(([key]) => localStorage[key] === undefined),
+  );
 }
 
 const nutritionCloudSaveListeners = new Set<() => void>();

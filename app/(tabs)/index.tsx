@@ -108,7 +108,7 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View style={styles.headerActions}>
             <Pressable onPress={() => router.push("/menu" as never)} style={styles.menuButton}><Text style={styles.menuText}>☰ תפריט</Text></Pressable>
-            <Pressable onPress={() => router.push("/meals" as never)} style={styles.mealButton}><Text style={styles.mealButtonText}>הארוחות שלי</Text></Pressable>
+            <Pressable onPress={() => router.push("/(tabs)/meal-plan" as never)} style={styles.mealButton}><Text style={styles.mealButtonText}>הארוחות שלי</Text></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={accountName ? "ניהול החשבון המחובר" : "הרשמה או התחברות"} onPress={() => router.push("/register" as never)} style={styles.accountButton}><Text style={styles.accountButtonText}>{accountName ? `👤 ${accountName}` : "הרשמה / התחברות"}</Text></Pressable>
           </View>
           <View style={styles.titleBlock}>
@@ -122,7 +122,7 @@ export default function HomeScreen() {
           <Pressable accessibilityRole="button" accessibilityLabel="פתח סטים שהושלמו בהיסטוריה" onPress={() => router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{completedSets}</Text><Text style={styles.statLabel}>סטים שהושלמו · פירוט</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="פתח את האימון האחרון" onPress={() => router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{last ? `${Math.round(calculateVolume(last))}` : "—"}</Text><Text style={styles.statLabel}>נפח אחרון · פרטים</Text></Pressable>
         </View>
-        <Pressable onPress={() => router.push("/meals" as never)} style={({ pressed }) => [styles.menuCard, pressed && styles.pressed]}>
+        <Pressable onPress={() => router.push("/(tabs)/meal-plan" as never)} style={({ pressed }) => [styles.menuCard, pressed && styles.pressed]}>
           <View><Text style={styles.menuCardTitle}>הארוחות שלי</Text><Text style={styles.menuCardText}>מעקב ארוחות, מאקרו ושמירה קבועה לחשבון שלך</Text></View><Text style={styles.menuCardArrow}>‹</Text>
         </Pressable>
         <View style={styles.sectionHeader}><View><Text style={styles.sectionTitle}>שיטת האימון</Text><Text style={styles.sectionHint}>בחר סדרה מהרשימה — ללא גרירה</Text></View><Text style={styles.sectionHint}>{methods.length} סדרות</Text></View>
