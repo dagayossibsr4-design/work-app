@@ -160,6 +160,17 @@ export function normalizeWorkoutSessions(savedSessions: WorkoutSession[]): Worko
     }));
 }
 
+/**
+ * מאחד אימונים מהמכשיר ומהענן בלי למחוק אימון מקומי חדש שעוד לא הספיק להסתנכרן.
+ * במקרה של אותו מזהה, העותק המקומי מקבל עדיפות כי הוא עשוי לכלול שינוי שנעשה זה עתה.
+ */
+export function mergeWorkoutSessions(localSessions: WorkoutSession[], cloudSessions: WorkoutSession[]): WorkoutSession[] {
+  const merged = new Map<string, WorkoutSession>();
+  normalizeWorkoutSessions(cloudSessions).forEach((session) => merged.set(session.id, session));
+  normalizeWorkoutSessions(localSessions).forEach((session) => merged.set(session.id, session));
+  return sortWorkoutSessionsNewestFirst([...merged.values()]);
+}
+
 export function restoreActiveWorkout(raw: string | null): WorkoutSession | null {
   if (!raw) return null;
   try {
@@ -290,11 +301,48 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   };
   const startWorkout = (templateId: WorkoutId, copyPrevious = false) => startWorkoutOnDate(templateId, new Date().toISOString().slice(0, 10), copyPrevious);
   const startWorkoutFromTemplate = (template: WorkoutTemplate) => setActiveSession(createSession(template));
-  const updateSet = (setId: string, patch: Partial<SetLog>) => setActiveSession((current) => current ? ({ ...current, sets: current.sets.map((set) => set.id === setId ? { ...set, ...patch } : set) }) : current);
-  const updateActiveSession = (patch: Partial<WorkoutSession>) => setActiveSession((current) => current ? { ...current, ...patch } : current);
-  const finishWorkout = () => { if (!activeSession) return; setSessions((current) => [{ ...activeSession, finishedAt: new Date().toISOString() }, ...current]); setActiveSession(null); };
-  const updateSession = (sessionId: string, patch: Partial<WorkoutSession>) => setSessions((current) => current.map((session) => session.id === sessionId ? { ...session, ...patch } : session));
-  const deleteSession = (sessionId: string) => setSessions((current) => current.filter((session) => session.id !== sessionId));
+  const persistActiveSessionImmediately = (next: WorkoutSession | null) => {
+    const operation = next
+      ? AsyncStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(next))
+      : AsyncStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+    void operation.catch(() => undefined);
+  };
+  const updateSet = (setId: string, patch: Partial<SetLog>) => setActiveSession((current) => {
+    if (!current) return current;
+    const next = { ...current, sets: current.sets.map((set) => set.id === setId ? { ...set, ...patch } : set) };
+    persistActiveSessionImmediately(next);
+    return next;
+  });
+  const updateActiveSession = (patch: Partial<WorkoutSession>) => setActiveSession((current) => {
+    if (!current) return current;
+    const next = { ...current, ...patch };
+    persistActiveSessionImmediately(next);
+    return next;
+  });
+  const persistSessionsImmediately = (nextSessions: WorkoutSession[]) => {
+    void AsyncStorage.setItem(SESSION_KEY, JSON.stringify(nextSessions)).catch(() => undefined);
+  };
+  const finishWorkout = () => {
+    if (!activeSession) return;
+    const completed = { ...activeSession, finishedAt: new Date().toISOString() };
+    setSessions((current) => {
+      const next = [completed, ...current.filter((session) => session.id !== completed.id)];
+      persistSessionsImmediately(next);
+      return next;
+    });
+    persistActiveSessionImmediately(null);
+    setActiveSession(null);
+  };
+  const updateSession = (sessionId: string, patch: Partial<WorkoutSession>) => setSessions((current) => {
+    const next = current.map((session) => session.id === sessionId ? { ...session, ...patch } : session);
+    persistSessionsImmediately(next);
+    return next;
+  });
+  const deleteSession = (sessionId: string) => setSessions((current) => {
+    const next = current.filter((session) => session.id !== sessionId);
+    persistSessionsImmediately(next);
+    return next;
+  });
   const recentSessionFor = (templateId: WorkoutId) => sessions.find((session) => session.templateId === templateId);
   const saveRecoveryLog = (log: Omit<RecoveryLog, "id">) => setRecoveryLogs((current) => [{ ...log, id: `recovery-${Date.now()}` }, ...current.filter((item) => item.date !== log.date)]);
   const recentRecovery = () => recoveryLogs[0];
@@ -379,7 +427,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, activeSession }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, activeSession]);
   const applyAccountState = useCallback((state: Partial<AccountState>) => {
     if (Array.isArray(state.sessions)) {
-      setSessions(normalizeWorkoutSessions(state.sessions));
+      setSessions((current) => mergeWorkoutSessions(current, state.sessions ?? []));
     }
     if (Array.isArray(state.templates)) setTemplates(hydrateWorkoutTemplates(state.templates));
     if (Array.isArray(state.recoveryLogs)) setRecoveryLogs(state.recoveryLogs);

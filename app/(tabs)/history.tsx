@@ -58,10 +58,21 @@ async function exportHistoryCsv(sessions: WorkoutSession[]) {
 }
 
 const dateTimeText = (iso: string) => new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+const historyDateKey = (year: number, month: number, day: number) => `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+const historyCalendarDays = (month: Date) => {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstDay = new Date(year, monthIndex, 1).getDay();
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const cells: Array<number | null> = Array.from({ length: firstDay }, () => null);
+  for (let day = 1; day <= daysInMonth; day += 1) cells.push(day);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return Array.from({ length: cells.length / 7 }, (_, index) => cells.slice(index * 7, index * 7 + 7));
+};
 
 export default function HistoryScreen() {
   const { sessions, templates } = useWorkoutStore();
-  const { sessionId, edit } = useLocalSearchParams<{ sessionId?: string; edit?: string }>();
+  const { sessionId, edit, editDate } = useLocalSearchParams<{ sessionId?: string; edit?: string; editDate?: string }>();
   const orderedSessions = useMemo(() => sortWorkoutSessionsNewestFirst(sessions), [sessions]);
   const [selectedId, setSelectedId] = useState<string | undefined>(sessionId);
 
@@ -94,7 +105,7 @@ export default function HistoryScreen() {
               <Pressable accessibilityRole="tab" accessibilityState={{ selected: selected.id === orderedSessions[0]?.id }} onPress={() => setSelectedId(orderedSessions[0]?.id)} style={[styles.tab, selected.id === orderedSessions[0]?.id && styles.tabActive]}><Text style={styles.tabText}>האימון האחרון</Text></Pressable>
               <Pressable accessibilityRole="tab" accessibilityState={{ selected: selected.id === previous?.id }} onPress={() => setSelectedId(previous?.id)} style={[styles.tab, selected.id === previous?.id && styles.tabActive]}><Text style={styles.tabText}>האימון הקודם</Text></Pressable>
             </View> : null}
-            <SessionDetail session={selected} template={templates.find((item) => item.id === selected.templateId) ?? getTemplate(selected.templateId)} openInEditMode={edit === "1"} />
+            <SessionDetail session={selected} template={templates.find((item) => item.id === selected.templateId) ?? getTemplate(selected.templateId)} openInEditMode={edit === "1" || editDate === "1"} />
           </View> : null}
         </>}
         ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyTitle}>עדיין אין אימונים</Text><Text style={styles.emptyText}>התחל אימון ראשון ממסך היום וההיסטוריה תתמלא אוטומטית.</Text></View>}
@@ -113,6 +124,8 @@ function SessionDetail({ session, template, openInEditMode = false }: { session:
   const [editing, setEditing] = useState(openInEditMode);
   const [draft, setDraft] = useState(session);
   const [exercisePickerVisible, setExercisePickerVisible] = useState(false);
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date(session.startedAt));
   const [customExerciseName, setCustomExerciseName] = useState("");
   const toDateInput = (iso: string) => iso.slice(0, 10);
   const withDate = (iso: string, date: string) => {
@@ -121,10 +134,19 @@ function SessionDetail({ session, template, openInEditMode = false }: { session:
     const next = new Date(`${date}T${String(current.getHours()).padStart(2, "0")}:${String(current.getMinutes()).padStart(2, "0")}:00`);
     return Number.isNaN(next.getTime()) ? iso : next.toISOString();
   };
+  const shiftDraftDate = (offset: number) => {
+    setDraft((current) => {
+      const date = new Date(current.startedAt);
+      date.setDate(date.getDate() + offset);
+      return Number.isNaN(date.getTime()) ? current : { ...current, startedAt: date.toISOString() };
+    });
+  };
 
   useEffect(() => {
     setDraft(session);
+    setCalendarMonth(new Date(session.startedAt));
     setEditing(openInEditMode);
+    setCalendarVisible(false);
     setExercisePickerVisible(false);
     setCustomExerciseName("");
   }, [session, openInEditMode]);
@@ -175,6 +197,12 @@ function SessionDetail({ session, template, openInEditMode = false }: { session:
     if (!/^\d{4}-\d{2}-\d{2}$/.test(toDateInput(draft.startedAt))) return;
     updateSession(session.id, { startedAt: draft.startedAt, sets: draft.sets });
     setEditing(false);
+    setCalendarVisible(false);
+  };
+  const chooseCalendarDate = (day: number) => {
+    const nextDate = historyDateKey(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
+    setDraft((current) => ({ ...current, startedAt: withDate(current.startedAt, nextDate) }));
+    setCalendarVisible(false);
   };
   const remove = () => {
     const message = "האימון וכל הסטים שלו יימחקו מההיסטוריה. הפעולה אינה הפיכה.";
@@ -187,15 +215,16 @@ function SessionDetail({ session, template, openInEditMode = false }: { session:
 
   return (
     <ScrollView style={styles.detail} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-      <View style={styles.detailHeader}><Text style={styles.detailVolume}>{isCardioSession ? `${cardioTotals.minutes} דק׳` : `${Math.round(calculateVolume(draft))} ק״ג`}</Text><View><Text style={styles.detailName}>{template.name}</Text>{editing ? <TextInput accessibilityLabel="תאריך האימון" value={toDateInput(draft.startedAt)} onChangeText={(value) => setDraft((current) => ({ ...current, startedAt: withDate(current.startedAt, value) }))} placeholder="YYYY-MM-DD" placeholderTextColor="#7E8DA4" style={styles.dateInput} /> : <Text style={styles.detailDate}>{dateTimeText(draft.startedAt)}</Text>}</View></View>
+      <View style={styles.detailHeader}><Text style={styles.detailVolume}>{isCardioSession ? `${cardioTotals.minutes} דק׳` : `${Math.round(calculateVolume(draft))} ק״ג`}</Text><View><Text style={styles.detailName}>{template.name}</Text>{editing ? <View style={{ marginTop: 6, gap: 5 }}><Text style={{ color: "#AAB7C8", fontSize: 10, fontWeight: "800", textAlign: "right" }}>תאריך האימון</Text><View style={{ flexDirection: "row-reverse", alignItems: "center", gap: 5 }}><Pressable accessibilityRole="button" onPress={() => shiftDraftDate(1)} style={{ borderColor: "#52759C", borderWidth: 1, borderRadius: 7, paddingHorizontal: 7, paddingVertical: 6 }}><Text style={{ color: "#D9E2EF", fontSize: 9, fontWeight: "900" }}>+ יום</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="פתח לוח שנה לבחירת תאריך אימון" onPress={() => { setCalendarMonth(new Date(draft.startedAt)); setCalendarVisible(true); }} style={[styles.dateInput, { flex: 1, justifyContent: "center", marginTop: 0 }]}><Text style={{ color: "#F7F9FC", textAlign: "center", fontWeight: "800" }}>{toDateInput(draft.startedAt)}</Text></Pressable><Pressable accessibilityRole="button" onPress={() => shiftDraftDate(-1)} style={{ borderColor: "#52759C", borderWidth: 1, borderRadius: 7, paddingHorizontal: 7, paddingVertical: 6 }}><Text style={{ color: "#D9E2EF", fontSize: 9, fontWeight: "900" }}>יום −</Text></Pressable></View><Text style={{ color: "#7E8DA4", fontSize: 9, textAlign: "right" }}>לחץ על התאריך כדי לפתוח לוח שנה, או הזז ביום אחד.</Text></View> : <Text style={styles.detailDate}>{dateTimeText(draft.startedAt)}</Text>}</View></View>
       <View style={styles.detailActions}>
         {previousInSeries ? <Pressable accessibilityRole="button" accessibilityLabel="השווה לאימון קודם מאותה סדרה" onPress={() => router.push({ pathname: "/(tabs)/analysis", params: { templateId: session.templateId, baselineId: previousInSeries.id, currentId: session.id } } as never)} style={styles.compareAction}><Text style={styles.compareActionText}>השווה ל־{template.name} קודם</Text></Pressable> : null}
         <Pressable accessibilityRole="button" accessibilityLabel="השווה לסדרה מקבילה באותה קטגוריה" onPress={() => router.push({ pathname: "/(tabs)/analysis", params: { category: categoryForTemplate(session.templateId) } } as never)} style={styles.compareAction}><Text style={styles.compareActionText}>השווה לסדרה מקבילה</Text></Pressable>
-        {editing ? <><Pressable accessibilityRole="button" accessibilityLabel="ביטול עריכת האימון" onPress={() => { setDraft(session); setEditing(false); }} style={styles.secondaryAction}><Text style={styles.secondaryActionText}>ביטול</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="שמירת עריכת האימון" onPress={save} style={styles.primaryAction}><Text style={styles.primaryActionText}>שמור שינויים</Text></Pressable></> : <Pressable accessibilityRole="button" accessibilityLabel="ערוך אימון מההיסטוריה" onPress={() => setEditing(true)} style={styles.secondaryAction}><Text style={styles.secondaryActionText}>ערוך אימון</Text></Pressable>}
+        {editing ? <><Pressable accessibilityRole="button" accessibilityLabel="ביטול עריכת האימון" onPress={() => { setDraft(session); setEditing(false); }} style={styles.secondaryAction}><Text style={styles.secondaryActionText}>ביטול</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="שמירת עריכת האימון והתאריך" onPress={save} style={styles.primaryAction}><Text style={styles.primaryActionText}>שמור שינויים</Text></Pressable></> : <Pressable accessibilityRole="button" accessibilityLabel="ערוך אימון ותאריך מההיסטוריה" onPress={() => setEditing(true)} style={styles.secondaryAction}><Text style={styles.secondaryActionText}>ערוך אימון ותאריך</Text></Pressable>}
         <Pressable accessibilityRole="button" accessibilityLabel="מחק אימון מההיסטוריה" onPress={remove} style={styles.deleteAction}><Text style={styles.deleteText}>מחק</Text></Pressable>
       </View>
       {editing && !isCardioSession ? <Pressable accessibilityRole="button" accessibilityLabel="הוסף תרגיל לאימון שבוצע" onPress={() => setExercisePickerVisible(true)} style={styles.addExerciseButton}><Text style={styles.addExerciseText}>＋ הוסף תרגיל</Text></Pressable> : null}
       {isCardioSession ? <CardioSessionBlocks sets={draft.sets} editing={editing} onUpdate={updateDraftSet} onRemove={removeDraftSet} /> : grouped.map(({ exercise, sets }) => <View key={exercise.id} style={styles.exerciseBlock}><Text style={styles.exerciseName}>{exercise.name}</Text>{techniqueTipForExercise(exercise.name) ? <Text style={styles.techniqueTip}>טכניקה: {techniqueTipForExercise(exercise.name)}</Text> : null}{editing ? <View style={styles.exerciseEditActions}><Pressable accessibilityRole="button" accessibilityLabel={`הוסף סט ל${exercise.name}`} onPress={() => addSetToDraftExercise(exercise.id)} style={styles.addSetButton}><Text style={styles.addSetText}>＋ סט</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`מחק את ${exercise.name}`} onPress={() => removeDraftExercise(exercise.id, exercise.name)} style={styles.removeExerciseButton}><Text style={styles.removeExerciseText}>מחק תרגיל</Text></Pressable></View> : null}{sets.map((set) => editing ? <View key={set.id} style={styles.editSetRow}><TextInput accessibilityLabel={`${exercise.name} סט ${set.setNumber} משקל`} value={set.weight} onChangeText={(value) => updateDraftSet(set.id, { weight: value })} keyboardType="decimal-pad" placeholder="ק״ג" placeholderTextColor="#7E8DA4" style={styles.editInput} /><Text style={styles.setLabel}>סט {set.setNumber}</Text><TextInput accessibilityLabel={`${exercise.name} סט ${set.setNumber} חזרות`} value={set.reps} onChangeText={(value) => updateDraftSet(set.id, { reps: value })} keyboardType="decimal-pad" placeholder="חזרות" placeholderTextColor="#7E8DA4" style={styles.editInput} /><TextInput accessibilityLabel={`${exercise.name} סט ${set.setNumber} מנוחה בשניות`} value={set.restSeconds ? String(set.restSeconds) : ""} onChangeText={(value) => updateDraftSet(set.id, { restSeconds: Number(value) || 0 })} keyboardType="numeric" placeholder="מנוחה (שנ׳)" placeholderTextColor="#7E8DA4" style={styles.editInput} /><TextInput accessibilityLabel={`${exercise.name} סט ${set.setNumber} הערה`} value={set.note ?? ""} onChangeText={(value) => updateDraftSet(set.id, { note: value })} placeholder="הערה" placeholderTextColor="#7E8DA4" style={styles.editInput} /><Pressable accessibilityRole="checkbox" accessibilityState={{ checked: set.completed }} onPress={() => updateDraftSet(set.id, { completed: !set.completed })} style={[styles.doneToggle, set.completed && styles.doneToggleActive]}><Text style={styles.doneToggleText}>{set.completed ? "✓" : "○"}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`מחק סט ${set.setNumber}`} onPress={() => removeDraftSet(set)} style={styles.removeSetButton}><Text style={styles.removeSetText}>−</Text></Pressable></View> : <View key={set.id} accessibilityLabel={`${exercise.name}, סט ${set.setNumber}, ${set.weight || "ללא משקל"} קילוגרם, ${set.reps || "ללא"} חזרות`} style={styles.setRow}><Text style={styles.setValue}>{set.reps || "—"} חזרות</Text><View style={styles.setCenter}><Text style={styles.setLabel}>סט {set.setNumber}{set.completed ? " · ✓" : ""}</Text><Text style={styles.restValue}>{formatRestSeconds(set.restSeconds)}</Text>{set.note ? <Text style={styles.noteValue}>{set.note}</Text> : null}</View><Text style={styles.setValue}>{set.weight || "—"} ק״ג</Text></View>)}</View>)}
+      <Modal visible={calendarVisible} transparent animationType="fade" onRequestClose={() => setCalendarVisible(false)}><View style={styles.modalBottomBackdrop}><View style={styles.exercisePicker}><Text style={styles.modalTitle}>בחירת תאריך אימון</Text><View style={{ flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", marginVertical: 12 }}><Pressable onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} style={styles.compareAction}><Text style={styles.compareActionText}>חודש קודם</Text></Pressable><Text style={styles.detailName}>{new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric" }).format(calendarMonth)}</Text><Pressable onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} style={styles.compareAction}><Text style={styles.compareActionText}>חודש הבא</Text></Pressable></View><View style={{ flexDirection: "row-reverse", justifyContent: "space-around", marginBottom: 6 }}>{["שבת", "ו׳", "ה׳", "ד׳", "ג׳", "ב׳", "א׳"].map((day) => <Text key={day} style={{ color: "#AAB7C8", fontSize: 10, width: 32, textAlign: "center" }}>{day}</Text>)}</View>{historyCalendarDays(calendarMonth).map((row, rowIndex) => <View key={rowIndex} style={{ flexDirection: "row-reverse", justifyContent: "space-around", marginBottom: 6 }}>{row.map((day, index) => day === null ? <View key={`${rowIndex}-${index}`} style={{ width: 32, height: 32 }} /> : <Pressable key={`${rowIndex}-${index}`} onPress={() => chooseCalendarDate(day)} style={{ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: toDateInput(draft.startedAt) === historyDateKey(calendarMonth.getFullYear(), calendarMonth.getMonth(), day) ? "#F5B72C" : "#253653" }}><Text style={{ color: toDateInput(draft.startedAt) === historyDateKey(calendarMonth.getFullYear(), calendarMonth.getMonth(), day) ? "#0B1224" : "#F7F9FC", fontWeight: "800" }}>{day}</Text></Pressable>)}</View>)}<Pressable onPress={() => setCalendarVisible(false)} style={styles.secondaryAction}><Text style={styles.secondaryActionText}>סגור</Text></Pressable></View></View></Modal>
       <Modal visible={exercisePickerVisible} transparent animationType="slide" onRequestClose={() => setExercisePickerVisible(false)}><View style={styles.modalBottomBackdrop}><View style={styles.exercisePicker}><View style={styles.exercisePickerHeader}><Text style={styles.modalTitle}>הוספת תרגיל לאימון שבוצע</Text><Pressable onPress={() => setExercisePickerVisible(false)}><Text style={styles.closeText}>סגור</Text></Pressable></View><Text style={styles.modalHint}>התרגיל והסטים החדשים יתווספו לאימון הזה בלבד. תוכנית האימונים הקבועה לא תשתנה.</Text><TextInput value={customExerciseName} onChangeText={setCustomExerciseName} placeholder="שם תרגיל מותאם" placeholderTextColor="#8291A8" style={styles.customInput} textAlign="right" /><Pressable accessibilityRole="button" accessibilityLabel="הוסף תרגיל מותאם לאימון שבוצע" onPress={() => addExerciseToDraft({ name: customExerciseName, defaultTarget: "8–12" })} style={styles.modalPrimaryButton}><Text style={styles.modalPrimaryText}>הוסף תרגיל מותאם</Text></Pressable><ScrollView style={styles.exerciseList} keyboardShouldPersistTaps="handled">{availableExercises.map((item) => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`הוסף ${item.name} לאימון`} onPress={() => addExerciseToDraft(item)} style={styles.libraryExercise}><View><Text style={styles.libraryName}>{item.name}</Text><Text style={styles.libraryMeta}>{item.englishName} · {item.defaultTarget}</Text></View><Text style={styles.libraryPlus}>＋</Text></Pressable>)}</ScrollView></View></View></Modal>
     </ScrollView>
   );
