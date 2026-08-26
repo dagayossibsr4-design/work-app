@@ -8,6 +8,10 @@ import {
   setNutritionCloudSaveStatus,
   subscribeNutritionCloudSave,
 } from "@/lib/nutrition-persistence";
+import {
+  setAccountBackupStatus,
+  subscribeAccountBackupRequests,
+} from "@/lib/account-backup";
 
 const LOCAL_KEYS = [
   ...NUTRITION_PERSISTENCE_KEYS,
@@ -51,6 +55,7 @@ export function AccountSync() {
   useEffect(() => {
     if (!supabase) {
       setNutritionCloudSaveStatus("failed");
+      setAccountBackupStatus("unavailable");
       setSyncReady(true);
       return;
     }
@@ -58,10 +63,12 @@ export function AccountSync() {
     void supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       setAccountId(data.session?.user.id ?? null);
+      setAccountBackupStatus(data.session ? "idle" : "sign-in");
       setSyncReady(false);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setAccountId(session?.user.id ?? null);
+      setAccountBackupStatus(session ? "idle" : "sign-in");
       setSyncReady(false);
     });
     return () => {
@@ -74,6 +81,7 @@ export function AccountSync() {
     if (!hydrated) return;
     if (!supabase || !accountId) {
       setNutritionCloudSaveStatus("idle");
+      setAccountBackupStatus(supabase ? "sign-in" : "unavailable");
       setSyncReady(true);
       return;
     }
@@ -103,6 +111,7 @@ export function AccountSync() {
   const saveSnapshot = useCallback(async () => {
     if (!supabase || !accountId) return false;
     setNutritionCloudSaveStatus("saving");
+    setAccountBackupStatus("saving");
     try {
       const pairs = await AsyncStorage.multiGet([...LOCAL_KEYS]);
       const localStorage = Object.fromEntries(pairs.filter(([, value]) => value !== null)) as Record<string, string>;
@@ -113,19 +122,30 @@ export function AccountSync() {
       if (error) {
         console.warn("Unable to save cloud account state", error.message);
         setNutritionCloudSaveStatus("failed");
+        setAccountBackupStatus("failed");
         return false;
       }
       setNutritionCloudSaveStatus("saved");
+      setAccountBackupStatus("saved");
       return true;
     } catch (error) {
       console.warn("Unexpected cloud account save failure", error);
       setNutritionCloudSaveStatus("failed");
+      setAccountBackupStatus("failed");
       return false;
     }
   }, [accountId, getAccountState]);
 
   useEffect(() => subscribeNutritionCloudSave(() => {
     if (!hydrated || !syncReady || !accountId) return;
+    void saveSnapshot();
+  }), [accountId, hydrated, saveSnapshot, syncReady]);
+
+  useEffect(() => subscribeAccountBackupRequests(() => {
+    if (!hydrated || !syncReady || !accountId) {
+      setAccountBackupStatus(accountId ? "saving" : "sign-in");
+      return;
+    }
     void saveSnapshot();
   }), [accountId, hydrated, saveSnapshot, syncReady]);
 

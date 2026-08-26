@@ -3,10 +3,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type ExerciseTemplate, type WorkoutId, type WorkoutTemplate } from "./workout-data";
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
-import { defaultMeals, type Meal } from "./meal-plan";
-
-const SUPABASE_URL = "https://sovkcnzxystytgczpzic.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_RloyhngS45WwfOTnuBCk-Q_v4yYW048";
 
 function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
   return saved.map((template) => {
@@ -49,6 +45,12 @@ export type SetLog = {
   target?: string;
   note?: string;
   restSeconds?: number;
+  cardio?: {
+    speedKph?: string;
+    incline?: string;
+    intensity?: "קלילה" | "בינונית" | "גבוהה";
+    heartRate?: string;
+  };
 };
 
 export type CardioLog = { id: string; date: string; type: string; durationMinutes: string; distanceKm: string; caloriesBurned?: string; intensity: string; note: string };
@@ -95,31 +97,17 @@ export function splitSessionsForWorkoutDate(sessions: WorkoutSession[], date: st
   };
 }
 
-export type AccountState = {
-  sessions: WorkoutSession[];
-  templates: WorkoutTemplate[];
-  recoveryLogs: RecoveryLog[];
-  cardioLogs: CardioLog[];
-  nutritionProfile: NutritionProfile;
-  meals: Meal[];
-  accountName: string;
-};
+export type AccountState = { sessions: WorkoutSession[]; templates: WorkoutTemplate[]; recoveryLogs: RecoveryLog[]; cardioLogs: CardioLog[]; nutritionProfile: NutritionProfile; activeSession: WorkoutSession | null };
 
 type WorkoutContextValue = {
   sessions: WorkoutSession[];
   recoveryLogs: RecoveryLog[];
   cardioLogs: CardioLog[];
   nutritionProfile: NutritionProfile;
-  meals: Meal[];
   templates: WorkoutTemplate[];
   activeSession: WorkoutSession | null;
   activeTemplate: WorkoutTemplate | null;
   hydrated: boolean;
-  accountName: string;
-  setAccountName: (name: string) => Promise<void>;
-  syncAccount: (name?: string) => Promise<void>;
-  backupToCloud: () => Promise<void>;
-  updateMeals: (meals: Meal[]) => void;
   startWorkout: (templateId: WorkoutId, copyPrevious?: boolean) => void;
   startWorkoutOnDate: (templateId: WorkoutId, date: string, copyPrevious?: boolean) => void;
   startWorkoutFromTemplate: (template: WorkoutTemplate) => void;
@@ -160,117 +148,63 @@ const TEMPLATE_KEY = "workout-tracker-templates-v1";
 const RECOVERY_KEY = "workout-tracker-recovery-v1";
 const CARDIO_KEY = "workout-tracker-cardio-v1";
 const NUTRITION_KEY = "workout-tracker-nutrition-v1";
-const MEALS_KEY = "workout-tracker-meals-v1";
-const ACCOUNT_KEY = "workout-tracker-account-name-v1";
-
+export const ACTIVE_SESSION_STORAGE_KEY = "workout-tracker-active-session-v1";
 const cloneTemplates = () => JSON.parse(JSON.stringify(workoutTemplates)) as WorkoutTemplate[];
 
-function demoSet(exerciseId: string, setNumber: number, weight: number, reps: number, date: string, note?: string, restSeconds?: number): SetLog {
-  return {
-    id: `demo-${date}-${exerciseId}-${setNumber}`,
-    exerciseId,
-    setNumber,
-    weight: String(weight),
-    reps: String(reps),
-    completed: true,
-    note,
-    restSeconds,
-  };
+export function normalizeWorkoutSessions(savedSessions: WorkoutSession[]): WorkoutSession[] {
+  return savedSessions
+    .filter((session) => !session.id.startsWith("demo-"))
+    .map((session) => ({
+      ...session,
+      sets: session.sets.map((set) => set.exerciseId === "לחיצת רגליים" ? { ...set, exerciseId: "לג פרס" } : set),
+    }));
 }
 
-type ImportedSet = [exerciseId: string, weight: number, reps: number, note?: string, restSeconds?: number];
-
-export function createImportedWorkoutSessions(): WorkoutSession[] {
-  const build = (id: string, templateId: WorkoutId, date: string, values: ImportedSet[], finishHour: number): WorkoutSession => {
-    const counters: Record<string, number> = {};
-    return {
-      id,
-      templateId,
-      startedAt: `${date}T18:00:00.000Z`,
-      finishedAt: `${date}T${String(finishHour).padStart(2, "0")}:30:00.000Z`,
-      sets: values.map(([exerciseId, weight, reps, note, restSeconds]) => {
-        counters[exerciseId] = (counters[exerciseId] ?? 0) + 1;
-        return demoSet(exerciseId, counters[exerciseId], weight, reps, date, note, restSeconds);
-      }),
-    };
-  };
-
-  return [
-    build("imported-pull1-2026-08-22", "pull1", "2026-08-22", [
-      ["חתירה גבוהה במכונה", 100, 10, undefined, 57], ["חתירה גבוהה במכונה", 80, 12, undefined, 59], ["חתירה גבוהה במכונה", 75, 16, "Rest & Pause: 3 דקות", 92],
-      ["חתירה במכונה עם תמיכה לחזה", 100, 9, undefined, 58], ["חתירה במכונה עם תמיכה לחזה", 80, 11, undefined, 48],
-      ["חתירה על ספסל דאמבל מסור", 70, 8, undefined, 59], ["חתירה על ספסל דאמבל מסור", 60, 12, undefined, 65],
-      ["פולי רחב", 80, 9, undefined, 25], ["פולי רחב", 70, 13, undefined, 33],
-      ["פול־אובר בכבלים", 28, 8, undefined, 28], ["פול־אובר בכבלים", 24, 9, undefined, 28], ["פול־אובר בכבלים", 20, 12, undefined, 30],
-      ["כתף אחורית במכונה ייעודית", 60, 10, undefined, 23], ["כתף אחורית במכונה ייעודית", 50, 12, undefined, 44], ["כתף אחורית במכונה ייעודית", 45, 15, undefined, 28],
-      ["שרגים", 70, 9, undefined, 31], ["שרגים", 65, 12, undefined, 36], ["שרגים", 60, 12, undefined, 34],
-      ["יד קדמית בהאמר", 45, 8, undefined, 24], ["יד קדמית בהאמר", 40, 8, undefined, 23], ["יד קדמית בהאמר", 35, 9, undefined, 27],
-      ["יד קדמית דאמבלים בישיבה קרוב מרפקים", 25, 8, undefined, 26], ["יד קדמית דאמבלים בישיבה קרוב מרפקים", 20, 10, undefined, 29], ["יד קדמית דאמבלים בישיבה קרוב מרפקים", 16, 10, undefined, 34],
-      ["יד קדמית פולי תחתון עם כבל", 25, 10], ["יד קדמית פולי תחתון עם כבל", 20, 10], ["יד קדמית פולי תחתון עם כבל", 17.5, 10],
-    ], 20),
-    build("imported-pull1-2026-08-13", "pull1", "2026-08-13", [
-      ["חתירה גבוהה במכונה/כבל", 100, 8, "Rest & Pause: 3 דקות"], ["חתירה גבוהה במכונה/כבל", 90, 11], ["חתירה גבוהה במכונה/כבל", 70, 17],
-      ["חתירה במכונה עם תמיכה לחזה", 100, 7], ["חתירה במכונה עם תמיכה לחזה", 80, 10],
-      ["חתירה על ספסל עם דאמבל", 65, 9], ["חתירה על ספסל עם דאמבל", 55, 10],
-      ["עליות מתח / משיכה עליונה", 70, 9], ["עליות מתח / משיכה עליונה", 60, 12],
-      ["פול־אובר בכבלים בעמידה", 26, 12], ["פול־אובר בכבלים בעמידה", 24, 15], ["פול־אובר בכבלים בעמידה", 20, 18],
-      ["פרפר הפוך במכונה", 50, 12], ["פרפר הפוך במכונה", 40, 14], ["פרפר הפוך במכונה", 30, 16],
-      ["שרג עם דאמבלים", 70, 10], ["שרג עם דאמבלים", 60, 12], ["שרג עם דאמבלים", 50, 15],
-      ["יד קדמית במכונת האמר", 30, 10], ["יד קדמית במכונת האמר", 25, 12],
-      ["יד קדמית בישיבה עם 2 דאמבלים", 16, 10], ["יד קדמית בישיבה עם 2 דאמבלים", 14, 12], ["יד קדמית בישיבה עם 2 דאמבלים", 12, 14],
-      ["יד קדמית בפולי עליון", 20, 12], ["יד קדמית בפולי עליון", 15, 15],
-    ], 20),
-    build("imported-pull2-2026-08-18", "pull2", "2026-08-18", [
-      ["פולי עליון אחיזה צרה", 95, 7, "Rest & Pause: 3 דקות"], ["פולי עליון אחיזה צרה", 75, 12], ["פולי עליון אחיזה צרה", 65, 17],
-      ["חתירת T-Bar", 70, 10], ["חתירת T-Bar", 60, 15],
-      ["פולי עליון אחיזה רחבה", 70, 9], ["פולי עליון אחיזה רחבה", 60, 18],
-      ["כבל ראו בישיבה — אחיזה צרה", 65, 9], ["כבל ראו בישיבה — אחיזה צרה", 55, 12],
-      ["חתירה פולי תחתון עם כבל", 32.5, 9], ["חתירה פולי תחתון עם כבל", 27.5, 14],
-      ["שרגים", 65, 9], ["שרגים", 55, 13], ["שרגים", 50, 12],
-      ["יד קדמית האמר", 35, 9], ["יד קדמית האמר", 30, 12], ["יד קדמית האמר", 25, 15], ["יד קדמית האמר", 20, 18],
-      ["יד קדמית מוט W / SZ", 30, 9], ["יד קדמית מוט W / SZ", 25, 7], ["יד קדמית מוט W / SZ", 20, 14],
-      ["זוקפי גב", 92, 15], ["זוקפי גב", 96, 15], ["זוקפי גב", 92, 15],
-    ], 20),
-    build("imported-push2-2026-08-19", "push2", "2026-08-19", [
-      ["לחיצת חזה עליון במוט חופשי", 100, 6], ["לחיצת חזה עליון במוט חופשי", 85, 9], ["לחיצת חזה עליון במוט חופשי", 80, 10],
-      ["לחיצת חזה בשיפוע עם משקולות", 90, 8], ["לחיצת חזה בשיפוע עם משקולות", 80, 10], ["לחיצת חזה בשיפוע עם משקולות", 65, 12],
-      ["לחיצת חזה תחתון במכשיר", 98, 8], ["לחיצת חזה תחתון במכשיר", 78, 13],
-      ["פרפר חופשי בכבלים", 30, 8], ["פרפר חופשי בכבלים", 25, 12],
-      ["פרפר במכשיר ייעודי", 65, 18, "Rest & Pause"],
-      ["לחיצת כתפיים במכונת האמר", 80, 9], ["לחיצת כתפיים במכונת האמר", 70, 10],
-      ["הרחקת כתפיים לצדדים", 25, 7], ["הרחקת כתפיים לצדדים", 20, 12],
-      ["כתף קדמית בפולי תחתון", 15, 12], ["כתף קדמית בפולי תחתון", 10, 12], ["כתף קדמית בפולי תחתון", 10, 8],
-      ["פשיטת מרפקים כנגד כבל", 24, 14], ["פשיטת מרפקים כנגד כבל", 22, 12], ["פשיטת מרפקים כנגד כבל", 18, 12],
-      ["פשיטת מרפקים בהצלבה", 12, 8], ["פשיטת מרפקים בהצלבה", 8, 11],
-    ], 20),
-    build("imported-legs1-2026-08-16", "legs1", "2026-08-16", [
-      ["סקוואט חופשי", 120, 6], ["סקוואט חופשי", 100, 10], ["סקוואט חופשי", 90, 15],
-      ["לג פרס", 262.5, 8], ["לג פרס", 282.5, 8], ["לג פרס", 292.5, 7],
-      ["כפיפת ברכיים בשכיבה", 70, 10], ["כפיפת ברכיים בשכיבה", 65, 12],
-      ["כפיפת ברכיים בעמידה", 50, 16], ["כפיפת ברכיים בעמידה", 40, 22],
-      ["פשיטת ברכיים במכונה", 120, 9], ["פשיטת ברכיים במכונה", 110, 12], ["פשיטת ברכיים במכונה", 95, 20, "Rest & Pause: 3 דקות"],
-      ["מקרבי ירך במכונה", 90, 11], ["מקרבי ירך במכונה", 80, 12],
-      ["מרחיקי ירך במכונה", 90, 9], ["מרחיקי ירך במכונה", 70, 12],
-      ["תאומים בישיבה", 30, 12], ["תאומים בישיבה", 30, 11],
-    ], 20),
-    build("imported-legs2-2026-08-20", "legs2", "2026-08-20", [
-      ["האק סקוואט-legs2", 170, 8, "Rest & Pause: 3 דקות"], ["האק סקוואט-legs2", 150, 9], ["האק סקוואט-legs2", 120, 14], ["האק סקוואט-legs2", 90, 20],
-      ["מכרעים", 80, 20], ["מכרעים", 35, 18],
-      ["כפיפת ברך-ירך-legs2", 25, 24],
-      ["פשיטת ברכיים-legs2", 105, 12], ["פשיטת ברכיים-legs2", 100, 10], ["פשיטת ברכיים-legs2", 90, 12],
-      ["כפיפת ירך בעמידה-legs2", 20, 14],
-      ["מקרבי ירך-legs2", 90, 11], ["מקרבי ירך-legs2", 75, 12],
-      ["תאומים-legs2", 30, 10], ["תאומים-legs2", 30, 10],
-    ], 20),
-  ];
+export function restoreActiveWorkout(raw: string | null): WorkoutSession | null {
+  if (!raw) return null;
+  try {
+    const candidate = JSON.parse(raw) as Partial<WorkoutSession>;
+    if (
+      typeof candidate.id !== "string" ||
+      typeof candidate.templateId !== "string" ||
+      typeof candidate.startedAt !== "string" ||
+      !Array.isArray(candidate.sets)
+    ) {
+      return null;
+    }
+    return candidate as WorkoutSession;
+  } catch {
+    return null;
+  }
 }
 
-export function mergeImportedWorkoutSessions(savedSessions: WorkoutSession[]): WorkoutSession[] {
-  const importedSessions = createImportedWorkoutSessions();
-  const importedIds = new Set(importedSessions.map((session) => session.id));
+export function isDemoCompletedPreview() {
+  return typeof document !== "undefined" && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demoCompleted") === "1";
+}
+
+export function createDemoCompletedSessions(templates: WorkoutTemplate[]): WorkoutSession[] {
+  const make = (template: WorkoutTemplate, id: string, startedAt: string, baseWeight: number): WorkoutSession => ({
+    ...createSession(template, startedAt.slice(0, 10)),
+    id,
+    startedAt,
+    finishedAt: startedAt,
+    sets: createSession(template, startedAt.slice(0, 10)).sets.map((set, index) => ({
+      ...set,
+      id: `${id}-set-${index}`,
+      weight: String(Math.max(0, baseWeight - (index % 4) * 5)),
+      reps: String(8 + (index % 2) * 2),
+      completed: true,
+      restSeconds: index % 2 ? 90 : 0,
+      note: index === 0 ? "סט חימום" : undefined,
+    })),
+  });
+  const push = templates.find((template) => template.id === "push1") ?? templates[0];
+  const pull = templates.find((template) => template.id === "pull1") ?? templates[1] ?? templates[0];
+  if (!push) return [];
   return [
-    ...importedSessions,
-    ...savedSessions.filter((session) => !session.id.startsWith("demo-legs-") && !importedIds.has(session.id)),
+    make(push, "demo-completed-push-current", "2026-08-25T20:01:00.000Z", 100),
+    make(push, "demo-completed-push-previous", "2026-08-18T18:30:00.000Z", 85),
+    ...(pull ? [make(pull, "demo-completed-pull", "2026-08-20T19:15:00.000Z", 70)] : []),
   ];
 }
 
@@ -297,135 +231,48 @@ function createSession(template: WorkoutTemplate, scheduledDate?: string): Worko
 }
 
 export function WorkoutProvider({ children }: { children: React.ReactNode }) {
+  const demoCompletedPreview = isDemoCompletedPreview();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [recoveryLogs, setRecoveryLogs] = useState<RecoveryLog[]>([]);
   const [cardioLogs, setCardioLogs] = useState<CardioLog[]>([]);
   const [nutritionProfile, setNutritionProfile] = useState<NutritionProfile>({ goal: "ניטרלי", weightKg: "", heightCm: "", age: "", sex: "זכר", activity: "בינונית", proteinPerKg: "1.8", fatPerKg: "0.8", calorieTarget: "2500", proteinTarget: "240", carbohydratesTarget: "150", fatsTarget: "", autoMacroField: "fats", customFoods: [] });
-  const [meals, setMeals] = useState<Meal[]>(defaultMeals);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(cloneTemplates);
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
-  const [accountName, setAccountNameState] = useState<string>("");
   const [hydrated, setHydrated] = useState(false);
 
-  // סנכרון וגיבוי מלא לענן ב-Supabase
-  const backupToCloud = useCallback(async () => {
-    if (!accountName) return;
-    try {
-      const payload = {
-        user_id: accountName.trim().toLowerCase(),
-        data: {
-          sessions,
-          templates,
-          recoveryLogs,
-          cardioLogs,
-          nutritionProfile,
-          meals,
-        },
-        updated_at: new Date().toISOString(),
-      };
-      await fetch(`${SUPABASE_URL}/rest/v1/user_backups`, {
-        method: "POST",
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates",
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch {}
-  }, [accountName, sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals]);
-
-  const syncAccount = useCallback(async (name?: string) => {
-    const userToSync = (name || accountName || "").trim().toLowerCase();
-    if (!userToSync) return;
-    try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/user_backups?user_id=eq.${encodeURIComponent(userToSync)}&select=data`,
-        {
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-        }
-      );
-      const json = await res.json();
-      if (Array.isArray(json) && json.length > 0 && json[0].data) {
-        const remoteData = json[0].data;
-        if (Array.isArray(remoteData.sessions)) setSessions(mergeImportedWorkoutSessions(remoteData.sessions));
-        if (Array.isArray(remoteData.templates)) setTemplates(hydrateWorkoutTemplates(remoteData.templates));
-        if (Array.isArray(remoteData.recoveryLogs)) setRecoveryLogs(remoteData.recoveryLogs);
-        if (Array.isArray(remoteData.cardioLogs)) setCardioLogs(remoteData.cardioLogs);
-        if (remoteData.nutritionProfile) setNutritionProfile(remoteData.nutritionProfile);
-        if (Array.isArray(remoteData.meals) && remoteData.meals.length > 0) setMeals(remoteData.meals);
-      }
-    } catch {}
-  }, [accountName]);
-
-  const setAccountName = async (name: string) => {
-    setAccountNameState(name);
-    await AsyncStorage.setItem(ACCOUNT_KEY, name);
-    await syncAccount(name);
-  };
-
-  const updateMeals = (newMeals: Meal[]) => {
-    setMeals(newMeals);
-    AsyncStorage.setItem(MEALS_KEY, JSON.stringify(newMeals));
-  };
-
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(SESSION_KEY),
-      AsyncStorage.getItem(TEMPLATE_KEY),
-      AsyncStorage.getItem(RECOVERY_KEY),
-      AsyncStorage.getItem(CARDIO_KEY),
-      AsyncStorage.getItem(NUTRITION_KEY),
-      AsyncStorage.getItem(MEALS_KEY),
-      AsyncStorage.getItem(ACCOUNT_KEY),
-    ]).then(([sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue, mealsValue, accountValue]) => {
-      if (sessionValue) {
-        const savedSessions = (JSON.parse(sessionValue) as WorkoutSession[])
-          .filter((session) => !session.id.startsWith("demo-legs-"))
-          .map((session) => ({
-            ...session,
-            sets: session.sets.map((set) => set.exerciseId === "לחיצת רגליים" ? { ...set, exerciseId: "לג פרס" } : set),
-          }));
-        setSessions(mergeImportedWorkoutSessions(savedSessions));
+    Promise.all([AsyncStorage.getItem(SESSION_KEY), AsyncStorage.getItem(TEMPLATE_KEY), AsyncStorage.getItem(RECOVERY_KEY), AsyncStorage.getItem(CARDIO_KEY), AsyncStorage.getItem(NUTRITION_KEY), AsyncStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)]).then(([sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue, activeSessionValue]) => {
+      if (demoCompletedPreview) {
+        const demoTemplates = templateValue ? hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]) : cloneTemplates();
+        setSessions(createDemoCompletedSessions(demoTemplates));
+      } else if (sessionValue) {
+        setSessions(normalizeWorkoutSessions(JSON.parse(sessionValue) as WorkoutSession[]));
       } else {
-        setSessions(createImportedWorkoutSessions());
+        setSessions([]);
       }
       if (templateValue) setTemplates(hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]));
       if (recoveryValue) setRecoveryLogs(JSON.parse(recoveryValue));
       if (cardioValue) setCardioLogs(JSON.parse(cardioValue));
-      if (nutritionValue) {
-        const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile;
-        setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] }));
-      }
-      if (mealsValue) {
-        try {
-          const parsedMeals = JSON.parse(mealsValue);
-          if (Array.isArray(parsedMeals) && parsedMeals.length > 0) setMeals(parsedMeals);
-        } catch {}
-      }
-      if (accountValue) {
-        setAccountNameState(accountValue);
-        void syncAccount(accountValue);
-      }
+      if (nutritionValue) { const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile; setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] })); }
+      if (!demoCompletedPreview) setActiveSession(restoreActiveWorkout(activeSessionValue));
       setHydrated(true);
     }).catch(() => setHydrated(true));
-  }, [syncAccount]);
+  }, [demoCompletedPreview]);
 
+  useEffect(() => { if (hydrated && !demoCompletedPreview) AsyncStorage.setItem(SESSION_KEY, JSON.stringify(sessions)); }, [sessions, hydrated, demoCompletedPreview]);
   useEffect(() => {
-    if (hydrated) {
-      AsyncStorage.setItem(SESSION_KEY, JSON.stringify(sessions));
-      AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates));
-      AsyncStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryLogs));
-      AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs));
-      AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile));
-      AsyncStorage.setItem(MEALS_KEY, JSON.stringify(meals));
-      void backupToCloud();
+    if (!hydrated || demoCompletedPreview) return;
+    if (activeSession) {
+      void AsyncStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(activeSession));
+      return;
     }
-  }, [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals, hydrated, backupToCloud]);
+    void AsyncStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+  }, [activeSession, hydrated, demoCompletedPreview]);
+  useEffect(() => { if (hydrated) AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates)); }, [templates, hydrated]);
+  useEffect(() => { if (hydrated) AsyncStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryLogs)); }, [recoveryLogs, hydrated]);
+  useEffect(() => { if (hydrated) AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs)); }, [cardioLogs, hydrated]);
+  useEffect(() => { if (hydrated) AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile)); }, [nutritionProfile, hydrated]);
+
 
   const startWorkoutOnDate = (templateId: WorkoutId, date: string, copyPrevious = false) => {
     const template = templates.find((item) => item.id === templateId) ?? getTemplate(templateId);
@@ -483,6 +330,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (!activeSession) return;
     const setToRemove = activeSession.sets.find((set) => set.id === setId);
     if (!setToRemove) return;
+    const exerciseSets = activeSession.sets.filter((set) => set.exerciseId === setToRemove.exerciseId);
     setTemplates((current) => current.map((item) => item.id !== activeSession.templateId ? item : { ...item, exercises: item.exercises.map((candidate) => candidate.id !== setToRemove.exerciseId ? candidate : { ...candidate, sets: candidate.sets.filter((_, index) => index !== setToRemove.setNumber - 1) }) }));
     setActiveSession((current) => current ? { ...current, sets: current.sets.filter((set) => set.id !== setId).map((set) => set.exerciseId === setToRemove.exerciseId && set.setNumber > setToRemove.setNumber ? { ...set, setNumber: set.setNumber - 1 } : set) } : current);
   };
@@ -528,18 +376,16 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const updateNutritionProfile = (profile: NutritionProfile) => setNutritionProfile(profile);
   const updateExercise = (templateId: WorkoutId, exerciseId: string, patch: Partial<ExerciseTemplate>) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, ...patch } : exercise) } : template));
   const deleteExercise = (templateId: WorkoutId, exerciseId: string) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.filter((exercise) => exercise.id !== exerciseId) } : template));
-  const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals, accountName }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, meals, accountName]);
+  const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, activeSession }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, activeSession]);
   const applyAccountState = useCallback((state: Partial<AccountState>) => {
     if (Array.isArray(state.sessions)) {
-      const remoteSessions = state.sessions.filter((session) => !session.id.startsWith("demo-legs-"));
-      setSessions(mergeImportedWorkoutSessions(remoteSessions));
+      setSessions(normalizeWorkoutSessions(state.sessions));
     }
     if (Array.isArray(state.templates)) setTemplates(hydrateWorkoutTemplates(state.templates));
     if (Array.isArray(state.recoveryLogs)) setRecoveryLogs(state.recoveryLogs);
     if (Array.isArray(state.cardioLogs)) setCardioLogs(state.cardioLogs);
     if (state.nutritionProfile) setNutritionProfile((current) => ({ ...current, ...state.nutritionProfile }));
-    if (Array.isArray(state.meals) && state.meals.length > 0) setMeals(state.meals);
-    if (state.accountName) setAccountNameState(state.accountName);
+    if ("activeSession" in state) setActiveSession((current) => current ?? state.activeSession ?? null);
   }, []);
   const moveExercise = (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => setTemplates((current) => current.map((template) => {
     if (template.id !== templateId) return template;
@@ -552,12 +398,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   }));
 
   const value = useMemo(() => ({
-    sessions, recoveryLogs, cardioLogs, nutritionProfile, meals, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated, accountName,
-    setAccountName, syncAccount, backupToCloud, updateMeals,
+    sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated,
     startWorkout, startWorkoutOnDate, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
     updateTemplate, addCustomTemplate, addExercise, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addCustomExerciseToActiveWorkout, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState,
-  }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, meals, templates, activeSession, hydrated, accountName, backupToCloud, syncAccount]);
-
+  }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, hydrated]);
   return <WorkoutContext.Provider value={value}>{children}</WorkoutContext.Provider>;
 }
 
