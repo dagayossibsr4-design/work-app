@@ -1,197 +1,132 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  Platform,
-} from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import * as Linking from "expo-linking";
 import { router } from "expo-router";
-import { useWorkoutStore } from "@/lib/workout-store";
+
+import { ScreenContainer } from "@/components/screen-container";
+import { BrandMark } from "@/components/ui/brand-mark";
+import { supabase } from "@/lib/supabase";
 
 export default function RegisterScreen() {
-  const store = useWorkoutStore() as any;
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const incomingUrl = Linking.useURL();
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.auth.getSession().then(({ data }) => setIsSignedIn(Boolean(data.session)));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setIsSignedIn(Boolean(session)));
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
-  const handleConnect = async () => {
-    const rawUser = username.trim();
-    const cleanPass = password.trim();
+  useEffect(() => {
+    if (!supabase || !incomingUrl) return;
+    const client = supabase;
+    const code = Linking.parse(incomingUrl).queryParams?.code;
+    if (typeof code !== "string") return;
+    void client.auth.exchangeCodeForSession(code).then(({ error: authError }) => {
+      if (authError) {
+        setError("לא ניתן להשלים את הכניסה מהקישור. נסה לשלוח קישור חדש.");
+        return;
+      }
+      setMessage("החשבון התחבר ונשמר בדפדפן זה.");
+      void client.auth.getSession().then(({ data }) => setIsSignedIn(Boolean(data.session)));
+    });
+  }, [incomingUrl]);
 
-    if (!rawUser || !cleanPass) {
-      setErrorMsg("נא להזין שם משתמש וסיסמה");
+  const continueWithAccount = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !supabase) {
+      setError("הזן כתובת דוא״ל תקינה כדי להתחבר לחשבון האישי.");
       return;
     }
-
-    setLoading(true);
-    setErrorMsg("");
-
-    try {
-      const uniqueAccountKey = `${rawUser.toLowerCase()}_${cleanPass}`;
-
-      if (typeof store.setAccountName === "function") {
-        await store.setAccountName(uniqueAccountKey);
-      }
-      if (typeof store.setUserName === "function") {
-        await store.setUserName(rawUser);
-      }
-      if (typeof store.setRegistered === "function") {
-        await store.setRegistered(true);
-      }
-      if (typeof store.syncAccount === "function") {
-        await store.syncAccount(uniqueAccountKey);
-      }
-
-      await AsyncStorage.setItem("auth_user_key", uniqueAccountKey);
-      await AsyncStorage.setItem("auth_timestamp", Date.now().toString());
-
-      router.replace("/(tabs)");
-    } catch (err: any) {
-      setErrorMsg("שגיאה בהתחברות, נסה שוב");
-    } finally {
-      setLoading(false);
+    setBusy(true);
+    setError("");
+    setMessage("");
+    const redirectTo = Platform.OS === "web" && typeof window !== "undefined"
+      ? `${window.location.origin}/register`
+      : Linking.createURL("register");
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email: normalizedEmail,
+      options: { emailRedirectTo: redirectTo },
+    });
+    setBusy(false);
+    if (authError) {
+      setError("לא ניתן לשלוח כרגע קישור כניסה. בדוק את כתובת הדוא״ל ונסה שוב.");
+      return;
     }
+    setMessage("קישור כניסה נשלח לדוא״ל. פתח אותו כדי להשלים את החיבור והסנכרון.");
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <View style={styles.logoBadge}>
-          <Text style={styles.logoText}>W</Text>
-        </View>
-        <Text style={styles.title}>יומן האימונים</Text>
-        <Text style={styles.subtitle}>כניסה יומית מאובטחת</Text>
+    <ScreenContainer className="px-5 pt-5">
+      <View style={styles.content}>
+        <BrandMark />
+        <Text style={styles.eyebrow}>חשבון אישי</Text>
+        <Text style={styles.title}>{isSignedIn ? "החשבון מחובר" : "יצירת חשבון"}</Text>
+        <Text style={styles.subtitle}>התחבר כדי לשמור את האימונים, התזונה וההתקדמות שלך בחשבון Supabase אישי ולעבור בין מכשירים.</Text>
 
-        <Text style={styles.label}>שם משתמש</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="הזן שם משתמש..."
-          placeholderTextColor="#64748b"
-          value={username}
-          onChangeText={setUsername}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        {isSignedIn ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>הסנכרון פעיל</Text>
+            <Text style={styles.note}>נתוני החשבון נטענים ונשמרים באופן פרטי תחת המשתמש המחובר.</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הבית" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
+              <Text style={styles.primaryText}>חזרה למסך הבית</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>כניסה מאובטחת בדוא״ל</Text>
+            <Text style={styles.note}>נשלח לך קישור חד־פעמי. אין צורך בסיסמה, והנתונים נשמרים רק תחת החשבון שלך.</Text>
+            <TextInput
+              accessibilityLabel="כתובת דוא״ל"
+              autoCapitalize="none"
+              autoComplete="email"
+              autoCorrect={false}
+              keyboardType="email-address"
+              onChangeText={setEmail}
+              placeholder="name@example.com"
+              placeholderTextColor="#7E8DA4"
+              style={styles.input}
+              textAlign="right"
+              value={email}
+            />
+            <Pressable accessibilityRole="button" accessibilityLabel="שליחת קישור כניסה" onPress={() => void continueWithAccount()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
+              {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>שלח קישור כניסה</Text>}
+            </Pressable>
+            {message ? <Text accessibilityLiveRegion="polite" style={styles.success}>{message}</Text> : null}
+            {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
+          </View>
+        )}
 
-        <Text style={styles.label}>סיסמה / קוד אישי</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="הזן סיסמה..."
-          placeholderTextColor="#64748b"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={handleConnect}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#0f172a" />
-          ) : (
-            <Text style={styles.primaryButtonText}>התחבר / כניסה למערכת</Text>
-          )}
-        </TouchableOpacity>
+        <Pressable accessibilityRole="button" accessibilityLabel="המשך בלי חשבון" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
+          <Text style={styles.secondaryText}>המשך בלי חשבון</Text>
+        </Pressable>
+        <Text style={styles.privacy}>בלי חשבון הנתונים נשמרים במכשיר בלבד. עם חשבון Supabase, מצב האימונים והתזונה מסתנכרן באופן פרטי בין מכשירים.</Text>
       </View>
-    </View>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#070b14",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 400,
-    backgroundColor: "#0f172a",
-    borderRadius: 20,
-    padding: 28,
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    alignItems: "center",
-  },
-  logoBadge: {
-    width: 60,
-    height: 60,
-    borderRadius: 16,
-    backgroundColor: "#f59e0b",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  logoText: {
-    fontSize: 32,
-    fontWeight: "900",
-    color: "#0f172a",
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#f8fafc",
-    marginBottom: 4,
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#94a3b8",
-    marginBottom: 24,
-    textAlign: "center",
-  },
-  label: {
-    alignSelf: "flex-start",
-    fontSize: 13,
-    color: "#cbd5e1",
-    marginBottom: 8,
-    fontWeight: "600",
-  },
-  input: {
-    width: "100%",
-    backgroundColor: "#1e293b",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: "#f8fafc",
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: "#334155",
-    marginBottom: 16,
-    textAlign: "right",
-  },
-  errorText: {
-    color: "#ef4444",
-    fontSize: 13,
-    marginBottom: 14,
-    textAlign: "center",
-  },
-  primaryButton: {
-    width: "100%",
-    backgroundColor: "#f59e0b",
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
-  },
-  primaryButtonText: {
-    color: "#0f172a",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  content: { gap: 14, paddingBottom: 35 },
+  eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  title: { color: "#F7F9FC", fontSize: 32, fontWeight: "900", textAlign: "right" },
+  subtitle: { color: "#AAB7C8", fontSize: 14, lineHeight: 21, textAlign: "right" },
+  card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 16, gap: 12 },
+  cardTitle: { color: "#F7F9FC", fontSize: 18, fontWeight: "900", textAlign: "right" },
+  note: { color: "#AAB7C8", fontSize: 12, lineHeight: 19, textAlign: "right" },
+  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
+  primary: { minHeight: 48, backgroundColor: "#F5B72C", borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  primaryText: { color: "#0B1224", fontSize: 14, fontWeight: "900" },
+  secondary: { minHeight: 46, backgroundColor: "#1D2D48", borderColor: "#52759C", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  secondaryText: { color: "#D9E2EF", fontWeight: "800" },
+  success: { color: "#81D7B5", fontSize: 11, lineHeight: 17, textAlign: "right" },
+  error: { color: "#FF879A", fontSize: 11, lineHeight: 17, textAlign: "right" },
+  privacy: { color: "#7E8DA4", fontSize: 10, lineHeight: 16, textAlign: "right" },
+  disabled: { opacity: 0.65 },
+  pressed: { opacity: 0.74, transform: [{ scale: 0.98 }] },
 });
