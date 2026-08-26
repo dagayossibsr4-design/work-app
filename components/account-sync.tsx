@@ -5,7 +5,10 @@ import { hydrateMealPlan, type Meal } from "@/lib/meal-plan";
 import { useWorkoutStore, type AccountState } from "@/lib/workout-store";
 import {
   NUTRITION_PERSISTENCE_KEYS,
+  nutritionStorageSafeToRestore,
+  notifyNutritionStorageRestored,
   setNutritionCloudSaveStatus,
+  setNutritionStorageRestoreReady,
   subscribeNutritionCloudSave,
 } from "@/lib/nutrition-persistence";
 import {
@@ -54,6 +57,7 @@ export function AccountSync() {
 
   useEffect(() => {
     if (!supabase) {
+      setNutritionStorageRestoreReady(true);
       setNutritionCloudSaveStatus("failed");
       setAccountBackupStatus("unavailable");
       setSyncReady(true);
@@ -62,11 +66,13 @@ export function AccountSync() {
     let active = true;
     void supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
+      setNutritionStorageRestoreReady(false);
       setAccountId(data.session?.user.id ?? null);
       setAccountBackupStatus(data.session ? "idle" : "sign-in");
       setSyncReady(false);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setNutritionStorageRestoreReady(false);
       setAccountId(session?.user.id ?? null);
       setAccountBackupStatus(session ? "idle" : "sign-in");
       setSyncReady(false);
@@ -80,6 +86,7 @@ export function AccountSync() {
   useEffect(() => {
     if (!hydrated) return;
     if (!supabase || !accountId) {
+      setNutritionStorageRestoreReady(true);
       setNutritionCloudSaveStatus("idle");
       setAccountBackupStatus(supabase ? "sign-in" : "unavailable");
       setSyncReady(true);
@@ -99,8 +106,22 @@ export function AccountSync() {
       } else if (data?.payload && typeof data.payload === "object") {
         const remote = data.payload as StoredAccountState;
         applyAccountState(remote);
-        if (remote.localStorage) await AsyncStorage.multiSet(Object.entries(repairCloudMealStorage(remote.localStorage)));
+        if (remote.localStorage) {
+          const cloudStorage = repairCloudMealStorage(remote.localStorage);
+          const localNutritionPairs = await AsyncStorage.multiGet([...NUTRITION_PERSISTENCE_KEYS]);
+          const localNutrition = Object.fromEntries(localNutritionPairs.filter(([, value]) => value !== null)) as Record<string, string>;
+          const safeNutritionRestore = nutritionStorageSafeToRestore(localNutrition, cloudStorage);
+          const nonNutritionCloudStorage = Object.fromEntries(
+            Object.entries(cloudStorage).filter(([key]) => !NUTRITION_PERSISTENCE_KEYS.includes(key as (typeof NUTRITION_PERSISTENCE_KEYS)[number])),
+          );
+          const storageToRestore = { ...nonNutritionCloudStorage, ...safeNutritionRestore };
+          if (Object.keys(storageToRestore).length) {
+            await AsyncStorage.multiSet(Object.entries(storageToRestore));
+            notifyNutritionStorageRestored();
+          }
+        }
       }
+      setNutritionStorageRestoreReady(true);
       setSyncReady(true);
     })();
     return () => {

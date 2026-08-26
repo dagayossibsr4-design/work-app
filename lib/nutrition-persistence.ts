@@ -84,6 +84,24 @@ export function nutritionStorageSafeToRestore(
   );
 }
 
+let nutritionStorageRestoreReady = false;
+const nutritionStorageReadyListeners = new Set<(ready: boolean) => void>();
+
+export function setNutritionStorageRestoreReady(ready: boolean) {
+  nutritionStorageRestoreReady = ready;
+  nutritionStorageReadyListeners.forEach((listener) => listener(ready));
+}
+
+export function isNutritionStorageRestoreReady() {
+  return nutritionStorageRestoreReady;
+}
+
+export function subscribeNutritionStorageRestoreReady(listener: (ready: boolean) => void) {
+  nutritionStorageReadyListeners.add(listener);
+  listener(nutritionStorageRestoreReady);
+  return () => { nutritionStorageReadyListeners.delete(listener); };
+}
+
 const nutritionCloudSaveListeners = new Set<() => void>();
 const nutritionStorageRestoreListeners = new Set<() => void>();
 export type NutritionCloudSaveStatus = "idle" | "saving" | "saved" | "failed";

@@ -35,7 +35,7 @@ import {
   restoreMissingDefaultMealSlots,
   type Meal,
 } from "@/lib/meal-plan";
-import { requestNutritionCloudSave, subscribeNutritionStorageRestored } from "@/lib/nutrition-persistence";
+import { isNutritionStorageRestoreReady, requestNutritionCloudSave, subscribeNutritionStorageRestoreReady, subscribeNutritionStorageRestored } from "@/lib/nutrition-persistence";
 import { useWorkoutStore } from "@/lib/workout-store";
 import {
   convertMealFoodWeight,
@@ -204,12 +204,14 @@ export default function MealPlanScreen() {
   const [advancedMealId, setAdvancedMealId] = useState<string | null>(null);
   const [supplementMealId, setSupplementMealId] = useState<string | null>(null);
   const [selectedSupplements, setSelectedSupplements] = useState<MealSupplementSelections>({});
+  const [supplementHistoryByDate, setSupplementHistoryByDate] = useState<Record<string, MealSupplementSelections>>({});
   const [reminderSettings, setReminderSettings] = useState<SupplementReminderSettings>(DEFAULT_SUPPLEMENT_REMINDER_SETTINGS);
   const [reminderSettingsLoaded, setReminderSettingsLoaded] = useState(false);
   const [reminderHistory, setReminderHistory] = useState<SupplementReminderEvent[]>([]);
   const [reminderStatus, setReminderStatus] = useState<string>("");
   const [reminderBusy, setReminderBusy] = useState(false);
   const [nutritionStorageRevision, setNutritionStorageRevision] = useState(0);
+  const [nutritionRestoreReady, setNutritionRestoreReady] = useState(isNutritionStorageRestoreReady);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [mealEditBackup, setMealEditBackup] = useState<Meal | null>(null);
   const [mealFoodSearch, setMealFoodSearch] = useState("");
@@ -277,6 +279,7 @@ export default function MealPlanScreen() {
   useEffect(() => subscribeNutritionStorageRestored(() => {
     setNutritionStorageRevision((current) => current + 1);
   }), []);
+  useEffect(() => subscribeNutritionStorageRestoreReady(setNutritionRestoreReady), []);
   useEffect(() => {
     if (hydrated)
       AsyncStorage.setItem(
@@ -294,6 +297,7 @@ export default function MealPlanScreen() {
       AsyncStorage.getItem("meal-plan-versions"),
       AsyncStorage.getItem("meal-plan-saved-meals"),
       AsyncStorage.getItem("meal-plan-supplements"),
+      AsyncStorage.getItem("meal-plan-supplements-history"),
       AsyncStorage.getItem("meal-plan-defaults-v100"),
       AsyncStorage.getItem("nutrition-water-history"),
       AsyncStorage.getItem("nutrition-water-events"),
@@ -309,6 +313,7 @@ export default function MealPlanScreen() {
           versions,
           savedMealsValue,
           supplementsValue,
+          supplementsHistoryValue,
           defaultsVersion,
           waterHistoryValue,
           waterEventsValue,
@@ -376,6 +381,10 @@ export default function MealPlanScreen() {
           if (savedMealsValue) {
             setSavedMeals(normalizeSavedMeals(JSON.parse(savedMealsValue)));
           }
+          if (supplementsHistoryValue) {
+            const savedHistory = JSON.parse(supplementsHistoryValue) as Record<string, MealSupplementSelections>;
+            setSupplementHistoryByDate(Object.fromEntries(Object.entries(savedHistory).map(([date, selections]) => [date, normalizeMealSupplementSelections(selections)])));
+          }
           if (supplementsValue) {
             const savedSupplements = normalizeMealSupplementSelections(JSON.parse(supplementsValue));
             const knownNames = new Set(mealMenuSupplements.map((supplement) => supplement.name));
@@ -436,7 +445,15 @@ export default function MealPlanScreen() {
       .catch(() => setHydrated(true));
   }, [nutritionProfile.goal, nutritionStorageRevision]);
   useEffect(() => {
-    if (hydrated) {
+    if (!hydrated) return;
+    setSupplementHistoryByDate((current) => {
+      const previous = JSON.stringify(current[selectedDate] ?? {});
+      const next = JSON.stringify(selectedSupplements);
+      return previous === next ? current : { ...current, [selectedDate]: selectedSupplements };
+    });
+  }, [hydrated, selectedDate, selectedSupplements]);
+  useEffect(() => {
+    if (hydrated && nutritionRestoreReady) {
       const nextMealsState = JSON.stringify({
           meals,
           eaten:
@@ -457,6 +474,7 @@ export default function MealPlanScreen() {
         ["meal-plan-versions", JSON.stringify(versionsByGoal)],
         ["meal-plan-saved-meals", JSON.stringify(savedMeals)],
         ["meal-plan-supplements", JSON.stringify(selectedSupplements)],
+        ["meal-plan-supplements-history", JSON.stringify(supplementHistoryByDate)],
         ["nutrition-water-history", JSON.stringify(waterHistory)],
         ["nutrition-water-events", JSON.stringify(waterEvents)],
       ]).then(requestNutritionCloudSave).catch(() => undefined);
@@ -468,11 +486,13 @@ export default function MealPlanScreen() {
     mealHistoryByDate,
     selectedDate,
     hydrated,
+    nutritionRestoreReady,
     appliedTarget,
     menuProfiles,
     versionsByGoal,
     savedMeals,
     selectedSupplements,
+    supplementHistoryByDate,
     waterHistory,
     waterEvents,
   ]);
