@@ -32,6 +32,7 @@ import {
   mealFoodTotals,
   mealTotals,
   normalizeMealsTo100Grams,
+  restoreMissingDefaultMealSlots,
   type Meal,
 } from "@/lib/meal-plan";
 import { requestNutritionCloudSave } from "@/lib/nutrition-persistence";
@@ -178,6 +179,7 @@ export default function MealPlanScreen() {
   const [activeSwapKey, setActiveSwapKey] = useState<string | null>(null);
   const [swapGroup, setSwapGroup] = useState<ConversionGroup | null>(null);
   const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1"]);
+  const [advancedMealId, setAdvancedMealId] = useState<string | null>(null);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [mealEditBackup, setMealEditBackup] = useState<Meal | null>(null);
   const [mealFoodSearch, setMealFoodSearch] = useState("");
@@ -254,9 +256,11 @@ export default function MealPlanScreen() {
               meals?: Meal[];
               eaten?: Record<string, boolean>;
               appliedTarget?: string;
+              layoutVersion?: number;
             };
             if (saved.meals) {
-                setMeals(hydrateMealPlan(saved.meals));
+              const normalizedMeals = hydrateMealPlan(saved.meals);
+              setMeals(saved.layoutVersion === 2 ? normalizedMeals : restoreMissingDefaultMealSlots(normalizedMeals));
             }
             if (defaultsVersion !== "1") {
               AsyncStorage.setItem("meal-plan-defaults-v100", "1").catch(
@@ -290,10 +294,7 @@ export default function MealPlanScreen() {
             }])) as Record<string, DailyMealSnapshot>;
             setMealHistoryByDate(normalizedHistory);
             const todaySnapshot = normalizedHistory[todayKey()];
-            if (todaySnapshot?.meals.length) {
-              setMeals(todaySnapshot.meals);
-              setEaten(todaySnapshot.eaten);
-            }
+            if (todaySnapshot?.eaten) setEaten(todaySnapshot.eaten);
           }
           setHasFavorite(Boolean(favorite));
           if (versions) {
@@ -350,6 +351,8 @@ export default function MealPlanScreen() {
               ? eaten
               : (eatenHistory[todayKey()] ?? {}),
           appliedTarget,
+          savedAt: new Date().toISOString(),
+          layoutVersion: 2,
       });
       const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
       const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(meals), eaten } });
@@ -649,12 +652,9 @@ export default function MealPlanScreen() {
     const nextSnapshot = mealHistoryByDate[nextDate];
     setMealHistoryByDate((current) => ({ ...current, [selectedDate]: currentSnapshot }));
     setSelectedDate(nextDate);
-    if (nextSnapshot?.meals.length) {
-      setMeals(hydrateMealPlan(nextSnapshot.meals));
-      setEaten(nextSnapshot.eaten);
-    } else {
-      setEaten({});
-    }
+    // התפריט קבוע בין ימים; לפי תאריך נשמרים רק סימוני האכילה.
+    // כך צילום ישן או חלקי אינו מוחק ארוחות ורכיבים מהתפריט.
+    setEaten(nextSnapshot?.eaten ?? {});
     setViewMode("eaten");
   };
   const changeSelectedDate = (offset: number) => {
@@ -966,11 +966,9 @@ export default function MealPlanScreen() {
         LayoutAnimation.Properties.scaleXY,
       ),
     );
-    setExpandedMealIds((current) =>
-      current.includes(mealId)
-        ? current.filter((id) => id !== mealId)
-        : [...current, mealId],
-    );
+    const isClosing = expandedMealIds.includes(mealId);
+    setExpandedMealIds(isClosing ? [] : [mealId]);
+    setAdvancedMealId(null);
   };
   const addMeal = () => {
     const mealNumber = meals.length + 1;
@@ -994,7 +992,7 @@ export default function MealPlanScreen() {
       })),
     };
     setMeals((current) => [...current, nextMeal]);
-    setExpandedMealIds((current) => [...current, nextMeal.id]);
+    setExpandedMealIds([nextMeal.id]);
     setViewMode("planned");
     setRebalanceMessage(`נוספה ${nextMeal.title}. אפשר לערוך את השם והמזונות.`);
   };
@@ -1026,9 +1024,7 @@ export default function MealPlanScreen() {
   const beginMealEdit = (meal: Meal) => {
     setMealEditBackup(JSON.parse(JSON.stringify(meal)) as Meal);
     setEditingMealId(meal.id);
-    setExpandedMealIds((current) =>
-      current.includes(meal.id) ? current : [...current, meal.id],
-    );
+    setExpandedMealIds([meal.id]);
     setMealFoodSearch("");
     setAddFoodGroupFilter(null);
     setSelectedAddFoodKey(null);
@@ -1037,7 +1033,7 @@ export default function MealPlanScreen() {
   const openMealFoodGroup = (meal: Meal, group: FoodGroup) => {
     setMealEditBackup((current) => current ?? (JSON.parse(JSON.stringify(meal)) as Meal));
     setEditingMealId(meal.id);
-    setExpandedMealIds((current) => current.includes(meal.id) ? current : [...current, meal.id]);
+    setExpandedMealIds([meal.id]);
     setMealFoodSearch("");
     setPressedAddFoodGroup(group);
     setSelectedAddFoodKey(`${meal.id}:${group}`);
@@ -1863,6 +1859,14 @@ export default function MealPlanScreen() {
         >
           {displayedMeals.map((meal, mealIndex) => {
             const total = mealTotals(meal);
+            const isMealExpanded = expandedMealIds.includes(meal.id);
+            const isAdvancedMealOpen = advancedMealId === meal.id;
+            const roundedProtein = Math.round(total.protein * 10) / 10;
+            const roundedCarbohydrates = Math.round(total.carbohydrates * 10) / 10;
+            const roundedFats = Math.round(total.fats * 10) / 10;
+            const eatenFoodsCount = meal.foods.filter((food) => eaten[food.id]).length;
+            const hasEatenFoods = eatenFoodsCount > 0;
+            const isMealFullyEaten = meal.foods.length > 0 && eatenFoodsCount === meal.foods.length;
             const previous = meals
               .slice(0, mealIndex + 1)
               .reduce((sum, current) => sum + mealTotals(current).calories, 0);
@@ -1880,38 +1884,43 @@ export default function MealPlanScreen() {
                 key={meal.id}
                 style={[
                   styles.meal,
-                  expandedMealIds.includes(meal.id) && styles.mealActive,
+                  isMealExpanded && styles.mealActive,
+                  isMealFullyEaten && { borderColor: "#55D69C", backgroundColor: "#123B31" },
+                  hasEatenFoods && !isMealFullyEaten && { borderColor: "#3FC28A", backgroundColor: "#102F2A" },
                 ]}
               >
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${meal.title}, ${expandedMealIds.includes(meal.id) ? "פתוח" : "סגור"}. לחץ כדי ${expandedMealIds.includes(meal.id) ? "לסגור" : "לפתוח"}`}
-                  accessibilityState={{ expanded: expandedMealIds.includes(meal.id) }}
+                  accessibilityLabel={`${meal.title}, ${isMealExpanded ? "פתוח" : `סגור. ${Math.round(total.calories)} קלוריות, ${roundedProtein} גרם חלבון, ${roundedCarbohydrates} גרם פחמימות, ${roundedFats} גרם שומן`}${isMealFullyEaten ? ". הארוחה נאכלה במלואה" : hasEatenFoods ? `. ${eatenFoodsCount} מתוך ${meal.foods.length} רכיבים סומנו כנאכלים` : ""}. לחץ כדי ${isMealExpanded ? "לסגור" : "לפתוח"}`}
+                  accessibilityState={{ expanded: isMealExpanded }}
                   onPress={() => toggleMeal(meal.id)}
                   style={({ pressed }) => [
                     styles.mealHeader,
-                    expandedMealIds.includes(meal.id) && styles.mealHeaderActive,
+                    isMealExpanded && styles.mealHeaderActive,
                     pressed && styles.mealHeaderPressed,
                   ]}
                 >
-                  <Text style={[styles.mealTotal, expandedMealIds.includes(meal.id) && styles.mealTotalActive]}>
-                    {Math.round(total.calories)} קק״ל · מצטבר{" "}
-                    {Math.round(previous)}
+                  <Text style={[styles.mealTotal, isMealExpanded && styles.mealTotalActive]}>
+                    {isMealExpanded
+                      ? `${Math.round(total.calories)} קק״ל · מצטבר ${Math.round(previous)}`
+                      : `${Math.round(total.calories)} קק״ל · חלבון ${roundedProtein} ג׳`}
                   </Text>
+                  {isMealFullyEaten ? <Text style={{ color: "#77F0B8", fontSize: 13, fontWeight: "900", textAlign: "right", marginTop: 3 }}>✓ הארוחה נאכלה</Text> : hasEatenFoods ? <Text style={{ color: "#93E5C0", fontSize: 11, fontWeight: "900", textAlign: "right", marginTop: 3 }}>◐ נאכל חלקית: {eatenFoodsCount}/{meal.foods.length}</Text> : null}
+                  {!isMealExpanded ? <Text style={{ color: hasEatenFoods ? "#93E5C0" : "#9DA9BB", fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 3 }}>פחמ׳ {roundedCarbohydrates} ג׳ · שומן {roundedFats} ג׳{hasEatenFoods ? ` · נאכל ${eatenFoodsCount}/${meal.foods.length}` : ""}</Text> : null}
                   <View style={styles.mealTitleRow}>
-                    <Text style={[styles.mealTitle, expandedMealIds.includes(meal.id) && styles.mealTitleActive]}>{meal.title}</Text>
-                    <View style={[styles.mealFoodCountBadge, expandedMealIds.includes(meal.id) && styles.mealFoodCountBadgeActive]}><Text style={[styles.mealFoodCountText, expandedMealIds.includes(meal.id) && styles.mealFoodCountTextActive]}>{meal.foods.length} {meal.foods.length === 1 ? "רכיב" : "רכיבים"}</Text></View>
+                    <Text style={[styles.mealTitle, isMealExpanded && styles.mealTitleActive]}>{meal.title}</Text>
+                    <View style={[styles.mealFoodCountBadge, isMealExpanded && styles.mealFoodCountBadgeActive]}><Text style={[styles.mealFoodCountText, isMealExpanded && styles.mealFoodCountTextActive]}>{meal.foods.length} {meal.foods.length === 1 ? "רכיב" : "רכיבים"}</Text></View>
                     {meal.id === "meal-1" ? (
-                      <Text style={[styles.breakfastProteinBadge, expandedMealIds.includes(meal.id) && styles.breakfastProteinBadgeActive]}>
+                      <Text style={[styles.breakfastProteinBadge, isMealExpanded && styles.breakfastProteinBadgeActive]}>
                         {proteinSources} מקורות חלבון
                       </Text>
                     ) : null}
                   </View>
-                  <Text style={[styles.mealToggle, expandedMealIds.includes(meal.id) && styles.mealToggleActive]}>
-                    {expandedMealIds.includes(meal.id) ? "סגור ▲" : "פתח ▼"}
+                  <Text style={[styles.mealToggle, isMealExpanded && styles.mealToggleActive]}>
+                    {isMealExpanded ? "סגור ▲" : "פתח ▼"}
                   </Text>
                 </Pressable>
-                <View style={styles.mealQuickActions}>
+                {isAdvancedMealOpen ? <View style={styles.mealQuickActions}>
                   <Pressable
                     onPress={() => moveMeal(meal.id, 1)}
                     disabled={mealIndex === meals.length - 1}
@@ -1938,8 +1947,8 @@ export default function MealPlanScreen() {
                   >
                     <Text style={styles.deleteMealText}>מחק ארוחה</Text>
                   </Pressable>
-                </View>
-                {expandedMealIds.includes(meal.id) ? (
+                </View> : null}
+                {isMealExpanded ? (
                   <View style={styles.mealFoodEditor}>
                     <View style={styles.mealFoodListHeader}>
                       <Text style={styles.mealFoodListTitle}>רשימת המאכלים המדויקת</Text>
@@ -2568,6 +2577,28 @@ export default function MealPlanScreen() {
                     </View>
                   </View>
                 ) : null}
+                {isMealExpanded ? <View style={styles.mealSimpleActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`ערוך את ${meal.title}`}
+                    onPress={() => {
+                      beginMealEdit(meal);
+                      setAdvancedMealId(meal.id);
+                    }}
+                    style={({ pressed }) => [styles.mealSimplePrimaryAction, pressed && styles.mealSimpleActionPressed]}
+                  >
+                    <Text style={styles.mealSimplePrimaryActionText}>ערוך או הוסף רכיב</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={isAdvancedMealOpen ? `הסתר אפשרויות נוספות של ${meal.title}` : `פתח אפשרויות נוספות של ${meal.title}`}
+                    onPress={() => setAdvancedMealId((current) => current === meal.id ? null : meal.id)}
+                    style={({ pressed }) => [styles.mealSimpleSecondaryAction, pressed && styles.mealSimpleActionPressed]}
+                  >
+                    <Text style={styles.mealSimpleSecondaryActionText}>{isAdvancedMealOpen ? "הסתר אפשרויות" : "אפשרויות נוספות"}</Text>
+                  </Pressable>
+                </View> : null}
+                {isAdvancedMealOpen ? <>
                 <View style={styles.mealActions}>
                   <Pressable
                     accessibilityRole="button"
@@ -2702,6 +2733,7 @@ export default function MealPlanScreen() {
                   )}
                 </View>
                 <Pressable accessibilityRole="button" accessibilityLabel={`המרת ${meal.title}`} onPress={() => openMealConversion(meal)} style={({ pressed }) => [styles.mealConversionBanner, pressed && styles.mealConversionPressed]}><Text style={styles.mealConversionTitle}>המרת ארוחה</Text><Text style={styles.mealConversionSubtitle}>חלבון · פחמימה · שומן · חישוב לפי 100 ג׳</Text><Text style={styles.mealConversionArrow}>פתח ›</Text></Pressable>
+                </> : null}
               </View>
             );
           })}
@@ -4176,6 +4208,12 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     gap: 6,
   },
+  mealSimpleActions: { flexDirection: "row-reverse", gap: 8, paddingTop: 6 },
+  mealSimplePrimaryAction: { flex: 1.4, minHeight: 42, alignItems: "center", justifyContent: "center", backgroundColor: "#1C5E8D", borderColor: "#61BFF1", borderWidth: 1, borderRadius: 10 },
+  mealSimplePrimaryActionText: { color: "#F7F9FC", fontSize: 12, fontWeight: "900" },
+  mealSimpleSecondaryAction: { flex: 1, minHeight: 42, alignItems: "center", justifyContent: "center", backgroundColor: "#16233A", borderColor: "#526985", borderWidth: 1, borderRadius: 10 },
+  mealSimpleSecondaryActionText: { color: "#B9CDE3", fontSize: 11, fontWeight: "900" },
+  mealSimpleActionPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
   mealMoveButton: {
     width: 30,
     height: 28,
