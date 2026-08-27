@@ -123,4 +123,27 @@ export const mealMenuSupplements: MealMenuSupplement[] = [
     caution: "יש להתייעץ עם איש מקצוע רפואי במקרה של תרופות או מצב רפואי.",
     trackingOnly: true,
   },
+  {
+    name: "אוביטרל",
+    purpose: "תיעוד אישי בלבד — אינו מקבל ערכי מאקרו או הנחיית שימוש באפליקציה.",
+    caution: "יש להשתמש רק לפי הוראה ומעקב של רופא מוסמך.",
+    trackingOnly: true,
+  },
+  {
+    name: "ארמדיקס",
+    purpose: "תיעוד אישי בלבד — אינו מקבל ערכי מאקרו או הנחיית שימוש באפליקציה.",
+    caution: "יש להשתמש רק לפי הוראה ומעקב של רופא מוסמך.",
+    trackingOnly: true,
+  },
 ];
+
+/** מחזיר את תוספי היום בלבד, או את כל הרשימה כאשר המשתמש עובר לתצוגה מלאה. */
+export function filterSupplementsForDay<T extends { name: string }>(
+  supplements: readonly T[],
+  selectedNames: readonly string[],
+  showAll: boolean,
+): T[] {
+  if (showAll || selectedNames.length === 0) return [...supplements];
+  const selected = new Set(selectedNames);
+  return supplements.filter((supplement) => selected.has(supplement.name));
+}

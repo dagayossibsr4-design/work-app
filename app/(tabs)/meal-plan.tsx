@@ -103,8 +103,10 @@ import {
   type SupplementReminderSettings,
 } from "@/lib/supplement-reminder-types";
 import { buildImmediateMealSave } from "@/lib/meal-plan-immediate-save";
+import { CYCLE_STORAGE_KEY, cycleWeekdays, normalizeCycleRecords, renameCycleRecords, type CycleRecord } from "@/lib/cycle-tracking";
 import {
   createMealSupplementEntry,
+  filterSupplementsForDay,
   mealMenuSupplements,
   normalizeMealSupplementSelections,
   supplementUnits,
@@ -205,6 +207,13 @@ export default function MealPlanScreen() {
   const [supplementMealId, setSupplementMealId] = useState<string | null>(null);
   const [selectedSupplements, setSelectedSupplements] = useState<MealSupplementSelections>({});
   const [supplementHistoryByDate, setSupplementHistoryByDate] = useState<Record<string, MealSupplementSelections>>({});
+  const [supplementTargets, setSupplementTargets] = useState<Record<string, number>>({});
+  const [supplementDailyIntake, setSupplementDailyIntake] = useState<Record<string, number>>({});
+  const [supplementsShowAll, setSupplementsShowAll] = useState(false);
+  const [cycleRecords, setCycleRecords] = useState<CycleRecord[]>([]);
+  const [cycleNameEditingId, setCycleNameEditingId] = useState<string | null>(null);
+  const [cycleNameDraft, setCycleNameDraft] = useState("");
+  const [cycleNameStatus, setCycleNameStatus] = useState("");
   const [reminderSettings, setReminderSettings] = useState<SupplementReminderSettings>(DEFAULT_SUPPLEMENT_REMINDER_SETTINGS);
   const [reminderSettingsLoaded, setReminderSettingsLoaded] = useState(false);
   const [reminderHistory, setReminderHistory] = useState<SupplementReminderEvent[]>([]);
@@ -231,6 +240,11 @@ export default function MealPlanScreen() {
   const [mealConversionId, setMealConversionId] = useState<string | null>(null);
   const [mealConversionSelection, setMealConversionSelection] = useState<Record<string, ConversionFood | null>>({});
   const manualMealEditRef = useRef(false);
+  useEffect(() => {
+    AsyncStorage.getItem(CYCLE_STORAGE_KEY).then((raw) => {
+      if (raw) setCycleRecords(normalizeCycleRecords(JSON.parse(raw)));
+    }).catch(() => undefined);
+  }, [nutritionStorageRevision]);
   useEffect(() => {
     void initializeSupplementReminders();
     void loadSupplementReminderHistory().then(setReminderHistory);
@@ -298,6 +312,8 @@ export default function MealPlanScreen() {
       AsyncStorage.getItem("meal-plan-saved-meals"),
       AsyncStorage.getItem("meal-plan-supplements"),
       AsyncStorage.getItem("meal-plan-supplements-history"),
+      AsyncStorage.getItem("supplement-daily-targets-v1"),
+      AsyncStorage.getItem("supplement-daily-intake-v1"),
       AsyncStorage.getItem("meal-plan-defaults-v100"),
       AsyncStorage.getItem("nutrition-water-history"),
       AsyncStorage.getItem("nutrition-water-events"),
@@ -314,6 +330,8 @@ export default function MealPlanScreen() {
           savedMealsValue,
           supplementsValue,
           supplementsHistoryValue,
+          supplementTargetsValue,
+          supplementDailyIntakeValue,
           defaultsVersion,
           waterHistoryValue,
           waterEventsValue,
@@ -384,6 +402,14 @@ export default function MealPlanScreen() {
           if (supplementsHistoryValue) {
             const savedHistory = JSON.parse(supplementsHistoryValue) as Record<string, MealSupplementSelections>;
             setSupplementHistoryByDate(Object.fromEntries(Object.entries(savedHistory).map(([date, selections]) => [date, normalizeMealSupplementSelections(selections)])));
+          }
+          if (supplementTargetsValue) {
+            const savedTargets = JSON.parse(supplementTargetsValue) as Record<string, number>;
+            setSupplementTargets(Object.fromEntries(Object.entries(savedTargets).filter(([, value]) => Number(value) > 0).map(([name, value]) => [name, Math.max(1, Math.round(Number(value)))])));
+          }
+          if (supplementDailyIntakeValue) {
+            const savedIntake = JSON.parse(supplementDailyIntakeValue) as Record<string, number>;
+            setSupplementDailyIntake(Object.fromEntries(Object.entries(savedIntake).filter(([, value]) => Number(value) >= 0).map(([key, value]) => [key, Math.floor(Number(value))])));
           }
           if (supplementsValue) {
             const savedSupplements = normalizeMealSupplementSelections(JSON.parse(supplementsValue));
@@ -475,6 +501,8 @@ export default function MealPlanScreen() {
         ["meal-plan-saved-meals", JSON.stringify(savedMeals)],
         ["meal-plan-supplements", JSON.stringify(selectedSupplements)],
         ["meal-plan-supplements-history", JSON.stringify(supplementHistoryByDate)],
+        ["supplement-daily-targets-v1", JSON.stringify(supplementTargets)],
+        ["supplement-daily-intake-v1", JSON.stringify(supplementDailyIntake)],
         ["nutrition-water-history", JSON.stringify(waterHistory)],
         ["nutrition-water-events", JSON.stringify(waterEvents)],
       ]).then(requestNutritionCloudSave).catch(() => undefined);
@@ -493,9 +521,36 @@ export default function MealPlanScreen() {
     savedMeals,
     selectedSupplements,
     supplementHistoryByDate,
+    supplementTargets,
+    supplementDailyIntake,
     waterHistory,
     waterEvents,
   ]);
+  const beginCycleNameEdit = (cycle: CycleRecord) => {
+    setCycleNameEditingId(cycle.id);
+    setCycleNameDraft(cycle.name);
+    setCycleNameStatus("");
+  };
+  const cancelCycleNameEdit = () => {
+    setCycleNameEditingId(null);
+    setCycleNameDraft("");
+    setCycleNameStatus("");
+  };
+  const saveCycleName = async () => {
+    const nextName = cycleNameDraft.trim();
+    if (!cycleNameEditingId || !nextName) {
+      setCycleNameStatus("יש להזין שם מחזור.");
+      return;
+    }
+    const nextRecords = renameCycleRecords(cycleRecords, cycleNameEditingId, nextName);
+    setCycleRecords(nextRecords);
+    await AsyncStorage.setItem(CYCLE_STORAGE_KEY, JSON.stringify(nextRecords))
+      .then(requestNutritionCloudSave)
+      .catch(() => undefined);
+    setCycleNameEditingId(null);
+    setCycleNameDraft("");
+    setCycleNameStatus("השם נשמר.");
+  };
   const activeProfile = menuProfiles[activeGoal];
   const targetCalories = Number(activeProfile.calories) || 0;
   const commitProfile = (next: MenuProfile) => {
@@ -1010,15 +1065,20 @@ export default function MealPlanScreen() {
   // והגרף משתנים בין מה שתוכנן לבין מה שסומן כנאכל בפועל.
   const displayedTotals = viewMode === "planned" ? totals : consumed;
   const summaryPrefix = viewMode === "planned" ? "מתוכנן" : "נאכל";
+  const activeSupplementSelections = supplementHistoryByDate[selectedDate] ?? selectedSupplements;
   const dailySupplementEntries = useMemo(
     () => meals.flatMap((meal) =>
-      (selectedSupplements[meal.id] ?? []).map((entry) => ({ ...entry, mealTitle: meal.title })),
+      (activeSupplementSelections[meal.id] ?? []).map((entry) => ({ ...entry, mealTitle: meal.title })),
     ),
-    [meals, selectedSupplements],
+    [activeSupplementSelections, meals],
   );
   const dailySupplementNames = useMemo(
     () => [...new Set(dailySupplementEntries.map((entry) => entry.name))],
     [dailySupplementEntries],
+  );
+  const visibleDailySupplements = useMemo(
+    () => filterSupplementsForDay(mealMenuSupplements, dailySupplementNames, supplementsShowAll),
+    [dailySupplementNames, supplementsShowAll],
   );
   useEffect(() => {
     if (!hydrated || selectedDate !== todayKey()) return;
@@ -1148,6 +1208,24 @@ export default function MealPlanScreen() {
           : entry,
       ),
     }));
+  };
+  const updateSupplementTarget = (name: string, value: string) => {
+    const numeric = Math.max(0, Math.round(Number(value) || 0));
+    setSupplementTargets((current) => {
+      const next = { ...current };
+      if (numeric > 0) next[name] = numeric;
+      else delete next[name];
+      return next;
+    });
+  };
+  const adjustSupplementIntake = (name: string, delta: number) => {
+    const key = `${selectedDate}|${name}`;
+    setSupplementDailyIntake((current) => {
+      const target = supplementTargets[name] ?? 0;
+      const currentCount = current[key] ?? 0;
+      const nextCount = target > 0 ? Math.max(0, Math.min(target, currentCount + delta)) : currentCount;
+      return { ...current, [key]: nextCount };
+    });
   };
   const toggleMeal = (mealId: string) => {
     LayoutAnimation.configureNext(
@@ -1580,6 +1658,9 @@ export default function MealPlanScreen() {
           </Pressable>
           <Pressable onPress={() => router.push("/nutrition-calendar" as never)} style={styles.scrollTestButton}>
             <Text style={styles.scrollTestButtonText}>לוח תזונה: יום · שבוע · חודש</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push("/cycle-tracking" as never)} style={styles.scrollTestButton}>
+            <Text style={styles.scrollTestButtonText}>מחזורי תיעוד וחומרים</Text>
           </Pressable>
           <PermanentSaveBanner />
           <View style={styles.datePicker}>
@@ -3368,6 +3449,48 @@ export default function MealPlanScreen() {
             color="#FFD54A"
             unit="ג׳"
           />
+          <View style={styles.cycleSummaryCard}>
+            <View style={styles.cycleSummaryHeader}><Text style={styles.cycleSummaryTitle}>סיכום מחזורי תיעוד</Text><Pressable onPress={() => router.push("/cycle-tracking" as never)} style={styles.cycleSummaryButton}><Text style={styles.cycleSummaryButtonText}>עריכה</Text></Pressable></View>
+            {cycleRecords.length ? cycleRecords.map((cycle) => <View key={cycle.id} style={styles.cycleSummaryRow}>
+              {cycleNameEditingId === cycle.id ? <View style={styles.cycleNameEditor}><TextInput autoFocus value={cycleNameDraft} onChangeText={setCycleNameDraft} placeholder="שם המחזור" placeholderTextColor="#7E8DA4" style={styles.cycleNameInput} textAlign="right" returnKeyType="done" onSubmitEditing={() => void saveCycleName()} /><View style={styles.cycleNameActions}><Pressable onPress={() => void saveCycleName()} style={styles.cycleNameSave}><Text style={styles.cycleNameSaveText}>שמור</Text></Pressable><Pressable onPress={cancelCycleNameEdit} style={styles.cycleNameCancel}><Text style={styles.cycleNameCancelText}>ביטול</Text></Pressable></View></View> : <View style={styles.cycleSummaryNameLine}><Text style={styles.cycleSummaryName}>{cycle.name}</Text><Pressable onPress={() => beginCycleNameEdit(cycle)} style={styles.cycleRenameButton}><Text style={styles.cycleRenameText}>שנה שם</Text></Pressable></View>}
+              <Text style={styles.cycleSummaryMeta}>ימים: {cycle.selectedDays.map((day) => cycleWeekdays[day]).join(", ")}</Text><Text style={styles.cycleSummaryMaterials}>{[...new Set(Object.values(cycle.materialsByDay).flat())].join(" · ") || "ללא חומרים מסומנים"}</Text>
+            </View>) : <Text style={styles.cycleSummaryEmpty}>עדיין לא נוצר מחזור תיעוד.</Text>}
+            {cycleNameStatus ? <Text style={styles.cycleSummaryStatus}>{cycleNameStatus}</Text> : null}
+            <Pressable onPress={() => router.push("/cycle-tracking" as never)} style={styles.cycleSummaryAdd}><Text style={styles.cycleSummaryAddText}>＋ יצירת מחזור נוסף</Text></Pressable>
+          </View>
+          <View style={styles.dailySupplementsCard}>
+            <View style={styles.dailySupplementsHeader}>
+              <View style={styles.dailySupplementsCopy}>
+                <Text style={styles.dailySupplementsTitle}>צריכת תוספים</Text>
+                <Text style={styles.dailySupplementsHint}>{dailySupplementNames.length ? "מוצגים התוספים שסומנו ליום הזה." : "סמן תוספים בארוחה כדי לצמצם את הרשימה."}</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel={supplementsShowAll ? "הצג רק תוספי היום" : "הצג את כל התוספים"} onPress={() => setSupplementsShowAll((current) => !current)} style={styles.dailySupplementsToggle}>
+                <Text style={styles.dailySupplementsToggleText}>{supplementsShowAll ? "רק היום" : "הצג הכול"}</Text>
+              </Pressable>
+            </View>
+            {visibleDailySupplements.map((supplement) => {
+              const target = supplementTargets[supplement.name] ?? 0;
+              const count = supplementDailyIntake[`${selectedDate}|${supplement.name}`] ?? 0;
+              return (
+                <View key={supplement.name} style={styles.dailySupplementRow}>
+                  <View style={styles.dailySupplementNameBox}>
+                    <Text style={styles.dailySupplementCount}>{count}/{target || "—"}</Text>
+                    <Text style={styles.dailySupplementName}>{supplement.name}</Text>
+                  </View>
+                  <View style={styles.dailySupplementActions}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`הפחת מנה מ${supplement.name}`} onPress={() => adjustSupplementIntake(supplement.name, -1)} style={styles.dailySupplementMinus}>
+                      <Text style={styles.dailySupplementMinusText}>−</Text>
+                    </Pressable>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`הוסף מנה ל${supplement.name}`} onPress={() => adjustSupplementIntake(supplement.name, 1)} disabled={!target || count >= target} style={[styles.dailySupplementAdd, (!target || count >= target) && styles.dailySupplementDisabled]}>
+                      <Text style={styles.dailySupplementAddText}>+ מנה</Text>
+                    </Pressable>
+                    <TextInput accessibilityLabel={`יעד יומי עבור ${supplement.name}`} value={target ? String(target) : ""} onChangeText={(value) => updateSupplementTarget(supplement.name, value)} placeholder="יעד" placeholderTextColor="#7E8DA4" keyboardType="number-pad" style={styles.dailySupplementTarget} />
+                  </View>
+                </View>
+              );
+            })}
+            {!supplementsShowAll && dailySupplementNames.length === 0 ? <Text style={styles.dailySupplementsEmpty}>לא סומנו תוספים ליום הזה.</Text> : null}
+          </View>
         </View>
         </ScrollView>
 
@@ -4230,6 +4353,48 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   fill: { height: 8, borderRadius: 6 },
+  cycleSummaryCard: { marginTop: 5, backgroundColor: "#101C31", borderColor: "#5B9FE3", borderWidth: 1, borderRadius: 11, padding: 10, gap: 7 },
+  cycleSummaryHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  cycleSummaryTitle: { color: "#D9EEFF", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  cycleSummaryButton: { borderColor: "#52759C", borderWidth: 1, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 5 },
+  cycleSummaryButtonText: { color: "#D9EEFF", fontSize: 9, fontWeight: "900" },
+  cycleSummaryRow: { backgroundColor: "#162A47", borderRadius: 8, padding: 8, gap: 4 },
+  cycleSummaryNameLine: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 7 },
+  cycleRenameButton: { borderColor: "#52759C", borderWidth: 1, borderRadius: 7, paddingHorizontal: 7, paddingVertical: 4 },
+  cycleRenameText: { color: "#D9EEFF", fontSize: 9, fontWeight: "900" },
+  cycleNameEditor: { gap: 6 },
+  cycleNameInput: { minHeight: 36, backgroundColor: "#0B1224", borderColor: "#65BDF6", borderWidth: 1, borderRadius: 8, color: "#F7F9FC", paddingHorizontal: 9, fontSize: 11 },
+  cycleNameActions: { flexDirection: "row-reverse", justifyContent: "flex-start", gap: 6 },
+  cycleNameSave: { backgroundColor: "#42D392", borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
+  cycleNameSaveText: { color: "#07111F", fontSize: 9, fontWeight: "900" },
+  cycleNameCancel: { borderColor: "#52759C", borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
+  cycleNameCancelText: { color: "#D9EEFF", fontSize: 9, fontWeight: "900" },
+  cycleSummaryStatus: { color: "#42D392", fontSize: 9, textAlign: "right" },
+  cycleSummaryName: { color: "#F7F9FC", fontSize: 11, fontWeight: "900", textAlign: "right" },
+  cycleSummaryMeta: { color: "#AAB7C8", fontSize: 9, textAlign: "right" },
+  cycleSummaryMaterials: { color: "#A7F3D0", fontSize: 9, textAlign: "right" },
+  cycleSummaryEmpty: { color: "#AAB7C8", fontSize: 9, textAlign: "right" },
+  cycleSummaryAdd: { borderColor: "#3D587C", borderWidth: 1, borderRadius: 8, paddingVertical: 7, alignItems: "center" },
+  cycleSummaryAddText: { color: "#65BDF6", fontSize: 10, fontWeight: "900" },
+  dailySupplementsCard: { marginTop: 5, backgroundColor: "#0B1224", borderColor: "#42D392", borderWidth: 1, borderRadius: 11, padding: 10, gap: 7 },
+  dailySupplementsHeader: { flexDirection: "row-reverse", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  dailySupplementsCopy: { flex: 1, minWidth: 0, gap: 2 },
+  dailySupplementsToggle: { minHeight: 28, borderRadius: 7, borderColor: "#52759C", borderWidth: 1, backgroundColor: "#132844", justifyContent: "center", alignItems: "center", paddingHorizontal: 8 },
+  dailySupplementsToggleText: { color: "#D9EEFF", fontSize: 9, fontWeight: "900", textAlign: "center" },
+  dailySupplementsEmpty: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl", paddingVertical: 8 },
+  dailySupplementsTitle: { color: "#A7F3D0", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  dailySupplementsHint: { color: "#AAB7C8", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" },
+  dailySupplementRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 7, backgroundColor: "#11203A", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 7 },
+  dailySupplementNameBox: { flex: 1, flexDirection: "row-reverse", alignItems: "center", gap: 6 },
+  dailySupplementName: { flex: 1, color: "#F7F9FC", fontSize: 10, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
+  dailySupplementCount: { color: "#42D392", fontSize: 12, fontWeight: "900", minWidth: 32, textAlign: "left" },
+  dailySupplementActions: { flexDirection: "row-reverse", alignItems: "center", gap: 5 },
+  dailySupplementMinus: { width: 28, height: 28, borderRadius: 7, backgroundColor: "#253653", alignItems: "center", justifyContent: "center" },
+  dailySupplementMinusText: { color: "#D9EEFF", fontSize: 15, fontWeight: "900" },
+  dailySupplementAdd: { minHeight: 28, borderRadius: 7, backgroundColor: "#42D392", alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
+  dailySupplementAddText: { color: "#07111F", fontSize: 9, fontWeight: "900" },
+  dailySupplementDisabled: { opacity: 0.35 },
+  dailySupplementTarget: { width: 42, height: 28, borderColor: "#52759C", borderWidth: 1, borderRadius: 7, color: "#F7F9FC", fontSize: 10, textAlign: "center", paddingHorizontal: 2 },
   stickySummary: {
     position: "absolute",
     alignSelf: "flex-end",
