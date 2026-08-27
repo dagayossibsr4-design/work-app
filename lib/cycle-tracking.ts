@@ -10,6 +10,8 @@ export type CycleRecord = {
   selectedDays: number[];
   materialsByDay: Record<string, string[]>;
   customMaterials: string[];
+  /** גרסת מיפוי ימים: הממשק שומר 0=א׳ עד 6=שבת. */
+  dayIndexVersion?: 2;
 };
 
 export function renameCycleRecords(records: CycleRecord[], id: string, name: string): CycleRecord[] {
@@ -28,13 +30,21 @@ export function normalizeCycleRecords(input: unknown): CycleRecord[] {
   if (!Array.isArray(input)) return [];
   return input.map((raw, index) => {
     const item = (raw && typeof raw === "object" ? raw : {}) as Partial<CycleRecord>;
-    const legacyDays = Array.isArray(item.selectedDays) ? item.selectedDays.map(Number).filter(Number.isFinite) : [0];
-    const selectedDays = [...new Set(legacyDays.map((day) => day >= 1 && day <= 7 ? day - 1 : Math.max(0, Math.min(6, day))))].sort((a, b) => a - b);
+    const rawDays = Array.isArray(item.selectedDays) ? item.selectedDays.map(Number).filter(Number.isFinite) : [0];
+    const rawMaterials = item.materialsByDay ?? {};
+    const hasZeroBasedMarker = item.dayIndexVersion === 2;
+    const hasZeroBasedEvidence = rawDays.includes(0) || Object.prototype.hasOwnProperty.call(rawMaterials, "0");
+    const useLegacyOneBased = !hasZeroBasedMarker && !hasZeroBasedEvidence && rawDays.every((day) => day >= 1 && day <= 7);
+    const selectedDays = [...new Set(rawDays.map((day) => {
+      const candidate = useLegacyOneBased ? day - 1 : day;
+      return Math.max(0, Math.min(6, candidate));
+    }))].sort((a, b) => a - b);
     const materialsByDay: Record<string, string[]> = {};
-    Object.entries(item.materialsByDay ?? {}).forEach(([day, names]) => {
+    Object.entries(rawMaterials).forEach(([day, names]) => {
       const numericDay = Number(day);
-      const normalizedDay = numericDay >= 1 && numericDay <= 7 ? numericDay - 1 : numericDay;
-      materialsByDay[String(Math.max(0, Math.min(6, normalizedDay)))] = Array.isArray(names) ? names.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
+      const candidate = useLegacyOneBased ? numericDay - 1 : numericDay;
+      const normalizedDay = Math.max(0, Math.min(6, candidate));
+      materialsByDay[String(normalizedDay)] = Array.isArray(names) ? names.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
     });
     return {
       id: typeof item.id === "string" && item.id ? item.id : `cycle-${index}-${Date.now()}`,
@@ -44,6 +54,7 @@ export function normalizeCycleRecords(input: unknown): CycleRecord[] {
       selectedDays: selectedDays.length ? selectedDays : [0],
       materialsByDay,
       customMaterials: Array.isArray(item.customMaterials) ? item.customMaterials.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [],
+      dayIndexVersion: 2,
     };
   });
 }

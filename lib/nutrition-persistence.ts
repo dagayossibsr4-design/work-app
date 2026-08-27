@@ -107,6 +107,7 @@ export function subscribeNutritionStorageRestoreReady(listener: (ready: boolean)
 
 const nutritionCloudSaveListeners = new Set<() => void>();
 const nutritionStorageRestoreListeners = new Set<() => void>();
+const nutritionStorageChangedListeners = new Set<() => void>();
 export type NutritionCloudSaveStatus = "idle" | "saving" | "saved" | "failed";
 let nutritionCloudSaveStatus: NutritionCloudSaveStatus = "idle";
 const nutritionCloudStatusListeners = new Set<
@@ -135,6 +136,18 @@ export function subscribeNutritionStorageRestored(listener: () => void) {
   nutritionStorageRestoreListeners.add(listener);
   return () => {
     nutritionStorageRestoreListeners.delete(listener);
+  };
+}
+
+/** מודיע למסכים פתוחים ש-AsyncStorage השתנה מקומית ויש לרענן נתונים. */
+export function notifyNutritionStorageChanged() {
+  nutritionStorageChangedListeners.forEach((listener) => listener());
+}
+
+export function subscribeNutritionStorageChanged(listener: () => void) {
+  nutritionStorageChangedListeners.add(listener);
+  return () => {
+    nutritionStorageChangedListeners.delete(listener);
   };
 }
 

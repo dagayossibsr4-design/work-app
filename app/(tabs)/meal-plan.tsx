@@ -35,7 +35,7 @@ import {
   restoreMissingDefaultMealSlots,
   type Meal,
 } from "@/lib/meal-plan";
-import { isNutritionStorageRestoreReady, requestNutritionCloudSave, subscribeNutritionStorageRestoreReady, subscribeNutritionStorageRestored } from "@/lib/nutrition-persistence";
+import { isNutritionStorageRestoreReady, requestNutritionCloudSave, subscribeNutritionStorageChanged, subscribeNutritionStorageRestoreReady, subscribeNutritionStorageRestored } from "@/lib/nutrition-persistence";
 import { useWorkoutStore } from "@/lib/workout-store";
 import {
   convertMealFoodWeight,
@@ -305,6 +305,9 @@ export default function MealPlanScreen() {
       .catch(() => undefined);
   }, []);
   useEffect(() => subscribeNutritionStorageRestored(() => {
+    setNutritionStorageRevision((current) => current + 1);
+  }), []);
+  useEffect(() => subscribeNutritionStorageChanged(() => {
     setNutritionStorageRevision((current) => current + 1);
   }), []);
   useEffect(() => subscribeNutritionStorageRestoreReady(setNutritionRestoreReady), []);

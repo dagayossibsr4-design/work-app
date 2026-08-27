@@ -13,6 +13,13 @@ describe("cycle tracking model", () => {
     expect(cycle.materialsByDay["6"]).toEqual(["פרימו"]);
   });
 
+  it("preserves modern zero-based days when Sunday is not selected", () => {
+    const [cycle] = normalizeCycleRecords([{ id: "modern", name: "חדש", dayIndexVersion: 2, selectedDays: [1, 3, 5], materialsByDay: { "1": ["טסט"], "3": ["פרימו"] } }]);
+    expect(cycle.selectedDays).toEqual([1, 3, 5]);
+    expect(cycle.materialsByDay["1"]).toEqual(["טסט"]);
+    expect(cycle.materialsByDay["3"]).toEqual(["פרימו"]);
+  });
+
   it("keeps multiple cycles as separate records", () => {
     const cycles = normalizeCycleRecords([{ id: "a", name: "א", selectedDays: [0] }, { id: "b", name: "ב", selectedDays: [1] }]);
     expect(cycles).toHaveLength(2);

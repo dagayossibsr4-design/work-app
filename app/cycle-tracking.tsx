@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
-import { requestNutritionCloudSave } from "@/lib/nutrition-persistence";
+import { notifyNutritionStorageChanged, requestNutritionCloudSave } from "@/lib/nutrition-persistence";
 import {
   CYCLE_STORAGE_KEY,
   cycleWeekdays,
@@ -42,6 +42,7 @@ const createEmptyCycle = (): CycleRecord => ({
   selectedDays: [0],
   materialsByDay: { "0": [] },
   customMaterials: [],
+  dayIndexVersion: 2,
 });
 
 export default function CycleTrackingScreen() {
@@ -54,6 +55,8 @@ export default function CycleTrackingScreen() {
   const cycleScrollRef = useRef<ScrollView>(null);
   const [datePickerField, setDatePickerField] = useState<DateField | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(CYCLE_STORAGE_KEY)
@@ -62,6 +65,19 @@ export default function CycleTrackingScreen() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
+
+  const showSuccessToast = (message: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastMessage(message);
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+      toastTimerRef.current = null;
+    }, 2200);
+  };
 
   const materials = useMemo(
     () => [
@@ -74,10 +90,15 @@ export default function CycleTrackingScreen() {
   );
 
   const persist = async (next: CycleRecord[]) => {
-    setSaved(next);
-    await AsyncStorage.setItem(CYCLE_STORAGE_KEY, JSON.stringify(next))
-      .then(requestNutritionCloudSave)
-      .catch(() => undefined);
+    try {
+      await AsyncStorage.setItem(CYCLE_STORAGE_KEY, JSON.stringify(next));
+      setSaved(next);
+      notifyNutritionStorageChanged();
+      requestNutritionCloudSave();
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const updateDraft = <K extends keyof CycleRecord>(key: K, value: CycleRecord[K]) => {
@@ -174,17 +195,23 @@ export default function CycleTrackingScreen() {
       ...draft,
       name: draft.name.trim(),
       selectedDays: [...new Set(draft.selectedDays)].sort((a, b) => a - b),
+      dayIndexVersion: 2,
     };
     const next = editingId
       ? saved.map((cycle) => (cycle.id === editingId ? normalized : cycle))
       : [...saved, normalized];
     const wasEditing = Boolean(editingId);
-    await persist(next);
+    const didPersist = await persist(next);
+    if (!didPersist) {
+      setStatus("השמירה נכשלה. נסה שוב.");
+      return;
+    }
     setDraft(createEmptyCycle());
     setEditingId(null);
     setSelectedDay(0);
     setCustomMaterial("");
     setStatus(wasEditing ? "המחזור עודכן ונשמר." : "מחזור חדש נשמר.");
+    showSuccessToast(wasEditing ? "ימי המחזור עודכנו בהצלחה" : "ימי המחזור נשמרו בהצלחה");
   };
 
   const deleteCycle = (id: string) => {
@@ -387,6 +414,11 @@ export default function CycleTrackingScreen() {
           </View>
         </View>
       </Modal>
+      {toastMessage ? (
+        <View pointerEvents="none" style={styles.toast}>
+          <Text style={styles.toastText}>✓ {toastMessage}</Text>
+        </View>
+      ) : null}
     </ScreenContainer>
   );
 }
@@ -457,6 +489,8 @@ const styles = StyleSheet.create({
   customButtonText: { color: "#D9EEFF", fontSize: 10, fontWeight: "900" },
   saveButton: { minHeight: 44, borderRadius: 10, backgroundColor: "#42D392", alignItems: "center", justifyContent: "center", marginTop: 3 },
   saveButtonText: { color: "#07111F", fontSize: 12, fontWeight: "900" },
+  toast: { position: "absolute", left: 20, right: 20, bottom: 24, minHeight: 42, borderRadius: 12, backgroundColor: "#123C35", borderColor: "#42D392", borderWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 14, shadowColor: "#000000", shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  toastText: { color: "#D9FFF0", fontSize: 12, fontWeight: "900", textAlign: "center" },
   status: { color: "#A7F3D0", fontSize: 10, textAlign: "right" },
   savedRow: { backgroundColor: "#0F1F35", borderRadius: 9, padding: 10, gap: 5 },
   savedHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8 },
