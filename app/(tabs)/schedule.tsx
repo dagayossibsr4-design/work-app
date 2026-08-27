@@ -120,7 +120,7 @@ export default function ScheduleScreen() {
     startWorkoutOnDate(templateId, selected.date);
     router.push({ pathname: "/active-workout", params: { templateId, scheduledDate: selected.date } } as never);
   };
-  const openCompletedSession = (sessionId: string) => router.push({ pathname: "/(tabs)/history", params: { sessionId } } as never);
+  const openCompletedSession = (sessionId: string, editDate = false) => router.push({ pathname: "/(tabs)/history", params: { sessionId, ...(editDate ? { editDate: "1" } : {}) } } as never);
   const sessionName = (session: WorkoutSession) => templates.find((item) => item.id === session.templateId)?.name ?? "אימון ללא שם";
   const openDay = (day: ScheduledDay) => {
     const completedSession = completedSessionForScheduleDay(sessions, day.date, day.kind);
@@ -153,12 +153,15 @@ export default function ScheduleScreen() {
             const daySessions = splitSessionsForWorkoutDate(sessions, day.date);
             const dayStrength = daySessions.strength.length;
             const dayCardio = daySessions.cardio.length;
+            const hasCompletedWorkout = day.kind !== "rest" && daySessions.all.length > 0;
+            const hasPendingWorkout = day.kind !== "rest" && !hasCompletedWorkout;
             return (
-              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={daySessions.all.length ? `הצג מה בוצע ב${day.label} בתאריך ${formatDate(day.date)}` : `פתח את ${day.label} בתאריך ${formatDate(day.date)}`} onPress={() => openDay(day)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio]}>
+              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={daySessions.all.length ? `הצג מה בוצע ב${day.label} בתאריך ${formatDate(day.date)}` : `פתח את ${day.label} בתאריך ${formatDate(day.date)}`} onPress={() => openDay(day)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio, hasCompletedWorkout && styles.dayCompleted, hasPendingWorkout && styles.dayPending]}>
                 <View style={styles.dayCardHeading}><Text style={[styles.dayDate, selected.date === day.date && styles.dayDateActive]}>{formatDate(day.date)}</Text><Text style={styles.dayName}>{day.dayName}</Text></View>
                 <Text style={[styles.dayLabel, selected.date === day.date && styles.dayLabelActive]}>{day.label}</Text>
                 <Text style={[styles.dayFocus, selected.date === day.date && styles.dayFocusActive]} numberOfLines={2}>{day.focus}</Text>
                 {day.cardioTemplateId ? <Text style={[styles.cardioAttached, selected.date === day.date && styles.cardioAttachedActive]}>+ אירובי מצורף</Text> : null}
+                {hasCompletedWorkout ? <Text style={styles.dayStatusCompleted}>✓ האימון בוצע</Text> : hasPendingWorkout ? <Text style={styles.dayStatusPending}>● טרם בוצע</Text> : null}
                 {daySessions.all.length > 0 ? <Text style={[styles.daySessions, selected.date === day.date && styles.daySessionsActive]}>נשמרו: {dayStrength ? `${dayStrength} כוח` : ""}{dayStrength && dayCardio ? " · " : ""}{dayCardio ? `${dayCardio} אירובי` : ""}</Text> : null}
               </Pressable>
             );
@@ -180,7 +183,7 @@ export default function ScheduleScreen() {
                 <Pressable onPress={() => setEditing((value) => !value)} style={[styles.secondarySmall, editing && styles.secondarySmallActive]}><Text style={styles.secondarySmallText}>{editing ? "סיום עריכה" : "עריכת התוכנית"}</Text></Pressable>
               </View>
               <View style={styles.templateSummary}><Text style={styles.templateSummaryTitle}>{template.name}</Text><Text style={styles.templateSummaryMeta}>{template.exercises.length} תרגילים · {template.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} סטים</Text></View>
-              {completedStrengthSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} />)}
+              {completedStrengthSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} onEditDate={() => openCompletedSession(session.id, true)} />)}
               {editing ? <TemplateEditor template={template} onNameChange={updateExerciseName} onTargetChange={updateTarget} onAddSet={addSet} onRemoveSet={removeSet} /> : <ExercisePreview template={template} />}
             </View>
 
@@ -189,14 +192,14 @@ export default function ScheduleScreen() {
               {plannedCardioTemplate ? <>
                 <Text style={styles.cardioPlanText}>{plannedCardioTemplate.name} · {plannedCardioTemplate.focus}</Text>
                 <Pressable onPress={() => startForSelectedDate(plannedCardioTemplate.id)} style={styles.cardioStartButton}><Text style={styles.cardioStartText}>התחל אירובי</Text></Pressable>
-                {completedCardioSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} cardio />)}
+                {completedCardioSessions.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} onEditDate={() => openCompletedSession(session.id, true)} cardio />)}
               </> : <Text style={styles.emptyInline}>לא צורף אירובי ליום הזה. ניתן לבחור סוג אירובי באזור ההגדרה למטה.</Text>}
             </View>
           </> : <View style={styles.restMessage}>
             <Text style={styles.restTitle}>{selected.kind === "cardio" ? "יום אירובי והתאוששות פעילה" : "יום מנוחה"}</Text>
             <Text style={styles.restText}>{selected.kind === "cardio" ? "תעד אירובי נפרד עם זמן, מרחק ועצימות." : "אין תרגילי כוח מתוכננים ביום זה."}</Text>
             {selected.kind === "cardio" ? <Pressable onPress={() => startForSelectedDate("cardio")} style={styles.primarySmall}><Text style={styles.primarySmallText}>פתח אירובי</Text></Pressable> : null}
-            {selectedSessions.all.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} cardio={isCardioWorkoutTemplate(session.templateId)} />)}
+            {selectedSessions.all.map((session) => <SessionRow key={session.id} session={session} name={sessionName(session)} onOpen={() => openCompletedSession(session.id)} onEditDate={() => openCompletedSession(session.id, true)} cardio={isCardioWorkoutTemplate(session.templateId)} />)}
           </View>}
 
           <View style={styles.changeBox}>
@@ -223,9 +226,9 @@ export default function ScheduleScreen() {
   );
 }
 
-function SessionRow({ session, name, onOpen, cardio = false }: { session: WorkoutSession; name: string; onOpen: () => void; cardio?: boolean }) {
+function SessionRow({ session, name, onOpen, onEditDate, cardio = false }: { session: WorkoutSession; name: string; onOpen: () => void; onEditDate: () => void; cardio?: boolean }) {
   const completed = session.sets.filter((set) => set.completed).length;
-  return <Pressable accessibilityRole="button" onPress={onOpen} style={[styles.sessionRow, cardio && styles.sessionRowCardio]}><View><Text style={styles.sessionRowMeta}>{sessionTime(session)} · {completed}/{session.sets.length} {cardio ? "מקטעים" : "סטים"}</Text><Text style={styles.sessionRowName}>{name}</Text></View><Text style={styles.sessionEdit}>הצג מה בוצע ›</Text></Pressable>;
+  return <View style={[styles.sessionRow, cardio && styles.sessionRowCardio]}><Pressable accessibilityRole="button" onPress={onOpen} style={{ flex: 1 }}><View><Text style={styles.sessionRowMeta}>{sessionTime(session)} · {completed}/{session.sets.length} {cardio ? "מקטעים" : "סטים"}</Text><Text style={styles.sessionRowName}>{name}</Text></View><Text style={styles.sessionEdit}>הצג מה בוצע ›</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`ערוך תאריך של ${name}`} onPress={onEditDate} style={{ borderColor: "#65BDF6", borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 7, marginRight: 8 }}><Text style={{ color: "#8FD3F4", fontSize: 10, fontWeight: "900" }}>ערוך תאריך</Text></Pressable></View>;
 }
 
 function ExercisePreview({ template }: { template: WorkoutTemplate }) {
@@ -244,7 +247,7 @@ function TemplateEditor({ template, onNameChange, onTargetChange, onAddSet, onRe
 const styles = StyleSheet.create({
   content: { gap: 14, paddingBottom: 40 }, heading: { alignItems: "flex-end", gap: 5 }, eyebrow: { color: "#F5B72C", fontWeight: "900", fontSize: 12 }, title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900", textAlign: "right" }, subtitle: { color: "#AAB7C8", fontSize: 12, textAlign: "right" },
   weekHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", backgroundColor: "#16233A", borderColor: "#8A6B20", borderWidth: 1, borderRadius: 16, padding: 10 }, weekTitle: { color: "#F7F9FC", fontSize: 16, fontWeight: "900", textAlign: "center" }, weekRange: { color: "#AAB7C8", fontSize: 11, textAlign: "center", marginTop: 3 }, navButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#253653", alignItems: "center", justifyContent: "center" }, navText: { color: "#F5B72C", fontSize: 28, lineHeight: 30 },
-  days: { gap: 8 }, dayCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 14, padding: 12, alignItems: "flex-end", gap: 3 }, dayCardActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" }, dayRest: { borderColor: "#715B6A" }, dayCardio: { borderColor: "#3D806D" }, dayCardHeading: { width: "100%", flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, dayName: { color: "#AAB7C8", fontSize: 10, fontWeight: "800" }, dayDate: { color: "#7E8DA4", fontSize: 10 }, dayDateActive: { color: "#3B2D05" }, dayLabel: { color: "#F7F9FC", fontSize: 16, fontWeight: "900" }, dayLabelActive: { color: "#0B1224" }, dayFocus: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, dayFocusActive: { color: "#3B2D05" }, cardioAttached: { color: "#57E0BD", fontSize: 10, fontWeight: "900", marginTop: 2 }, cardioAttachedActive: { color: "#26473C" }, daySessions: { color: "#6DE3C3", fontSize: 10, fontWeight: "900", marginTop: 3 }, daySessionsActive: { color: "#3B2D05" },
+  days: { gap: 8 }, dayCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 14, padding: 12, alignItems: "flex-end", gap: 3 }, dayCardActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" }, dayCompleted: { backgroundColor: "#123B31", borderColor: "#55D69C" }, dayPending: { backgroundColor: "#3A1F27", borderColor: "#F05252" }, dayRest: { borderColor: "#715B6A" }, dayCardio: { borderColor: "#3D806D" }, dayCardHeading: { width: "100%", flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, dayName: { color: "#AAB7C8", fontSize: 10, fontWeight: "800" }, dayDate: { color: "#7E8DA4", fontSize: 10 }, dayDateActive: { color: "#3B2D05" }, dayLabel: { color: "#F7F9FC", fontSize: 16, fontWeight: "900" }, dayLabelActive: { color: "#0B1224" }, dayFocus: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, dayFocusActive: { color: "#3B2D05" }, cardioAttached: { color: "#57E0BD", fontSize: 10, fontWeight: "900", marginTop: 2 }, cardioAttachedActive: { color: "#26473C" }, daySessions: { color: "#6DE3C3", fontSize: 10, fontWeight: "900", marginTop: 3 }, dayStatusCompleted: { color: "#77F0B8", fontSize: 10, fontWeight: "900", textAlign: "right" }, dayStatusPending: { color: "#FF9B9B", fontSize: 10, fontWeight: "900", textAlign: "right" }, daySessionsActive: { color: "#3B2D05" },
   detailCard: { backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 18, padding: 15, gap: 12 }, detailHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "flex-start" }, detailLabel: { color: "#F5D27A", fontSize: 11, textAlign: "right" }, detailTitle: { color: "#F7F9FC", fontSize: 22, fontWeight: "900", textAlign: "right", marginTop: 4 }, statusBadge: { color: "#0B1224", backgroundColor: "#F5B72C", borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5, fontSize: 10, fontWeight: "900" }, detailFocus: { color: "#D9E2EF", textAlign: "right", lineHeight: 18 },
   sessionSection: { backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 14, padding: 11, gap: 9 }, cardioSection: { borderColor: "#367B68", backgroundColor: "#0D201F" }, sessionHeading: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, sessionTitle: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right" }, sessionCounter: { color: "#AAB7C8", fontSize: 10, fontWeight: "800" }, actionRow: { flexDirection: "row-reverse", gap: 8 }, primarySmall: { flex: 1, backgroundColor: "#F5B72C", borderRadius: 11, paddingVertical: 11, alignItems: "center" }, primarySmallText: { color: "#0B1224", fontSize: 11, fontWeight: "900" }, secondarySmall: { flex: 1, borderColor: "#5E7CA5", borderWidth: 1, borderRadius: 11, paddingVertical: 11, alignItems: "center" }, secondarySmallActive: { backgroundColor: "#253653" }, secondarySmallText: { color: "#D9E2EF", fontSize: 11, fontWeight: "800" }, templateSummary: { backgroundColor: "#16233A", borderRadius: 12, padding: 11, gap: 3 }, templateSummaryTitle: { color: "#F5B72C", fontWeight: "900", textAlign: "right" }, templateSummaryMeta: { color: "#AAB7C8", fontSize: 10, textAlign: "right" },
   sessionRow: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", backgroundColor: "#16233A", borderColor: "#31425E", borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9 }, sessionRowCardio: { backgroundColor: "#102E2A", borderColor: "#367B68" }, sessionRowName: { color: "#F7F9FC", fontSize: 12, fontWeight: "900", textAlign: "right" }, sessionRowMeta: { color: "#AAB7C8", fontSize: 10, textAlign: "right", marginTop: 2 }, sessionEdit: { color: "#F5D27A", fontSize: 11, fontWeight: "900" },
