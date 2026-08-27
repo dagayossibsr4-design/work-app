@@ -2259,6 +2259,7 @@ export default function MealPlanScreen() {
             const eatenFoodsCount = meal.foods.filter((food) => eaten[food.id]).length;
             const hasEatenFoods = eatenFoodsCount > 0;
             const isMealFullyEaten = meal.foods.length > 0 && eatenFoodsCount === meal.foods.length;
+            const isMealPartiallyEaten = hasEatenFoods && !isMealFullyEaten;
             const previous = meals
               .slice(0, mealIndex + 1)
               .reduce((sum, current) => sum + mealTotals(current).calories, 0);
@@ -2278,12 +2279,12 @@ export default function MealPlanScreen() {
                   styles.meal,
                   isMealExpanded && styles.mealActive,
                   isMealFullyEaten && { borderColor: "#55D69C", backgroundColor: "#123B31" },
-                  hasEatenFoods && !isMealFullyEaten && { borderColor: "#3FC28A", backgroundColor: "#102F2A" },
+                  isMealPartiallyEaten && { borderColor: "#F05252", backgroundColor: "#3A1F27" },
                 ]}
               >
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${meal.title}, ${isMealExpanded ? "פתוח" : `סגור. ${Math.round(total.calories)} קלוריות, ${roundedProtein} גרם חלבון, ${roundedCarbohydrates} גרם פחמימות, ${roundedFats} גרם שומן`}${isMealFullyEaten ? ". הארוחה נאכלה במלואה" : hasEatenFoods ? `. ${eatenFoodsCount} מתוך ${meal.foods.length} רכיבים סומנו כנאכלים` : ""}. לחץ כדי ${isMealExpanded ? "לסגור" : "לפתוח"}`}
+                  accessibilityLabel={`${meal.title}, ${isMealExpanded ? "פתוח" : `סגור. ${Math.round(total.calories)} קלוריות, ${roundedProtein} גרם חלבון, ${roundedCarbohydrates} גרם פחמימות, ${roundedFats} גרם שומן`}${isMealFullyEaten ? ". הארוחה נאכלה במלואה" : isMealPartiallyEaten ? `. ${eatenFoodsCount} מתוך ${meal.foods.length} רכיבים סומנו כנאכלים` : ""}. לחץ כדי ${isMealExpanded ? "לסגור" : "לפתוח"}`}
                   accessibilityState={{ expanded: isMealExpanded }}
                   onPress={() => toggleMeal(meal.id)}
                   style={({ pressed }) => [
@@ -2297,8 +2298,8 @@ export default function MealPlanScreen() {
                       ? `${Math.round(total.calories)} קק״ל · מצטבר ${Math.round(previous)}`
                       : `${Math.round(total.calories)} קק״ל · חלבון ${roundedProtein} ג׳`}
                   </Text>
-                  {isMealFullyEaten ? <Text style={{ color: "#77F0B8", fontSize: 13, fontWeight: "900", textAlign: "right", marginTop: 3 }}>✓ הארוחה נאכלה</Text> : hasEatenFoods ? <Text style={{ color: "#93E5C0", fontSize: 11, fontWeight: "900", textAlign: "right", marginTop: 3 }}>◐ נאכל חלקית: {eatenFoodsCount}/{meal.foods.length}</Text> : null}
-                  {!isMealExpanded ? <Text style={{ color: hasEatenFoods ? "#93E5C0" : "#9DA9BB", fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 3 }}>פחמ׳ {roundedCarbohydrates} ג׳ · שומן {roundedFats} ג׳{hasEatenFoods ? ` · נאכל ${eatenFoodsCount}/${meal.foods.length}` : ""}</Text> : null}
+                  {isMealFullyEaten ? <Text style={{ color: "#77F0B8", fontSize: 13, fontWeight: "900", textAlign: "right", marginTop: 3 }}>✓ הארוחה נאכלה</Text> : isMealPartiallyEaten ? <Text style={{ color: "#FF9B9B", fontSize: 11, fontWeight: "900", textAlign: "right", marginTop: 3 }}>◐ נאכל חלקית: {eatenFoodsCount}/{meal.foods.length}</Text> : null}
+                  {!isMealExpanded ? <Text style={{ color: isMealFullyEaten ? "#93E5C0" : isMealPartiallyEaten ? "#FF9B9B" : "#9DA9BB", fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 3 }}>פחמ׳ {roundedCarbohydrates} ג׳ · שומן {roundedFats} ג׳{hasEatenFoods ? ` · נאכל ${eatenFoodsCount}/${meal.foods.length}` : ""}</Text> : null}
                   <View style={styles.mealTitleRow}>
                     <Text style={[styles.mealTitle, isMealExpanded && styles.mealTitleActive]}>{meal.title}</Text>
                     <View style={[styles.mealFoodCountBadge, isMealExpanded && styles.mealFoodCountBadgeActive]}><Text style={[styles.mealFoodCountText, isMealExpanded && styles.mealFoodCountTextActive]}>{meal.foods.length} {meal.foods.length === 1 ? "רכיב" : "רכיבים"}</Text></View>
