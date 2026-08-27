@@ -14,6 +14,7 @@ export default function RegisterScreen() {
   const [error, setError] = useState("");
   const [isSignedIn, setIsSignedIn] = useState(false);
   const incomingUrl = Linking.useURL();
+  const goHome = () => router.replace("/(tabs)" as never);
 
   useEffect(() => {
     if (!supabase) return;
@@ -33,7 +34,10 @@ export default function RegisterScreen() {
         return;
       }
       setMessage("החשבון התחבר ונשמר בדפדפן זה.");
-      void client.auth.getSession().then(({ data }) => setIsSignedIn(Boolean(data.session)));
+      void client.auth.getSession().then(({ data }) => {
+        setIsSignedIn(Boolean(data.session));
+        if (data.session) goHome();
+      });
     });
   }, [incomingUrl]);
 
@@ -73,7 +77,7 @@ export default function RegisterScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>הסנכרון פעיל</Text>
             <Text style={styles.note}>נתוני החשבון נטענים ונשמרים באופן פרטי תחת המשתמש המחובר.</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הבית" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הבית" onPress={goHome} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
               <Text style={styles.primaryText}>חזרה למסך הבית</Text>
             </Pressable>
           </View>
@@ -102,7 +106,7 @@ export default function RegisterScreen() {
           </View>
         )}
 
-        <Pressable accessibilityRole="button" accessibilityLabel="המשך בלי חשבון" onPress={() => router.replace("/" as never)} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="המשך בלי חשבון" onPress={goHome} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
           <Text style={styles.secondaryText}>המשך בלי חשבון</Text>
         </Pressable>
         <Text style={styles.privacy}>בלי חשבון הנתונים נשמרים במכשיר בלבד. עם חשבון Supabase, מצב האימונים והתזונה מסתנכרן באופן פרטי בין מכשירים.</Text>
