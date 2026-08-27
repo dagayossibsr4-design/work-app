@@ -18,8 +18,16 @@ export default function RegisterScreen() {
 
   useEffect(() => {
     if (!supabase) return;
-    void supabase.auth.getSession().then(({ data }) => setIsSignedIn(Boolean(data.session)));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setIsSignedIn(Boolean(session)));
+    void supabase.auth.getSession().then(({ data }) => {
+      const sessionExists = Boolean(data.session);
+      setIsSignedIn(sessionExists);
+      if (sessionExists) goHome();
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const sessionExists = Boolean(session);
+      setIsSignedIn(sessionExists);
+      if (sessionExists) goHome();
+    });
     return () => listener.subscription.unsubscribe();
   }, []);
 
