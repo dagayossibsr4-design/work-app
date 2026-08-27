@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { completedWorkoutHistoryRoute } from "@/lib/completed-workout-route";
 import { isCardioWorkoutTemplate, splitSessionsForWorkoutDate, useWorkoutStore, type WorkoutSession } from "@/lib/workout-store";
 import { completedSessionForScheduleDay } from "@/lib/schedule-session";
 import type { WorkoutId, WorkoutTemplate } from "@/lib/workout-data";
@@ -120,7 +121,7 @@ export default function ScheduleScreen() {
     startWorkoutOnDate(templateId, selected.date);
     router.push({ pathname: "/active-workout", params: { templateId, scheduledDate: selected.date } } as never);
   };
-  const openCompletedSession = (sessionId: string, editDate = false) => router.push({ pathname: "/(tabs)/history", params: { sessionId, ...(editDate ? { editDate: "1" } : {}) } } as never);
+  const openCompletedSession = (sessionId: string, editDate = false) => router.push(completedWorkoutHistoryRoute(sessionId, editDate ? { editDate: "1" } : undefined) as never);
   const sessionName = (session: WorkoutSession) => templates.find((item) => item.id === session.templateId)?.name ?? "אימון ללא שם";
   const openDay = (day: ScheduledDay) => {
     const completedSession = completedSessionForScheduleDay(sessions, day.date, day.kind);

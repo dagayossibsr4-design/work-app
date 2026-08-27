@@ -74,6 +74,10 @@ export type WorkoutSession = {
   startedAt: string;
   finishedAt?: string;
   sets: SetLog[];
+  /** סדר תצוגה ייחודי לאימון שהושלם, ללא שינוי תבנית האימון הקבועה. */
+  exerciseOrder?: string[];
+  /** שמות תרגילים ייחודיים לאימון שהושלם, ללא שינוי תבנית האימון הקבועה. */
+  exerciseNames?: Record<string, string>;
 };
 
 export const CARDIO_WORKOUT_TEMPLATE_IDS = new Set(["cardio", "cycling", "elliptical", "stairs", "treadmill", "outdoor-run", "walking", "rowing", "swimming", "hiit"]);
@@ -123,17 +127,21 @@ type WorkoutContextValue = {
   updateTemplate: (templateId: WorkoutId, patch: Partial<WorkoutTemplate>) => void;
   addCustomTemplate: (template: WorkoutTemplate) => void;
   addExercise: (templateId: WorkoutId) => void;
+  addExerciseAfter: (templateId: WorkoutId, afterExerciseId: string) => void;
   addCustomExercise: (templateId: WorkoutId, name: string, englishName?: string) => void;
   addExerciseFromLibrary: (templateId: WorkoutId, item: ExerciseLibraryItem) => void;
   replaceExerciseFromLibrary: (templateId: WorkoutId, exerciseId: string, item: ExerciseLibraryItem) => void;
   replaceActiveExerciseFromLibrary: (exerciseId: string, item: ExerciseLibraryItem) => void;
   addExerciseToActiveWorkout: (item: ExerciseLibraryItem) => void;
+  addExerciseToActiveWorkoutAfter: (item: ExerciseLibraryItem, afterExerciseId: string) => void;
   addCustomExerciseToActiveWorkout: (name: string, englishName?: string) => void;
+  addCustomExerciseToActiveWorkoutAfter: (name: string, englishName: string | undefined, afterExerciseId: string) => void;
   duplicateActiveExercise: (exerciseId: string) => void;
   addSetToActiveExercise: (exerciseId: string) => void;
   duplicateActiveSet: (setId: string) => void;
   removeSetFromActiveExercise: (setId: string) => void;
   removeExerciseFromActiveWorkout: (exerciseId: string) => void;
+  moveActiveExercise: (exerciseId: string, direction: -1 | 1) => void;
   saveCardioLog: (log: Omit<CardioLog, "id">) => void;
   updateNutritionProfile: (profile: NutritionProfile) => void;
   updateExercise: (templateId: WorkoutId, exerciseId: string, patch: Partial<ExerciseTemplate>) => void;
@@ -307,6 +315,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       : AsyncStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
     void operation.catch(() => undefined);
   };
+  const persistTemplatesImmediately = (next: WorkoutTemplate[]) => {
+    void AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(next)).catch(() => undefined);
+  };
   const updateSet = (setId: string, patch: Partial<SetLog>) => setActiveSession((current) => {
     if (!current) return current;
     const next = { ...current, sets: current.sets.map((set) => set.id === setId ? { ...set, ...patch } : set) };
@@ -349,6 +360,13 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const updateTemplate = (templateId: WorkoutId, patch: Partial<WorkoutTemplate>) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, ...patch } : template));
   const addCustomTemplate = (template: WorkoutTemplate) => setTemplates((current) => [...current, template]);
   const addExercise = (templateId: WorkoutId) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: [...template.exercises, { id: `exercise-${Date.now()}`, name: "תרגיל חדש", englishName: "New Exercise", sets: [{ target: "8–12" }, { target: "10–15" }] }] } : template));
+  const addExerciseAfter = (templateId: WorkoutId, afterExerciseId: string) => setTemplates((current) => current.map((template) => {
+    if (template.id !== templateId) return template;
+    const nextExercise = { id: `exercise-${Date.now()}`, name: "תרגיל חדש", englishName: "New Exercise", sets: [{ target: "8–12" }, { target: "10–15" }] };
+    const index = template.exercises.findIndex((exercise) => exercise.id === afterExerciseId);
+    if (index < 0) return { ...template, exercises: [...template.exercises, nextExercise] };
+    return { ...template, exercises: [...template.exercises.slice(0, index + 1), nextExercise, ...template.exercises.slice(index + 1)] };
+  }));
   const addCustomExercise = (templateId: WorkoutId, name: string, englishName = "") => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
@@ -360,19 +378,58 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (!activeSession) return;
     replaceExerciseFromLibrary(activeSession.templateId, exerciseId, item);
   };
-  const addExerciseToActiveWorkout = (item: ExerciseLibraryItem) => {
+  const insertExerciseIntoActiveWorkout = (nextExercise: ExerciseTemplate, afterExerciseId?: string) => {
     if (!activeSession) return;
+    const activeTemplateId = activeSession.templateId;
+    setTemplates((current) => {
+      const nextTemplates = current.map((template) => {
+        if (template.id !== activeTemplateId) return template;
+        const index = afterExerciseId ? template.exercises.findIndex((exercise) => exercise.id === afterExerciseId) : -1;
+        const exercises = index >= 0
+          ? [...template.exercises.slice(0, index + 1), nextExercise, ...template.exercises.slice(index + 1)]
+          : [...template.exercises, nextExercise];
+        return { ...template, exercises };
+      });
+      persistTemplatesImmediately(nextTemplates);
+      return nextTemplates;
+    });
+    setActiveSession((current) => {
+      if (!current || current.templateId !== activeTemplateId) return current;
+      const next = {
+        ...current,
+        sets: [...current.sets, ...nextExercise.sets.map((set, index) => ({
+          id: `${current.id}-${nextExercise.id}-${index + 1}`,
+          exerciseId: nextExercise.id,
+          setNumber: index + 1,
+          weight: "",
+          reps: "",
+          completed: false,
+          target: set.target,
+        }))],
+      };
+      persistActiveSessionImmediately(next);
+      return next;
+    });
+  };
+  const addExerciseToActiveWorkout = (item: ExerciseLibraryItem) => {
     const exerciseId = `${item.id}-active-${Date.now()}`;
-    setTemplates((current) => current.map((template) => template.id !== activeSession.templateId ? template : { ...template, exercises: [...template.exercises, { id: exerciseId, name: item.name, englishName: item.englishName, note: item.note, sets: [{ target: item.defaultTarget }, { target: item.defaultTarget }] }] }));
-    setActiveSession((current) => current ? { ...current, sets: [...current.sets, ...[1, 2].map((setNumber) => ({ id: `${current.id}-${exerciseId}-${setNumber}`, exerciseId, setNumber, weight: "", reps: "", completed: false }))] } : current);
+    insertExerciseIntoActiveWorkout({ id: exerciseId, name: item.name, englishName: item.englishName, note: item.note, sets: [{ target: item.defaultTarget }, { target: item.defaultTarget }] });
+  };
+  const addExerciseToActiveWorkoutAfter = (item: ExerciseLibraryItem, afterExerciseId: string) => {
+    const exerciseId = `${item.id}-active-${Date.now()}`;
+    insertExerciseIntoActiveWorkout({ id: exerciseId, name: item.name, englishName: item.englishName, note: item.note, sets: [{ target: item.defaultTarget }, { target: item.defaultTarget }] }, afterExerciseId);
   };
   const addCustomExerciseToActiveWorkout = (name: string, englishName = "") => {
     const trimmedName = name.trim();
-    if (!activeSession || !trimmedName) return;
+    if (!trimmedName) return;
     const exerciseId = `custom-active-exercise-${Date.now()}`;
-    const nextExercise = { id: exerciseId, name: trimmedName, englishName: englishName.trim() || undefined, note: "תרגיל מותאם אישית", sets: [{ target: "8–12" }, { target: "10–15" }] };
-    setTemplates((current) => current.map((template) => template.id === activeSession.templateId ? { ...template, exercises: [...template.exercises, nextExercise] } : template));
-    setActiveSession((current) => current ? { ...current, sets: [...current.sets, ...nextExercise.sets.map((set, index) => ({ id: `${current.id}-${exerciseId}-${index + 1}`, exerciseId, setNumber: index + 1, weight: "", reps: "", completed: false, target: set.target }))] } : current);
+    insertExerciseIntoActiveWorkout({ id: exerciseId, name: trimmedName, englishName: englishName.trim() || undefined, note: "תרגיל מותאם אישית", sets: [{ target: "8–12" }, { target: "10–15" }] });
+  };
+  const addCustomExerciseToActiveWorkoutAfter = (name: string, englishName: string | undefined, afterExerciseId: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    const exerciseId = `custom-active-exercise-${Date.now()}`;
+    insertExerciseIntoActiveWorkout({ id: exerciseId, name: trimmedName, englishName: englishName?.trim() || undefined, note: "תרגיל מותאם אישית", sets: [{ target: "8–12" }, { target: "10–15" }] }, afterExerciseId);
   };
   const removeSetFromActiveExercise = (setId: string) => {
     if (!activeSession) return;
@@ -386,6 +443,23 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (!activeSession) return;
     setTemplates((current) => current.map((item) => item.id !== activeSession.templateId ? item : { ...item, exercises: item.exercises.filter((exercise) => exercise.id !== exerciseId) }));
     setActiveSession((current) => current ? { ...current, sets: current.sets.filter((set) => set.exerciseId !== exerciseId) } : current);
+  };
+  const moveActiveExercise = (exerciseId: string, direction: -1 | 1) => {
+    if (!activeSession) return;
+    const activeTemplateId = activeSession.templateId;
+    setTemplates((current) => {
+      const nextTemplates = current.map((template) => {
+        if (template.id !== activeTemplateId) return template;
+        const index = template.exercises.findIndex((exercise) => exercise.id === exerciseId);
+        const targetIndex = index + direction;
+        if (index < 0 || targetIndex < 0 || targetIndex >= template.exercises.length) return template;
+        const exercises = [...template.exercises];
+        [exercises[index], exercises[targetIndex]] = [exercises[targetIndex], exercises[index]];
+        return { ...template, exercises };
+      });
+      persistTemplatesImmediately(nextTemplates);
+      return nextTemplates;
+    });
   };
   const duplicateActiveExercise = (exerciseId: string) => {
     if (!activeSession) return;
@@ -448,7 +522,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({
     sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated,
     startWorkout, startWorkoutOnDate, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
-    updateTemplate, addCustomTemplate, addExercise, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addCustomExerciseToActiveWorkout, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState,
+    updateTemplate, addCustomTemplate, addExercise, addExerciseAfter, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addExerciseToActiveWorkoutAfter, addCustomExerciseToActiveWorkout, addCustomExerciseToActiveWorkoutAfter, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, moveActiveExercise, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState,
   }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, hydrated]);
   return <WorkoutContext.Provider value={value}>{children}</WorkoutContext.Provider>;
 }
