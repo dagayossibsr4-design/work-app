@@ -143,7 +143,8 @@ export function filterSupplementsForDay<T extends { name: string }>(
   selectedNames: readonly string[],
   showAll: boolean,
 ): T[] {
-  if (showAll || selectedNames.length === 0) return [...supplements];
+  if (showAll) return [...supplements];
+  if (selectedNames.length === 0) return [];
   const selected = new Set(selectedNames);
   return supplements.filter((supplement) => selected.has(supplement.name));
 }
