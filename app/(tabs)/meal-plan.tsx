@@ -103,7 +103,7 @@ import {
   type SupplementReminderSettings,
 } from "@/lib/supplement-reminder-types";
 import { buildImmediateMealSave } from "@/lib/meal-plan-immediate-save";
-import { CYCLE_STORAGE_KEY, cycleWeekdays, normalizeCycleRecords, renameCycleRecords, type CycleRecord } from "@/lib/cycle-tracking";
+import { CYCLE_STORAGE_KEY, cycleDateRangeLabel, cycleWeekdays, normalizeCycleRecords, renameCycleRecords, type CycleRecord } from "@/lib/cycle-tracking";
 import {
   createCustomSupplementDefinition,
   createMealSupplementEntry,
@@ -3502,7 +3502,7 @@ export default function MealPlanScreen() {
             <View style={styles.cycleSummaryHeader}><Text style={styles.cycleSummaryTitle}>סיכום מחזורי תיעוד</Text><Pressable onPress={() => router.push("/cycle-tracking" as never)} style={styles.cycleSummaryButton}><Text style={styles.cycleSummaryButtonText}>עריכה</Text></Pressable></View>
             {cycleRecords.length ? cycleRecords.map((cycle) => <View key={cycle.id} style={styles.cycleSummaryRow}>
               {cycleNameEditingId === cycle.id ? <View style={styles.cycleNameEditor}><TextInput autoFocus value={cycleNameDraft} onChangeText={setCycleNameDraft} placeholder="שם המחזור" placeholderTextColor="#7E8DA4" style={styles.cycleNameInput} textAlign="right" returnKeyType="done" onSubmitEditing={() => void saveCycleName()} /><View style={styles.cycleNameActions}><Pressable onPress={() => void saveCycleName()} style={styles.cycleNameSave}><Text style={styles.cycleNameSaveText}>שמור</Text></Pressable><Pressable onPress={cancelCycleNameEdit} style={styles.cycleNameCancel}><Text style={styles.cycleNameCancelText}>ביטול</Text></Pressable></View></View> : <View style={styles.cycleSummaryNameLine}><Text style={styles.cycleSummaryName}>{cycle.name}</Text><Pressable onPress={() => beginCycleNameEdit(cycle)} style={styles.cycleRenameButton}><Text style={styles.cycleRenameText}>שנה שם</Text></Pressable></View>}
-              <Text style={styles.cycleSummaryMeta}>ימים: {cycle.selectedDays.map((day) => cycleWeekdays[day]).join(", ")}</Text><Text style={styles.cycleSummaryMaterials}>{[...new Set(Object.values(cycle.materialsByDay).flat())].join(" · ") || "ללא חומרים מסומנים"}</Text>
+              <Text style={styles.cycleSummaryMeta}>תאריכים: {cycleDateRangeLabel(cycle)}</Text><Text style={styles.cycleSummaryMeta}>ימים: {cycle.selectedDays.map((day) => cycleWeekdays[day]).join(", ")}</Text><Text style={styles.cycleSummaryMaterials}>{[...new Set(Object.values(cycle.materialsByDay).flat())].join(" · ") || "ללא חומרים מסומנים"}</Text>
             </View>) : <Text style={styles.cycleSummaryEmpty}>עדיין לא נוצר מחזור תיעוד.</Text>}
             {cycleNameStatus ? <Text style={styles.cycleSummaryStatus}>{cycleNameStatus}</Text> : null}
             <Pressable onPress={() => router.push("/cycle-tracking" as never)} style={styles.cycleSummaryAdd}><Text style={styles.cycleSummaryAddText}>＋ יצירת מחזור נוסף</Text></Pressable>

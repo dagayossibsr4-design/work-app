@@ -18,6 +18,12 @@ export function renameCycleRecords(records: CycleRecord[], id: string, name: str
   return records.map((cycle) => (cycle.id === id ? { ...cycle, name: trimmedName } : cycle));
 }
 
+export function cycleDateRangeLabel(cycle: Pick<CycleRecord, "startDate" | "endDate">): string {
+  const start = cycle.startDate.trim() || "ללא התחלה";
+  const end = cycle.endDate.trim() || "ללא סיום";
+  return `${start} עד ${end}`;
+}
+
 export function normalizeCycleRecords(input: unknown): CycleRecord[] {
   if (!Array.isArray(input)) return [];
   return input.map((raw, index) => {
