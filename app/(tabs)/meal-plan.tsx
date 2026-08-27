@@ -105,9 +105,11 @@ import {
 import { buildImmediateMealSave } from "@/lib/meal-plan-immediate-save";
 import { CYCLE_STORAGE_KEY, cycleWeekdays, normalizeCycleRecords, renameCycleRecords, type CycleRecord } from "@/lib/cycle-tracking";
 import {
+  createCustomSupplementDefinition,
   createMealSupplementEntry,
   filterSupplementsForDay,
   mealMenuSupplements,
+  normalizeCustomSupplementNames,
   normalizeMealSupplementSelections,
   supplementUnits,
   type MealSupplementSelections,
@@ -210,6 +212,9 @@ export default function MealPlanScreen() {
   const [supplementTargets, setSupplementTargets] = useState<Record<string, number>>({});
   const [supplementDailyIntake, setSupplementDailyIntake] = useState<Record<string, number>>({});
   const [supplementsShowAll, setSupplementsShowAll] = useState(false);
+  const [customSupplementNames, setCustomSupplementNames] = useState<string[]>([]);
+  const [quickSupplementModalOpen, setQuickSupplementModalOpen] = useState(false);
+  const [quickSupplementName, setQuickSupplementName] = useState("");
   const [cycleRecords, setCycleRecords] = useState<CycleRecord[]>([]);
   const [cycleNameEditingId, setCycleNameEditingId] = useState<string | null>(null);
   const [cycleNameDraft, setCycleNameDraft] = useState("");
@@ -240,6 +245,15 @@ export default function MealPlanScreen() {
   const [mealConversionId, setMealConversionId] = useState<string | null>(null);
   const [mealConversionSelection, setMealConversionSelection] = useState<Record<string, ConversionFood | null>>({});
   const manualMealEditRef = useRef(false);
+  const availableSupplementMenu = useMemo(
+    () => [
+      ...mealMenuSupplements,
+      ...customSupplementNames
+        .filter((name) => !mealMenuSupplements.some((supplement) => supplement.name === name))
+        .map(createCustomSupplementDefinition),
+    ],
+    [customSupplementNames],
+  );
   useEffect(() => {
     AsyncStorage.getItem(CYCLE_STORAGE_KEY).then((raw) => {
       if (raw) setCycleRecords(normalizeCycleRecords(JSON.parse(raw)));
@@ -312,6 +326,7 @@ export default function MealPlanScreen() {
       AsyncStorage.getItem("meal-plan-saved-meals"),
       AsyncStorage.getItem("meal-plan-supplements"),
       AsyncStorage.getItem("meal-plan-supplements-history"),
+      AsyncStorage.getItem("meal-plan-custom-supplements"),
       AsyncStorage.getItem("supplement-daily-targets-v1"),
       AsyncStorage.getItem("supplement-daily-intake-v1"),
       AsyncStorage.getItem("meal-plan-defaults-v100"),
@@ -330,6 +345,7 @@ export default function MealPlanScreen() {
           savedMealsValue,
           supplementsValue,
           supplementsHistoryValue,
+          customSupplementsValue,
           supplementTargetsValue,
           supplementDailyIntakeValue,
           defaultsVersion,
@@ -411,9 +427,16 @@ export default function MealPlanScreen() {
             const savedIntake = JSON.parse(supplementDailyIntakeValue) as Record<string, number>;
             setSupplementDailyIntake(Object.fromEntries(Object.entries(savedIntake).filter(([, value]) => Number(value) >= 0).map(([key, value]) => [key, Math.floor(Number(value))])));
           }
+          const savedCustomSupplementNames = customSupplementsValue
+            ? normalizeCustomSupplementNames(JSON.parse(customSupplementsValue))
+            : [];
+          setCustomSupplementNames(savedCustomSupplementNames);
           if (supplementsValue) {
             const savedSupplements = normalizeMealSupplementSelections(JSON.parse(supplementsValue));
-            const knownNames = new Set(mealMenuSupplements.map((supplement) => supplement.name));
+            const knownNames = new Set([
+              ...mealMenuSupplements.map((supplement) => supplement.name),
+              ...savedCustomSupplementNames,
+            ]);
             const normalizedSupplements = Object.fromEntries(
               Object.entries(savedSupplements).map(([mealId, entries]) => [
                 mealId,
@@ -501,6 +524,7 @@ export default function MealPlanScreen() {
         ["meal-plan-saved-meals", JSON.stringify(savedMeals)],
         ["meal-plan-supplements", JSON.stringify(selectedSupplements)],
         ["meal-plan-supplements-history", JSON.stringify(supplementHistoryByDate)],
+        ["meal-plan-custom-supplements", JSON.stringify(customSupplementNames)],
         ["supplement-daily-targets-v1", JSON.stringify(supplementTargets)],
         ["supplement-daily-intake-v1", JSON.stringify(supplementDailyIntake)],
         ["nutrition-water-history", JSON.stringify(waterHistory)],
@@ -521,6 +545,7 @@ export default function MealPlanScreen() {
     savedMeals,
     selectedSupplements,
     supplementHistoryByDate,
+    customSupplementNames,
     supplementTargets,
     supplementDailyIntake,
     waterHistory,
@@ -1065,7 +1090,9 @@ export default function MealPlanScreen() {
   // והגרף משתנים בין מה שתוכנן לבין מה שסומן כנאכל בפועל.
   const displayedTotals = viewMode === "planned" ? totals : consumed;
   const summaryPrefix = viewMode === "planned" ? "מתוכנן" : "נאכל";
-  const activeSupplementSelections = supplementHistoryByDate[selectedDate] ?? selectedSupplements;
+  const activeSupplementSelections = selectedDate === todayKey()
+    ? selectedSupplements
+    : (supplementHistoryByDate[selectedDate] ?? {});
   const dailySupplementEntries = useMemo(
     () => meals.flatMap((meal) =>
       (activeSupplementSelections[meal.id] ?? []).map((entry) => ({ ...entry, mealTitle: meal.title })),
@@ -1077,9 +1104,31 @@ export default function MealPlanScreen() {
     [dailySupplementEntries],
   );
   const visibleDailySupplements = useMemo(
-    () => filterSupplementsForDay(mealMenuSupplements, dailySupplementNames, supplementsShowAll),
-    [dailySupplementNames, supplementsShowAll],
+    () => filterSupplementsForDay(availableSupplementMenu, dailySupplementNames, supplementsShowAll),
+    [availableSupplementMenu, dailySupplementNames, supplementsShowAll],
   );
+  const quickSupplementOptions = useMemo(
+    () => availableSupplementMenu.filter((supplement) => !dailySupplementNames.includes(supplement.name)),
+    [availableSupplementMenu, dailySupplementNames],
+  );
+  const addQuickSupplement = () => {
+    const name = quickSupplementName.trim().slice(0, 50);
+    const firstMealId = meals[0]?.id;
+    if (!name || !firstMealId) return;
+    const isBuiltIn = mealMenuSupplements.some((supplement) => supplement.name === name);
+    if (!isBuiltIn) {
+      setCustomSupplementNames((current) => current.includes(name) ? current : [...current, name]);
+    }
+    setSelectedSupplements((current) => {
+      const selected = current[firstMealId] ?? [];
+      if (selected.some((entry) => entry.name === name)) return current;
+      return { ...current, [firstMealId]: [...selected, createMealSupplementEntry(name)] };
+    });
+    setSupplementTargets((current) => current[name] ? current : { ...current, [name]: 1 });
+    setQuickSupplementName("");
+    setQuickSupplementModalOpen(false);
+    setSupplementsShowAll(false);
+  };
   useEffect(() => {
     if (!hydrated || selectedDate !== todayKey()) return;
     AsyncStorage.getItem("nutrition-daily-history")
@@ -2958,7 +3007,7 @@ export default function MealPlanScreen() {
                         </Text>
                       ))}
                     </View>
-                    {mealMenuSupplements.map((supplement) => {
+                    {availableSupplementMenu.map((supplement) => {
                       const selectedEntry = selectedMealSupplements.find((entry) => entry.name === supplement.name);
                       const isSelected = Boolean(selectedEntry);
                       return (
@@ -3490,8 +3539,58 @@ export default function MealPlanScreen() {
               );
             })}
             {!supplementsShowAll && dailySupplementNames.length === 0 ? <Text style={styles.dailySupplementsEmpty}>לא סומנו תוספים ליום הזה.</Text> : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="הוסף תוסף חדש להיום"
+              onPress={() => setQuickSupplementModalOpen(true)}
+              style={({ pressed }) => [styles.dailySupplementsQuickAdd, pressed && styles.dailySupplementsQuickAddPressed]}
+            >
+              <Text style={styles.dailySupplementsQuickAddText}>＋ הוסף תוסף להיום</Text>
+            </Pressable>
           </View>
         </View>
+        <Modal
+          transparent
+          visible={quickSupplementModalOpen}
+          animationType="fade"
+          onRequestClose={() => setQuickSupplementModalOpen(false)}
+        >
+          <View style={styles.quickSupplementBackdrop}>
+            <View style={styles.quickSupplementModal}>
+              <Text style={styles.quickSupplementTitle}>הוספה מהירה להיום</Text>
+              <Text style={styles.quickSupplementHint}>בחר תוסף מהרשימה או כתוב שם אישי. הוא יתווסף עם מונה 0.</Text>
+              <TextInput
+                value={quickSupplementName}
+                onChangeText={setQuickSupplementName}
+                placeholder="שם התוסף"
+                placeholderTextColor="#7E8DA4"
+                returnKeyType="done"
+                style={styles.quickSupplementInput}
+                textAlign="right"
+                accessibilityLabel="שם התוסף להוספה"
+              />
+              <ScrollView style={styles.quickSupplementOptions} contentContainerStyle={styles.quickSupplementOptionsContent} keyboardShouldPersistTaps="handled">
+                {quickSupplementOptions.length ? quickSupplementOptions.map((supplement) => (
+                  <Pressable
+                    key={supplement.name}
+                    onPress={() => setQuickSupplementName(supplement.name)}
+                    style={({ pressed }) => [styles.quickSupplementOption, quickSupplementName === supplement.name && styles.quickSupplementOptionSelected, pressed && styles.quickSupplementOptionPressed]}
+                  >
+                    <Text style={[styles.quickSupplementOptionText, quickSupplementName === supplement.name && styles.quickSupplementOptionTextSelected]}>{supplement.name}</Text>
+                  </Pressable>
+                )) : <Text style={styles.quickSupplementNoOptions}>כל התוספים מהרשימה כבר מסומנים להיום.</Text>}
+              </ScrollView>
+              <View style={styles.quickSupplementActions}>
+                <Pressable onPress={() => { setQuickSupplementName(""); setQuickSupplementModalOpen(false); }} style={styles.quickSupplementCancel}>
+                  <Text style={styles.quickSupplementCancelText}>ביטול</Text>
+                </Pressable>
+                <Pressable disabled={!quickSupplementName.trim() || !meals[0]} onPress={addQuickSupplement} style={[styles.quickSupplementConfirm, (!quickSupplementName.trim() || !meals[0]) && styles.quickSupplementDisabled]}>
+                  <Text style={styles.quickSupplementConfirmText}>הוסף</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
         </ScrollView>
 
     </ScreenContainer>
@@ -4395,6 +4494,28 @@ const styles = StyleSheet.create({
   dailySupplementAddText: { color: "#07111F", fontSize: 9, fontWeight: "900" },
   dailySupplementDisabled: { opacity: 0.35 },
   dailySupplementTarget: { width: 42, height: 28, borderColor: "#52759C", borderWidth: 1, borderRadius: 7, color: "#F7F9FC", fontSize: 10, textAlign: "center", paddingHorizontal: 2 },
+  dailySupplementsQuickAdd: { minHeight: 34, borderRadius: 8, borderColor: "#42D392", borderWidth: 1, backgroundColor: "#102C31", alignItems: "center", justifyContent: "center", marginTop: 2 },
+  dailySupplementsQuickAddPressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
+  dailySupplementsQuickAddText: { color: "#A7F3D0", fontSize: 10, fontWeight: "900", writingDirection: "rtl" },
+  quickSupplementBackdrop: { flex: 1, backgroundColor: "rgba(3, 10, 24, 0.76)", justifyContent: "center", padding: 18 },
+  quickSupplementModal: { backgroundColor: "#13233D", borderColor: "#42D392", borderWidth: 1, borderRadius: 16, padding: 14, gap: 9, maxHeight: "82%" },
+  quickSupplementTitle: { color: "#A7F3D0", fontSize: 17, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  quickSupplementHint: { color: "#C1CDDC", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" },
+  quickSupplementInput: { minHeight: 42, borderColor: "#5B9FE3", borderWidth: 1, borderRadius: 9, backgroundColor: "#0B1224", color: "#F7F9FC", paddingHorizontal: 11, writingDirection: "rtl" },
+  quickSupplementOptions: { maxHeight: 260 },
+  quickSupplementOptionsContent: { gap: 6, paddingVertical: 2 },
+  quickSupplementOption: { minHeight: 38, borderColor: "#3D587C", borderWidth: 1, borderRadius: 8, backgroundColor: "#10213B", justifyContent: "center", paddingHorizontal: 10 },
+  quickSupplementOptionSelected: { backgroundColor: "#1D5B4D", borderColor: "#42D392" },
+  quickSupplementOptionPressed: { opacity: 0.72 },
+  quickSupplementOptionText: { color: "#D9EEFF", fontSize: 11, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
+  quickSupplementOptionTextSelected: { color: "#A7F3D0" },
+  quickSupplementNoOptions: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl", paddingVertical: 10 },
+  quickSupplementActions: { flexDirection: "row-reverse", gap: 8, marginTop: 2 },
+  quickSupplementCancel: { flex: 1, minHeight: 40, borderColor: "#52759C", borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  quickSupplementCancelText: { color: "#D9EEFF", fontSize: 10, fontWeight: "900" },
+  quickSupplementConfirm: { flex: 1, minHeight: 40, borderRadius: 8, backgroundColor: "#42D392", alignItems: "center", justifyContent: "center" },
+  quickSupplementConfirmText: { color: "#07111F", fontSize: 10, fontWeight: "900" },
+  quickSupplementDisabled: { opacity: 0.35 },
   stickySummary: {
     position: "absolute",
     alignSelf: "flex-end",

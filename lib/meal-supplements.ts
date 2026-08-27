@@ -148,3 +148,25 @@ export function filterSupplementsForDay<T extends { name: string }>(
   const selected = new Set(selectedNames);
   return supplements.filter((supplement) => selected.has(supplement.name));
 }
+
+/** מנרמל שמות אישיים שנשמרו במכשיר, בלי כפילויות ובלי ערכים ריקים. */
+export function normalizeCustomSupplementNames(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const unique = new Set<string>();
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const name = raw.trim().slice(0, 50);
+    if (name) unique.add(name);
+  }
+  return [...unique];
+}
+
+/** ייצוג תיעודי בלבד לשם אישי; אין כאן מינון, ערכי מאקרו או המלצת שימוש. */
+export function createCustomSupplementDefinition(name: string): MealMenuSupplement {
+  return {
+    name: name.trim().slice(0, 50),
+    purpose: "תיעוד אישי בלבד — ללא ערכי מאקרו או המלצת שימוש.",
+    caution: "יש לבדוק את זהות המוצר ולהתייעץ עם איש מקצוע רפואי לפי הצורך.",
+    trackingOnly: true,
+  };
+}

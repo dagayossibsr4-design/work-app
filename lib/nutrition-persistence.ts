@@ -13,6 +13,7 @@ export const NUTRITION_PERSISTENCE_KEYS = [
   "meal-plan-saved-meals",
   "meal-plan-supplements",
   "meal-plan-supplements-history",
+  "meal-plan-custom-supplements",
   "supplement-daily-targets-v1",
   "supplement-daily-intake-v1",
   "supplement-cycles-v1",
