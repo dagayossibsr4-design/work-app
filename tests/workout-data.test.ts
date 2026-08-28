@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getTemplate, workoutTemplates } from "../lib/workout-data";
-import { calculateVolume, createDemoCompletedSessions, mergeWorkoutSessions, normalizeWorkoutSessions, restoreActiveWorkout, sortWorkoutSessionsNewestFirst, type WorkoutSession } from "../lib/workout-store";
+import { calculateVolume, copyWorkoutSetValues, createDemoCompletedSessions, mergeWorkoutSessions, normalizeWorkoutSessions, restoreActiveWorkout, sortWorkoutSessionsNewestFirst, type WorkoutSession } from "../lib/workout-store";
 import { getAccountBackupStatus, requestAccountCloudBackup, setAccountBackupStatus, subscribeAccountBackupRequests, subscribeAccountBackupStatus } from "../lib/account-backup";
 
 describe("Workout templates", () => {
@@ -61,6 +61,31 @@ describe("Workout templates", () => {
 });
 
 describe("Workout calculations", () => {
+  it("copies the previous workout values by exercise and set without marking them complete", () => {
+    const current = [{ id: "new-1", exerciseId: "legs-squat", setNumber: 1, weight: "", reps: "", completed: false }];
+    const previous = [{ id: "old-1", exerciseId: "legs-squat", setNumber: 1, weight: "120", reps: "8", completed: true, note: "שליטה בירידה", restSeconds: 120 }];
+    expect(copyWorkoutSetValues(current, previous)).toEqual([{ ...current[0], weight: "120", reps: "8", completed: false, note: "שליטה בירידה", restSeconds: 120 }]);
+  });
+
+  it("adds a selected overload increment only to numeric strength weights", () => {
+    const current = [
+      { id: "new-1", exerciseId: "squat", setNumber: 1, weight: "", reps: "", completed: false },
+      { id: "new-2", exerciseId: "row", setNumber: 1, weight: "", reps: "", completed: false },
+      { id: "new-3", exerciseId: "bodyweight", setNumber: 1, weight: "", reps: "", completed: false },
+    ];
+    const previous = [
+      { id: "old-1", exerciseId: "squat", setNumber: 1, weight: "100", reps: "8", completed: true },
+      { id: "old-2", exerciseId: "row", setNumber: 1, weight: "", reps: "12", completed: true },
+      { id: "old-3", exerciseId: "bodyweight", setNumber: 1, weight: "משקל גוף", reps: "30", completed: true },
+    ];
+    expect(copyWorkoutSetValues(current, previous, 1.25).map((set) => ({ weight: set.weight, reps: set.reps, completed: set.completed }))).toEqual([
+      { weight: "101.25", reps: "8", completed: false },
+      { weight: "", reps: "12", completed: false },
+      { weight: "משקל גוף", reps: "30", completed: false },
+    ]);
+    expect(copyWorkoutSetValues(current, previous, 5)[0]?.weight).toBe("105");
+  });
+
   it("calculates volume only from numeric completed or entered values", () => {
     const session: WorkoutSession = {
       id: "test",

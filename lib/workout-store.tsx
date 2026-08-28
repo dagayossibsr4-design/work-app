@@ -53,6 +53,19 @@ export type SetLog = {
   };
 };
 
+export function copyWorkoutSetValues(currentSets: SetLog[], previousSets: SetLog[], weightIncrement = 0): SetLog[] {
+  return currentSets.map((set) => {
+    const source = previousSets.find((candidate) => candidate.exerciseId === set.exerciseId && candidate.setNumber === set.setNumber);
+    const sourceWeight = Number(source?.weight);
+    const nextWeight = source && weightIncrement !== 0 && source.weight.trim() !== "" && Number.isFinite(sourceWeight)
+      ? String(Number((sourceWeight + weightIncrement).toFixed(2)))
+      : source?.weight;
+    return source
+      ? { ...set, weight: nextWeight ?? set.weight, reps: source.reps, note: source.note, restSeconds: source.restSeconds, cardio: source.cardio ? { ...source.cardio } : set.cardio, completed: false }
+      : set;
+  });
+}
+
 export type CardioLog = { id: string; date: string; type: string; durationMinutes: string; distanceKm: string; caloriesBurned?: string; intensity: string; note: string };
 export type NutritionGoal = "מסה" | "חיטוב" | "ניטרלי";
 export type NutritionProfile = { goal: NutritionGoal; weightKg: string; heightCm: string; age: string; sex: "זכר" | "נקבה"; activity: "נמוכה" | "בינונית" | "גבוהה"; proteinPerKg: string; fatPerKg: string; calorieTarget?: string; proteinTarget?: string; carbohydratesTarget?: string; fatsTarget?: string; autoMacroField?: "protein" | "carbohydrates" | "fats"; customFoods?: FoodItem[] };
@@ -122,6 +135,7 @@ type WorkoutContextValue = {
   deleteSession: (sessionId: string) => void;
   discardActiveWorkout: () => void;
   recentSessionFor: (templateId: WorkoutId) => WorkoutSession | undefined;
+  copyPreviousWorkoutIntoActive: (weightIncrement?: number) => boolean;
   saveRecoveryLog: (log: Omit<RecoveryLog, "id">) => void;
   recentRecovery: () => RecoveryLog | undefined;
   updateTemplate: (templateId: WorkoutId, patch: Partial<WorkoutTemplate>) => void;
@@ -355,6 +369,16 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     return next;
   });
   const recentSessionFor = (templateId: WorkoutId) => sessions.find((session) => session.templateId === templateId);
+  const copyPreviousWorkoutIntoActive = (weightIncrement = 0) => {
+    if (!activeSession) return false;
+    const previous = sessions.find((session) => session.templateId === activeSession.templateId && session.id !== activeSession.id);
+    if (!previous) return false;
+    const increment = isCardioWorkoutTemplate(activeSession.templateId) ? 0 : weightIncrement;
+    const next = { ...activeSession, sets: copyWorkoutSetValues(activeSession.sets, previous.sets, increment) };
+    persistActiveSessionImmediately(next);
+    setActiveSession(next);
+    return true;
+  };
   const saveRecoveryLog = (log: Omit<RecoveryLog, "id">) => setRecoveryLogs((current) => [{ ...log, id: `recovery-${Date.now()}` }, ...current.filter((item) => item.date !== log.date)]);
   const recentRecovery = () => recoveryLogs[0];
   const updateTemplate = (templateId: WorkoutId, patch: Partial<WorkoutTemplate>) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, ...patch } : template));
@@ -521,7 +545,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(() => ({
     sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated,
-    startWorkout, startWorkoutOnDate, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
+    startWorkout, startWorkoutOnDate, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, copyPreviousWorkoutIntoActive, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
     updateTemplate, addCustomTemplate, addExercise, addExerciseAfter, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addExerciseToActiveWorkoutAfter, addCustomExerciseToActiveWorkout, addCustomExerciseToActiveWorkoutAfter, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, moveActiveExercise, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState,
   }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, hydrated]);
   return <WorkoutContext.Provider value={value}>{children}</WorkoutContext.Provider>;
