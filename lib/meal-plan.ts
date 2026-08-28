@@ -232,25 +232,43 @@ function sourceForMealFood(food: MealFood) {
   return byId;
 }
 
+function explicitGramsFromQuantity(quantity: string): number | undefined {
+  const match = quantity.match(/^\s*([0-9]+(?:[.,][0-9]+)?)\s*גרם/);
+  if (!match) return undefined;
+  const grams = Number(match[1].replace(",", "."));
+  return Number.isFinite(grams) && grams > 0 ? grams : undefined;
+}
+
+function safeSavedGrams(food: MealFood): number | undefined {
+  const stored = Number(food.quantityGrams);
+  if (Number.isFinite(stored) && stored >= 1 && stored <= 5000) return stored;
+  const explicit = explicitGramsFromQuantity(food.quantity);
+  return explicit !== undefined && explicit >= 1 && explicit <= 5000 ? explicit : undefined;
+}
+
 export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
   return meals.map((meal) => ({
     ...meal,
     foods: (Array.isArray(meal.foods) ? meal.foods : []).map((food) => {
+      const explicitGrams = explicitGramsFromQuantity(food.quantity);
+      const explicitIsSane = explicitGrams !== undefined && explicitGrams >= 1 && explicitGrams <= 5000;
       if (food.manualNutrition) {
-        const gramsMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/);
-        const currentGrams = Number.isFinite(food.quantityGrams) ? food.quantityGrams : gramsMatch ? Number(gramsMatch[1]) : undefined;
+        const currentGrams = explicitIsSane ? explicitGrams : safeSavedGrams(food);
         return {
           ...food,
           servingGrams: food.servingGrams ?? currentGrams ?? 100,
-          quantityGrams: currentGrams ?? food.quantityGrams,
+          ...(currentGrams !== undefined ? { quantityGrams: currentGrams } : {}),
         };
       }
       const source = sourceForMealFood(food);
       if (source) {
-        const explicitGrams = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/)?.[1];
-        const portionGrams = Number.isFinite(food.quantityGrams)
-          ? Number(food.quantityGrams)
-          : Number(explicitGrams ?? source.servingGrams ?? 100);
+        const storedGrams = Number(food.quantityGrams);
+        const storedIsSane = Number.isFinite(storedGrams) && storedGrams >= 1 && storedGrams <= 5000;
+        const portionGrams = storedIsSane ? storedGrams : (explicitIsSane ? explicitGrams! : source.servingGrams);
+        const quantityIsGrams = storedIsSane || explicitIsSane;
+        if (!quantityIsGrams && !explicitGrams) {
+          return { ...food, name: source.name, reference: source.reference, weightMode: food.weightMode ?? "cooked" };
+        }
         return {
           ...food,
           name: source.name,
@@ -262,18 +280,13 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
           ...macrosForGrams(source, portionGrams),
         };
       }
-      const gramsMatch = food.quantity.match(/^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*גרם/);
-      const savedGrams = Number.isFinite(food.quantityGrams) ? Number(food.quantityGrams) : gramsMatch ? Number(gramsMatch[1]) : 0;
-      if (!savedGrams || savedGrams === 100) return { ...food, servingGrams: food.servingGrams ?? 100 };
-      const factor = 100 / savedGrams;
+      // מזון אישי או שורה ביחידה שאינה גרם נשמרים כפי שהוזנו. אין להמיר
+      // ערך מאקרו ל־100 גרם, כי פעולה זו גרמה בעבר ל־0.2 ולערכי ענק.
+      const storedGrams = safeSavedGrams(food);
       return {
         ...food,
-        quantity: "100 גרם",
+        ...(storedGrams !== undefined ? { quantityGrams: storedGrams, servingGrams: food.servingGrams ?? storedGrams } : {}),
         weightMode: food.weightMode ?? "cooked",
-        calories: Math.round(food.calories * factor),
-        protein: Math.round(food.protein * factor * 10) / 10,
-        carbohydrates: Math.round(food.carbohydrates * factor * 10) / 10,
-        fats: Math.round(food.fats * factor * 10) / 10,
       };
     }),
   }));

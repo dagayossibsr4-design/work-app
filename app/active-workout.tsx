@@ -146,9 +146,18 @@ export default function ActiveWorkoutScreen() {
         const numericWeight = Number(source.weight);
         const canIncrease = !isCardioWorkout && copyChoiceIncrement !== 0 && source.weight.trim() !== "" && Number.isFinite(numericWeight);
         const newWeight = canIncrease ? String(Number((numericWeight + copyChoiceIncrement).toFixed(2))) : oldWeight;
-        return { id: `${exercise.id}-${set.setNumber}`, exerciseName: exercise.name, setNumber: set.setNumber, oldWeight, newWeight, reps: source.reps || "—", changed: canIncrease };
+        return {
+          id: `${exercise.id}-${set.setNumber}`,
+          exerciseName: exercise.name,
+          setNumber: set.setNumber,
+          oldWeight,
+          newWeight,
+          currentReps: set.reps?.trim() || "—",
+          copiedReps: source.reps?.trim() || "—",
+          changed: canIncrease,
+        };
       })
-      .filter((row): row is { id: string; exerciseName: string; setNumber: number; oldWeight: string; newWeight: string; reps: string; changed: boolean } => Boolean(row)));
+      .filter((row): row is { id: string; exerciseName: string; setNumber: number; oldWeight: string; newWeight: string; currentReps: string; copiedReps: string; changed: boolean } => Boolean(row)));
   }, [activeSession?.sets, activeTemplate?.exercises, copyChoiceIncrement, isCardioWorkout, previousWorkoutForCopy]);
 
   if ((!activeSession || !activeTemplate) && routeStartKey) {
@@ -398,11 +407,12 @@ export default function ActiveWorkoutScreen() {
             {copyPreviewRows.length === 0 ? <Text style={styles.calendarHint}>לא נמצאו סטים תואמים להצגה.</Text> : copyPreviewRows.map((row) => (
               <View key={row.id} style={styles.copyPreviewRow}>
                 <Text style={styles.copyPreviewExercise}>{row.exerciseName} · סט {row.setNumber}</Text>
-                <Text style={styles.copyPreviewValues}><Text style={styles.copyPreviewOld}>{row.oldWeight}</Text><Text style={styles.copyPreviewArrow}> ← </Text><Text style={row.changed ? styles.copyPreviewNew : styles.copyPreviewOld}>{row.newWeight} ק״ג</Text><Text style={styles.copyPreviewReps}> · {row.reps} חזרות</Text></Text>
+                <Text style={styles.copyPreviewValues}><Text style={styles.copyPreviewOld}>משקל: {row.oldWeight}</Text><Text style={styles.copyPreviewArrow}> ← </Text><Text style={row.changed ? styles.copyPreviewNew : styles.copyPreviewOld}>{row.newWeight} ק״ג</Text></Text>
+                <Text style={styles.copyPreviewValues}><Text style={styles.copyPreviewOld}>חזרות: {row.currentReps}</Text><Text style={styles.copyPreviewArrow}> ← </Text><Text style={styles.copyPreviewNew}>{row.copiedReps}</Text></Text>
               </View>
             ))}
           </ScrollView>
-          <Text style={styles.calendarHint}>החזרות נשמרות. אירובי, משקל ריק וערכים שאינם מספריים לא יקבלו תוספת.</Text>
+          <Text style={styles.calendarHint}>המשקל מקבל את התוספת שנבחרה; החזרות שיועתקו מסומנות בירוק. אירובי ומשקל שאינו מספרי לא יקבלו תוספת.</Text>
           <View style={styles.modalActions}>
             <Pressable onPress={() => setCopyChoiceVisible(false)} style={styles.cancelButton}><Text style={styles.cancelText}>ביטול</Text></Pressable>
             <Pressable onPress={confirmCopyChoice} style={styles.saveDateButton}><Text style={styles.saveDateText}>אישור והעתקה</Text></Pressable>

@@ -205,3 +205,47 @@ describe("meal plan stored quantities", () => {
     expect(meals[0].foods).toHaveLength(2);
   });
 });
+
+
+describe("meal quantity migration safety", () => {
+  it("keeps an explicitly saved gram quantity stable for every meal slot", () => {
+    const meals = Array.from({ length: 5 }, (_, index) => ({
+      id: `meal-${index + 1}`,
+      title: `ארוחה ${index + 1}`,
+      foods: [{
+        id: `custom-${index + 1}`,
+        name: "מזון אישי",
+        quantity: "20 גרם",
+        reference: "הזנה אישית",
+        calories: 100,
+        protein: 10,
+        carbohydrates: 5,
+        fats: 2,
+        quantityGrams: 20,
+      }],
+    }));
+    const hydrated = hydrateMealPlan(meals);
+    expect(hydrated.flatMap((meal) => meal.foods).map((food) => food.quantityGrams)).toEqual([20, 20, 20, 20, 20]);
+    expect(hydrated.flatMap((meal) => meal.foods).map((food) => food.quantity)).toEqual(["20 גרם", "20 גרם", "20 גרם", "20 גרם", "20 גרם"]);
+  });
+
+  it("does not convert non-gram units or stale macro values into a fake gram quantity", () => {
+    const [hydrated] = hydrateMealPlan([{
+      id: "meal-5",
+      title: "ארוחה 5",
+      foods: [{ id: "capsule", name: "כמוסות אומגה 3", quantity: "3 כמוסות", reference: "תווית", calories: 34, protein: 0, carbohydrates: 0, fats: 3.8 }],
+    }]);
+    expect(hydrated.foods[0]).toMatchObject({ quantity: "3 כמוסות", calories: 34, fats: 3.8 });
+    expect(hydrated.foods[0].quantityGrams).toBeUndefined();
+  });
+
+  it("does not rescale an unknown saved food with an invalid huge quantity", () => {
+    const [hydrated] = normalizeMealsTo100Grams([{
+      id: "meal-4",
+      title: "ארוחה 4",
+      foods: [{ id: "custom-huge", name: "מזון אישי", quantity: "מנה", reference: "אישי", calories: 200, protein: 20, carbohydrates: 10, fats: 5, quantityGrams: 25609600.3 }],
+    }]);
+    expect(hydrated.foods[0]).toMatchObject({ quantity: "מנה", calories: 200, protein: 20, carbohydrates: 10, fats: 5 });
+    expect(hydrated.foods[0].quantityGrams).toBe(25609600.3);
+  });
+});
