@@ -15,6 +15,8 @@ export type MealFood = {
   servingGrams?: number;
   /** ערכים שהוזנו ידנית עבור הכמות השמורה בכרטיס. */
   manualNutrition?: boolean;
+  /** הכמות שהמשתמש שמר בפועל; גוברת על ערכי בסיס של קטלוג המזון. */
+  quantityGrams?: number;
 };
 export type Meal = { id: string; title: string; foods: MealFood[] };
 
@@ -236,16 +238,19 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
     foods: (Array.isArray(meal.foods) ? meal.foods : []).map((food) => {
       if (food.manualNutrition) {
         const gramsMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/);
-        const currentGrams = gramsMatch ? Number(gramsMatch[1]) : undefined;
+        const currentGrams = Number.isFinite(food.quantityGrams) ? food.quantityGrams : gramsMatch ? Number(gramsMatch[1]) : undefined;
         return {
           ...food,
           servingGrams: food.servingGrams ?? currentGrams ?? 100,
+          quantityGrams: currentGrams ?? food.quantityGrams,
         };
       }
       const source = sourceForMealFood(food);
       if (source) {
         const explicitGrams = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*גרם/)?.[1];
-        const portionGrams = Number(explicitGrams ?? source.servingGrams ?? 100);
+        const portionGrams = Number.isFinite(food.quantityGrams)
+          ? Number(food.quantityGrams)
+          : Number(explicitGrams ?? source.servingGrams ?? 100);
         return {
           ...food,
           name: source.name,
@@ -253,11 +258,12 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
           reference: source.reference,
           weightMode: food.weightMode ?? "cooked",
           servingGrams: portionGrams,
+          quantityGrams: portionGrams,
           ...macrosForGrams(source, portionGrams),
         };
       }
       const gramsMatch = food.quantity.match(/^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*גרם/);
-      const savedGrams = gramsMatch ? Number(gramsMatch[1]) : 0;
+      const savedGrams = Number.isFinite(food.quantityGrams) ? Number(food.quantityGrams) : gramsMatch ? Number(gramsMatch[1]) : 0;
       if (!savedGrams || savedGrams === 100) return { ...food, servingGrams: food.servingGrams ?? 100 };
       const factor = 100 / savedGrams;
       return {
@@ -314,7 +320,7 @@ export function hydrateMealPlan(meals: Meal[]): Meal[] {
 
 export function mealFoodTotals(food: MealFood) {
   const quantityMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/);
-  const currentGrams = quantityMatch ? Number(quantityMatch[1]) : null;
+  const currentGrams = Number.isFinite(food.quantityGrams) ? Number(food.quantityGrams) : quantityMatch ? Number(quantityMatch[1]) : null;
   if (food.manualNutrition) {
     const baseGrams = food.servingGrams ?? currentGrams;
     const factor = baseGrams && currentGrams ? currentGrams / baseGrams : 1;

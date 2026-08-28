@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { foodItems, macrosForGrams } from "../lib/food-nutrition";
-import { eatenMealTotals, hydrateMealPlan, mealFoodTotals, normalizeMealsTo100Grams, type Meal } from "../lib/meal-plan";
+import { eatenMealTotals, hydrateMealPlan, mealFoodTotals, normalizeMealsTo100Grams, restoreMissingDefaultMealSlots, type Meal } from "../lib/meal-plan";
 import { convertMealFoodWeight } from "../lib/cooking-weight";
 
 describe("meal plan stored quantities", () => {
@@ -34,6 +34,18 @@ describe("meal plan stored quantities", () => {
     expect(food.fats).toBe(7.2);
     expect(food.servingGrams).toBe(200);
     expect(food.weightMode).toBe("cooked");
+  });
+
+  it("preserves an explicit quantity field across hydration", () => {
+    const saved: Meal[] = [{
+      id: "meal-tahini",
+      title: "ארוחה",
+      foods: [{ id: "tahini-1", name: "טחינה גולמית", quantity: "23 גרם", quantityGrams: 20, reference: "ישן", calories: 161, protein: 4.7, carbohydrates: 3.1, fats: 14.4 }],
+    }];
+    const [hydrated] = hydrateMealPlan(saved);
+    expect(hydrated.foods[0].quantity).toBe("20 גרם");
+    expect(hydrated.foods[0].quantityGrams).toBe(20);
+    expect(mealFoodTotals(hydrated.foods[0])).toEqual(macrosForGrams(foodItems.find((item) => item.id === "tahini")!, 20));
   });
 
   it("preserves an explicit commercial protein portion and its macro target", () => {
@@ -168,6 +180,16 @@ describe("meal plan stored quantities", () => {
     expect(restored.find((meal) => meal.id === "meal-1")?.foods).toHaveLength(1);
     expect(restored.find((meal) => meal.id === "meal-2")?.foods.map((food) => food.name)).toEqual(["אבקת חלבון Dymatize Elite Whey", "שיבולת שועל / קוואקר", "אגוזי מלך"]);
     expect(restored.find((meal) => meal.id === "meal-custom")?.foods).toEqual([]);
+  });
+
+  it("restores missing default meal slots from a legacy partial save without removing a custom meal", () => {
+    const restored = restoreMissingDefaultMealSlots([
+      { id: "meal-1", title: "ארוחה 1 מותאמת", foods: [{ id: "custom-food", name: "מזון אישי", quantity: "50 גרם", reference: "אישי", calories: 50, protein: 5, carbohydrates: 3, fats: 2 }] },
+      { id: "meal-extra", title: "ארוחה נוספת", foods: [] },
+    ]);
+    expect(restored.slice(0, 5).map((meal) => meal.id)).toEqual(["meal-1", "meal-2", "meal-3", "meal-4", "meal-5"]);
+    expect(restored.find((meal) => meal.id === "meal-1")?.title).toBe("ארוחה 1 מותאמת");
+    expect(restored.at(-1)?.id).toBe("meal-extra");
   });
 
   it("calculates only marked foods for the eaten-today summary without removing planned foods", () => {

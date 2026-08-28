@@ -32,9 +32,15 @@ function scaleFood(food: Parameters<typeof mealFoodTotals>[0], factor: number) {
         `${Math.round(Number(numeric[1]) * factor * 10) / 10}`,
       )
     : food.quantity;
+  const nextGrams = numeric
+    ? Math.round(Number(numeric[1]) * factor * 10) / 10
+    : food.quantityGrams;
   return {
     ...food,
     quantity: nextQuantity,
+    ...(typeof nextGrams === "number" && Number.isFinite(nextGrams)
+      ? { quantityGrams: nextGrams }
+      : {}),
   };
 }
 

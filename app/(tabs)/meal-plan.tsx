@@ -207,7 +207,7 @@ export default function MealPlanScreen() {
   const [nutritionDraft, setNutritionDraft] = useState<NutritionDraft>({ calories: "", protein: "", carbohydrates: "", fats: "" });
   const [activeSwapKey, setActiveSwapKey] = useState<string | null>(null);
   const [swapGroup, setSwapGroup] = useState<ConversionGroup | null>(null);
-  const [expandedMealIds, setExpandedMealIds] = useState<string[]>(["meal-1"]);
+  const [expandedMealIds, setExpandedMealIds] = useState<string[]>([]);
   const [advancedMealId, setAdvancedMealId] = useState<string | null>(null);
   const [supplementMealId, setSupplementMealId] = useState<string | null>(null);
   const [selectedSupplements, setSelectedSupplements] = useState<MealSupplementSelections>({});
@@ -332,6 +332,7 @@ export default function MealPlanScreen() {
   useEffect(() => {
     Promise.all([
       AsyncStorage.getItem("meal-plan-state"),
+      AsyncStorage.getItem("meal-plan-expanded-meal-v1"),
       AsyncStorage.getItem("meal-plan-eaten-history"),
       AsyncStorage.getItem("meal-plan-day-history"),
       AsyncStorage.getItem("meal-plan-favorite"),
@@ -352,6 +353,7 @@ export default function MealPlanScreen() {
       .then(
         ([
           value,
+          expandedMealIdsValue,
           eatenHistoryValue,
           mealHistoryValue,
           favorite,
@@ -369,6 +371,10 @@ export default function MealPlanScreen() {
           waterEventsValue,
           legacyWaterStateValue,
         ]) => {
+          if (expandedMealIdsValue) {
+            const savedExpanded = JSON.parse(expandedMealIdsValue);
+            if (Array.isArray(savedExpanded)) setExpandedMealIds(savedExpanded.filter((id): id is string => typeof id === "string"));
+          }
           if (value) {
             const saved = JSON.parse(value) as {
               meals?: Meal[];
@@ -538,6 +544,7 @@ export default function MealPlanScreen() {
       const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(meals), eaten } });
       void AsyncStorage.multiSet([
         ["meal-plan-state", nextMealsState],
+        ["meal-plan-expanded-meal-v1", JSON.stringify(expandedMealIds)],
         ["meal-plan-eaten-history", nextEatenHistory],
         ["meal-plan-day-history", nextDayHistory],
         ["meal-plan-profiles", JSON.stringify(menuProfiles)],
@@ -562,6 +569,7 @@ export default function MealPlanScreen() {
     hydrated,
     nutritionRestoreReady,
     appliedTarget,
+    expandedMealIds,
     menuProfiles,
     versionsByGoal,
     savedMeals,
@@ -1475,7 +1483,7 @@ export default function MealPlanScreen() {
           : {
               ...meal,
               foods: meal.foods.map((food) =>
-                food.id === foodId ? { ...food, quantity, servingGrams: food.servingGrams ?? Number(food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100) } : food,
+                food.id === foodId ? { ...food, quantity, quantityGrams: Number(quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 0), servingGrams: food.servingGrams ?? Number(quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100) } : food,
               ),
             },
       ),
