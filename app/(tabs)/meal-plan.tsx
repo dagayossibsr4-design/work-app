@@ -109,8 +109,10 @@ import {
   createMealSupplementEntry,
   filterSupplementsForDay,
   mealMenuSupplements,
+  mergePinnedSupplementNames,
   normalizeCustomSupplementNames,
   normalizeMealSupplementSelections,
+  normalizePinnedSupplementNames,
   supplementUnits,
   type MealSupplementSelections,
   type SupplementUnit,
@@ -213,8 +215,12 @@ export default function MealPlanScreen() {
   const [supplementDailyIntake, setSupplementDailyIntake] = useState<Record<string, number>>({});
   const [supplementsShowAll, setSupplementsShowAll] = useState(false);
   const [customSupplementNames, setCustomSupplementNames] = useState<string[]>([]);
+  const [pinnedSupplementNames, setPinnedSupplementNames] = useState<string[]>([]);
   const [quickSupplementModalOpen, setQuickSupplementModalOpen] = useState(false);
   const [quickSupplementName, setQuickSupplementName] = useState("");
+  const [pinnedSupplementModalOpen, setPinnedSupplementModalOpen] = useState(false);
+  const [pinnedSupplementName, setPinnedSupplementName] = useState("");
+  const [selectedPinnedSupplementNames, setSelectedPinnedSupplementNames] = useState<string[]>([]);
   const [cycleRecords, setCycleRecords] = useState<CycleRecord[]>([]);
   const [cycleNameEditingId, setCycleNameEditingId] = useState<string | null>(null);
   const [cycleNameDraft, setCycleNameDraft] = useState("");
@@ -330,6 +336,7 @@ export default function MealPlanScreen() {
       AsyncStorage.getItem("meal-plan-supplements"),
       AsyncStorage.getItem("meal-plan-supplements-history"),
       AsyncStorage.getItem("meal-plan-custom-supplements"),
+      AsyncStorage.getItem("meal-plan-pinned-supplements-v1"),
       AsyncStorage.getItem("supplement-daily-targets-v1"),
       AsyncStorage.getItem("supplement-daily-intake-v1"),
       AsyncStorage.getItem("meal-plan-defaults-v100"),
@@ -349,6 +356,7 @@ export default function MealPlanScreen() {
           supplementsValue,
           supplementsHistoryValue,
           customSupplementsValue,
+          pinnedSupplementsValue,
           supplementTargetsValue,
           supplementDailyIntakeValue,
           defaultsVersion,
@@ -434,6 +442,11 @@ export default function MealPlanScreen() {
             ? normalizeCustomSupplementNames(JSON.parse(customSupplementsValue))
             : [];
           setCustomSupplementNames(savedCustomSupplementNames);
+          setPinnedSupplementNames(
+            pinnedSupplementsValue
+              ? normalizePinnedSupplementNames(JSON.parse(pinnedSupplementsValue))
+              : [],
+          );
           if (supplementsValue) {
             const savedSupplements = normalizeMealSupplementSelections(JSON.parse(supplementsValue));
             const knownNames = new Set([
@@ -528,6 +541,7 @@ export default function MealPlanScreen() {
         ["meal-plan-supplements", JSON.stringify(selectedSupplements)],
         ["meal-plan-supplements-history", JSON.stringify(supplementHistoryByDate)],
         ["meal-plan-custom-supplements", JSON.stringify(customSupplementNames)],
+        ["meal-plan-pinned-supplements-v1", JSON.stringify(pinnedSupplementNames)],
         ["supplement-daily-targets-v1", JSON.stringify(supplementTargets)],
         ["supplement-daily-intake-v1", JSON.stringify(supplementDailyIntake)],
         ["nutrition-water-history", JSON.stringify(waterHistory)],
@@ -549,6 +563,7 @@ export default function MealPlanScreen() {
     selectedSupplements,
     supplementHistoryByDate,
     customSupplementNames,
+    pinnedSupplementNames,
     supplementTargets,
     supplementDailyIntake,
     waterHistory,
@@ -1107,8 +1122,8 @@ export default function MealPlanScreen() {
     [dailySupplementEntries],
   );
   const visibleDailySupplements = useMemo(
-    () => filterSupplementsForDay(availableSupplementMenu, dailySupplementNames, supplementsShowAll),
-    [availableSupplementMenu, dailySupplementNames, supplementsShowAll],
+    () => filterSupplementsForDay(availableSupplementMenu, dailySupplementNames, supplementsShowAll, pinnedSupplementNames),
+    [availableSupplementMenu, dailySupplementNames, pinnedSupplementNames, supplementsShowAll],
   );
   const quickSupplementOptions = useMemo(
     () => availableSupplementMenu.filter((supplement) => !dailySupplementNames.includes(supplement.name)),
@@ -1131,6 +1146,59 @@ export default function MealPlanScreen() {
     setQuickSupplementName("");
     setQuickSupplementModalOpen(false);
     setSupplementsShowAll(false);
+  };
+  const pinnedSupplementOptions = useMemo(
+    () => availableSupplementMenu.filter((supplement) => !pinnedSupplementNames.includes(supplement.name)),
+    [availableSupplementMenu, pinnedSupplementNames],
+  );
+  const pendingPinnedSupplementNames = useMemo(
+    () => mergePinnedSupplementNames(
+      selectedPinnedSupplementNames,
+      pinnedSupplementName.trim() ? [pinnedSupplementName.trim().slice(0, 50)] : [],
+    ),
+    [pinnedSupplementName, selectedPinnedSupplementNames],
+  );
+  const addPinnedSupplements = (names = pendingPinnedSupplementNames) => {
+    const nextNames = normalizePinnedSupplementNames(names);
+    if (!nextNames.length) return;
+    const builtInNames = new Set(mealMenuSupplements.map((supplement) => supplement.name));
+    const personalNames = nextNames.filter((name) => !builtInNames.has(name));
+    if (personalNames.length) {
+      setCustomSupplementNames((current) => mergePinnedSupplementNames(current, personalNames));
+    }
+    setPinnedSupplementNames((current) => mergePinnedSupplementNames(current, nextNames));
+    setSupplementTargets((current) => Object.fromEntries(nextNames.reduce((entries, name) => {
+      if (!current[name]) entries.push([name, 1]);
+      return entries;
+    }, Object.entries(current) as [string, number][])));
+    setPinnedSupplementName("");
+    setSelectedPinnedSupplementNames([]);
+  };
+  const togglePinnedSupplementSelection = (name: string) => {
+    setSelectedPinnedSupplementNames((current) => current.includes(name)
+      ? current.filter((item) => item !== name)
+      : [...current, name]);
+  };
+  const toggleAllPinnedSupplementSelections = () => {
+    setSelectedPinnedSupplementNames((current) => current.length === pinnedSupplementOptions.length
+      ? []
+      : pinnedSupplementOptions.map((supplement) => supplement.name));
+  };
+  const addAllPinnedSupplementOptions = () => {
+    addPinnedSupplements(pinnedSupplementOptions.map((supplement) => supplement.name));
+  };
+  const movePinnedSupplement = (name: string, direction: "up" | "down") => {
+    setPinnedSupplementNames((current) => {
+      const index = current.indexOf(name);
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
+  const removePinnedSupplement = (name: string) => {
+    setPinnedSupplementNames((current) => current.filter((item) => item !== name));
   };
   useEffect(() => {
     if (!hydrated || selectedDate !== todayKey()) return;
@@ -3515,11 +3583,22 @@ export default function MealPlanScreen() {
             <View style={styles.dailySupplementsHeader}>
               <View style={styles.dailySupplementsCopy}>
                 <Text style={styles.dailySupplementsTitle}>צריכת תוספים</Text>
-                <Text style={styles.dailySupplementsHint}>{dailySupplementNames.length ? "מוצגים התוספים שסומנו ליום הזה." : "סמן תוספים בארוחה כדי לצמצם את הרשימה."}</Text>
+                <Text style={styles.dailySupplementsHint}>{pinnedSupplementNames.length ? "הקיצורים הקבועים מוצגים בכל תאריך; המונה נשמר בנפרד לכל יום." : dailySupplementNames.length ? "מוצגים התוספים שסומנו ליום הזה." : "הגדר קיצורים קבועים כדי שלא תצטרך להוסיף תוספים בכל יום."}</Text>
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel={supplementsShowAll ? "הצג רק תוספי היום" : "הצג את כל התוספים"} onPress={() => setSupplementsShowAll((current) => !current)} style={styles.dailySupplementsToggle}>
                 <Text style={styles.dailySupplementsToggleText}>{supplementsShowAll ? "רק היום" : "הצג הכול"}</Text>
               </Pressable>
+            </View>
+            <View style={styles.pinnedSupplementsPanel}>
+              <View style={styles.pinnedSupplementsHeader}>
+                <View style={styles.pinnedSupplementsCopy}>
+                  <Text style={styles.pinnedSupplementsTitle}>קיצורי תוספים קבועים</Text>
+                  <Text style={styles.pinnedSupplementsHint}>{pinnedSupplementNames.length ? `${pinnedSupplementNames.length} קיצורים פעילים · ניהול וסידור בעריכה.` : "אפשר ליצור רשימה קבועה של התוספים שאתה נוטל בקביעות."}</Text>
+                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel="ניהול קיצורי תוספים קבועים" onPress={() => setPinnedSupplementModalOpen(true)} style={styles.pinnedSupplementsManage}>
+                  <Text style={styles.pinnedSupplementsManageText}>ניהול</Text>
+                </Pressable>
+              </View>
             </View>
             {visibleDailySupplements.map((supplement) => {
               const target = supplementTargets[supplement.name] ?? 0;
@@ -3542,7 +3621,7 @@ export default function MealPlanScreen() {
                 </View>
               );
             })}
-            {!supplementsShowAll && dailySupplementNames.length === 0 ? <Text style={styles.dailySupplementsEmpty}>לא סומנו תוספים ליום הזה.</Text> : null}
+            {!supplementsShowAll && dailySupplementNames.length === 0 && pinnedSupplementNames.length === 0 ? <Text style={styles.dailySupplementsEmpty}>עדיין לא הוגדרו תוספים קבועים או תוספים ליום הזה.</Text> : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="הוסף תוסף חדש להיום"
@@ -3590,6 +3669,62 @@ export default function MealPlanScreen() {
                 </Pressable>
                 <Pressable disabled={!quickSupplementName.trim() || !meals[0]} onPress={addQuickSupplement} style={[styles.quickSupplementConfirm, (!quickSupplementName.trim() || !meals[0]) && styles.quickSupplementDisabled]}>
                   <Text style={styles.quickSupplementConfirmText}>הוסף</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal
+          transparent
+          visible={pinnedSupplementModalOpen}
+          animationType="fade"
+          onRequestClose={() => { setPinnedSupplementName(""); setSelectedPinnedSupplementNames([]); setPinnedSupplementModalOpen(false); }}
+        >
+          <View style={styles.quickSupplementBackdrop}>
+            <View style={styles.quickSupplementModal}>
+              <Text style={styles.quickSupplementTitle}>ניהול קיצורי תוספים קבועים</Text>
+              <Text style={styles.quickSupplementHint}>כאן אפשר להוסיף, להסיר ולסדר את הקיצורים. תוסף קבוע יוצג אוטומטית בכל יום. הסרת קיצור אינה מוחקת צריכה שכבר תועדה.</Text>
+              {pinnedSupplementNames.length ? <View style={styles.pinnedEditorSection}><Text style={styles.pinnedEditorSectionTitle}>הקיצורים שלך · סידור התצוגה היומית</Text>{pinnedSupplementNames.map((name, index) => <View key={name} style={styles.pinnedEditorRow}><View style={styles.pinnedEditorActions}><Pressable accessibilityRole="button" accessibilityLabel={`הזז את ${name} למעלה`} disabled={index === 0} onPress={() => movePinnedSupplement(name, "up")} style={[styles.pinnedEditorMove, index === 0 && styles.quickSupplementDisabled]}><Text style={styles.pinnedEditorMoveText}>↑</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`הזז את ${name} למטה`} disabled={index === pinnedSupplementNames.length - 1} onPress={() => movePinnedSupplement(name, "down")} style={[styles.pinnedEditorMove, index === pinnedSupplementNames.length - 1 && styles.quickSupplementDisabled]}><Text style={styles.pinnedEditorMoveText}>↓</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`הסר את ${name} מהקיצורים הקבועים`} onPress={() => removePinnedSupplement(name)} style={styles.pinnedEditorRemove}><Text style={styles.pinnedEditorRemoveText}>הסר</Text></Pressable></View><Text style={styles.pinnedEditorName}>{index + 1}. {name}</Text></View>)}</View> : null}
+              <TextInput
+                value={pinnedSupplementName}
+                onChangeText={setPinnedSupplementName}
+                placeholder="שם תוסף קבוע"
+                placeholderTextColor="#7E8DA4"
+                returnKeyType="done"
+                onSubmitEditing={() => addPinnedSupplements()}
+                style={styles.quickSupplementInput}
+                textAlign="right"
+                accessibilityLabel="שם תוסף קבוע להוספה"
+              />
+              <ScrollView style={styles.quickSupplementOptions} contentContainerStyle={styles.quickSupplementOptionsContent} keyboardShouldPersistTaps="handled">
+                {pinnedSupplementOptions.length ? pinnedSupplementOptions.map((supplement) => (
+                  <Pressable
+                    key={supplement.name}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: selectedPinnedSupplementNames.includes(supplement.name) }}
+                    accessibilityLabel={`בחר את ${supplement.name} לקיצורים הקבועים`}
+                    onPress={() => togglePinnedSupplementSelection(supplement.name)}
+                    style={({ pressed }) => [styles.quickSupplementOption, selectedPinnedSupplementNames.includes(supplement.name) && styles.quickSupplementOptionSelected, pressed && styles.quickSupplementOptionPressed]}
+                  >
+                    <View style={styles.pinnedOptionContent}><Text style={[styles.pinnedOptionCheck, selectedPinnedSupplementNames.includes(supplement.name) && styles.pinnedOptionCheckSelected]}>{selectedPinnedSupplementNames.includes(supplement.name) ? "✓" : "○"}</Text><Text style={[styles.quickSupplementOptionText, selectedPinnedSupplementNames.includes(supplement.name) && styles.quickSupplementOptionTextSelected]}>{supplement.name}</Text></View>
+                  </Pressable>
+                )) : <Text style={styles.quickSupplementNoOptions}>כל התוספים ברשימה כבר הוגדרו כקיצורים קבועים.</Text>}
+              </ScrollView>
+              <View style={styles.pinnedBulkActions}>
+                <Pressable accessibilityRole="button" onPress={toggleAllPinnedSupplementSelections} style={styles.pinnedBulkSecondary}>
+                  <Text style={styles.pinnedBulkSecondaryText}>{selectedPinnedSupplementNames.length === pinnedSupplementOptions.length && pinnedSupplementOptions.length ? "נקה בחירה" : "בחר הכול"}</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" disabled={!pendingPinnedSupplementNames.length} onPress={() => addPinnedSupplements()} style={[styles.pinnedBulkPrimary, !pendingPinnedSupplementNames.length && styles.quickSupplementDisabled]}>
+                  <Text style={styles.pinnedBulkPrimaryText}>הוסף נבחרים ({pendingPinnedSupplementNames.length})</Text>
+                </Pressable>
+              </View>
+              {pinnedSupplementOptions.length ? <Pressable accessibilityRole="button" onPress={addAllPinnedSupplementOptions} style={styles.pinnedAddAll}><Text style={styles.pinnedAddAllText}>＋ הוסף את כל האפשרויות ({pinnedSupplementOptions.length})</Text></Pressable> : null}
+              <View style={styles.quickSupplementActions}>
+                <Pressable onPress={() => { setPinnedSupplementName(""); setSelectedPinnedSupplementNames([]); setPinnedSupplementModalOpen(false); }} style={styles.quickSupplementCancel}>
+                  <Text style={styles.quickSupplementCancelText}>סיום</Text>
+                </Pressable>
+                <Pressable disabled={!pinnedSupplementName.trim()} onPress={() => addPinnedSupplements([pinnedSupplementName])} style={[styles.quickSupplementConfirm, !pinnedSupplementName.trim() && styles.quickSupplementDisabled]}>
+                  <Text style={styles.quickSupplementConfirmText}>הוסף שם אישי</Text>
                 </Pressable>
               </View>
             </View>
@@ -4487,6 +4622,22 @@ const styles = StyleSheet.create({
   dailySupplementsEmpty: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl", paddingVertical: 8 },
   dailySupplementsTitle: { color: "#A7F3D0", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   dailySupplementsHint: { color: "#AAB7C8", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" },
+  pinnedSupplementsPanel: { backgroundColor: "#102C31", borderColor: "#42D392", borderWidth: 1, borderRadius: 9, paddingVertical: 7, paddingHorizontal: 8 },
+  pinnedSupplementsHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  pinnedSupplementsCopy: { flex: 1, gap: 2 },
+  pinnedSupplementsTitle: { color: "#A7F3D0", fontSize: 10, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  pinnedSupplementsHint: { color: "#B8D8D3", fontSize: 9, lineHeight: 13, textAlign: "right", writingDirection: "rtl" },
+  pinnedSupplementsManage: { minHeight: 28, borderRadius: 7, borderColor: "#67DAB6", borderWidth: 1, backgroundColor: "#173E3B", justifyContent: "center", alignItems: "center", paddingHorizontal: 8 },
+  pinnedSupplementsManageText: { color: "#A7F3D0", fontSize: 9, fontWeight: "900" },
+  pinnedEditorSection: { backgroundColor: "#0B1224", borderColor: "#367B68", borderWidth: 1, borderRadius: 10, padding: 8, gap: 6 },
+  pinnedEditorSectionTitle: { color: "#A7F3D0", fontSize: 10, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  pinnedEditorRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 7, backgroundColor: "#102C31", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 7 },
+  pinnedEditorName: { flex: 1, minWidth: 0, color: "#E7FFF7", fontSize: 10, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
+  pinnedEditorActions: { flexDirection: "row-reverse", alignItems: "center", gap: 4 },
+  pinnedEditorMove: { width: 27, height: 27, borderRadius: 7, borderColor: "#52759C", borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  pinnedEditorMoveText: { color: "#D9EEFF", fontSize: 14, fontWeight: "900" },
+  pinnedEditorRemove: { minHeight: 27, borderRadius: 7, borderColor: "#B85A65", borderWidth: 1, backgroundColor: "#351C29", alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
+  pinnedEditorRemoveText: { color: "#FFB7C1", fontSize: 9, fontWeight: "900" },
   dailySupplementRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 7, backgroundColor: "#11203A", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 7 },
   dailySupplementNameBox: { flex: 1, flexDirection: "row-reverse", alignItems: "center", gap: 6 },
   dailySupplementName: { flex: 1, color: "#F7F9FC", fontSize: 10, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
@@ -4513,7 +4664,17 @@ const styles = StyleSheet.create({
   quickSupplementOptionPressed: { opacity: 0.72 },
   quickSupplementOptionText: { color: "#D9EEFF", fontSize: 11, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
   quickSupplementOptionTextSelected: { color: "#A7F3D0" },
+  pinnedOptionContent: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
+  pinnedOptionCheck: { color: "#7E8DA4", fontSize: 16, fontWeight: "900" },
+  pinnedOptionCheckSelected: { color: "#42D392" },
   quickSupplementNoOptions: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl", paddingVertical: 10 },
+  pinnedBulkActions: { flexDirection: "row-reverse", gap: 8 },
+  pinnedBulkSecondary: { flex: 1, minHeight: 40, borderColor: "#52759C", borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  pinnedBulkSecondaryText: { color: "#D9EEFF", fontSize: 10, fontWeight: "900" },
+  pinnedBulkPrimary: { flex: 1.5, minHeight: 40, borderRadius: 8, backgroundColor: "#42D392", alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
+  pinnedBulkPrimaryText: { color: "#07111F", fontSize: 10, fontWeight: "900", writingDirection: "rtl" },
+  pinnedAddAll: { minHeight: 38, borderColor: "#F5B72C", borderWidth: 1, borderRadius: 8, backgroundColor: "#332812", alignItems: "center", justifyContent: "center" },
+  pinnedAddAllText: { color: "#FFD66E", fontSize: 10, fontWeight: "900", writingDirection: "rtl" },
   quickSupplementActions: { flexDirection: "row-reverse", gap: 8, marginTop: 2 },
   quickSupplementCancel: { flex: 1, minHeight: 40, borderColor: "#52759C", borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   quickSupplementCancelText: { color: "#D9EEFF", fontSize: 10, fontWeight: "900" },

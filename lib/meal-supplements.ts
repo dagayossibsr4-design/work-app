@@ -142,10 +142,11 @@ export function filterSupplementsForDay<T extends { name: string }>(
   supplements: readonly T[],
   selectedNames: readonly string[],
   showAll: boolean,
+  pinnedNames: readonly string[] = [],
 ): T[] {
   if (showAll) return [...supplements];
-  if (selectedNames.length === 0) return [];
-  const selected = new Set(selectedNames);
+  if (selectedNames.length === 0 && pinnedNames.length === 0) return [];
+  const selected = new Set([...selectedNames, ...pinnedNames]);
   return supplements.filter((supplement) => selected.has(supplement.name));
 }
 
@@ -159,6 +160,19 @@ export function normalizeCustomSupplementNames(input: unknown): string[] {
     if (name) unique.add(name);
   }
   return [...unique];
+}
+
+/** מנרמל את שמות הקיצורים הקבועים, ללא כפילויות ובלי לשנות היסטוריית צריכה יומית. */
+export function normalizePinnedSupplementNames(input: unknown): string[] {
+  return normalizeCustomSupplementNames(input);
+}
+
+/** מאחד בחירות רבות לרשימת הקיצורים הקבועים, ללא כפילויות וללא שינוי תיעוד יומי. */
+export function mergePinnedSupplementNames(
+  currentNames: readonly string[],
+  namesToAdd: readonly string[],
+): string[] {
+  return normalizePinnedSupplementNames([...currentNames, ...namesToAdd]);
 }
 
 /** ייצוג תיעודי בלבד לשם אישי; אין כאן מינון, ערכי מאקרו או המלצת שימוש. */

@@ -293,6 +293,20 @@ export function restoreDefaultMealFoods(meals: Meal[]): Meal[] {
   });
 }
 
+/** מתקן רק שמירה ישנה וחלקית שבה חסרות ארוחות ברירת מחדל. */
+export function restoreMissingDefaultMealSlots(meals: Meal[]): Meal[] {
+  const existingById = new Map(meals.map((meal) => [meal.id, meal]));
+  const defaultIds = new Set(defaultMeals.map((meal) => meal.id));
+  const restoredDefaults = defaultMeals.map(
+    (defaultMeal) =>
+      existingById.get(defaultMeal.id) ?? {
+        ...defaultMeal,
+        foods: defaultMeal.foods.map((food) => ({ ...food })),
+      },
+  );
+  return [...restoredDefaults, ...meals.filter((meal) => !defaultIds.has(meal.id))];
+}
+
 /** מנרמל ארוחות קיימות ומתקן מידע פגום לפני שהוא מגיע למסך או לשמירה. */
 export function hydrateMealPlan(meals: Meal[]): Meal[] {
   return restoreDefaultMealFoods(normalizeMealsTo100Grams(meals));

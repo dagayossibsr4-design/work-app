@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getTemplate, workoutTemplates } from "../lib/workout-data";
-import { calculateVolume, createImportedWorkoutSessions, mergeImportedWorkoutSessions, sortWorkoutSessionsNewestFirst, type WorkoutSession } from "../lib/workout-store";
+import { calculateVolume, createDemoCompletedSessions, mergeWorkoutSessions, normalizeWorkoutSessions, restoreActiveWorkout, sortWorkoutSessionsNewestFirst, type WorkoutSession } from "../lib/workout-store";
+import { getAccountBackupStatus, requestAccountCloudBackup, setAccountBackupStatus, subscribeAccountBackupRequests, subscribeAccountBackupStatus } from "../lib/account-backup";
 
 describe("Workout templates", () => {
   it("includes the six core PDF workouts and optional arms session", () => {
@@ -75,63 +76,58 @@ describe("Workout calculations", () => {
   });
 });
 
-describe("יומנים שיובאו מהצילומים", () => {
-  it("מוסיף את יומני PULL ו־LEGS בתאריכים הנכונים ובלי סטים חסרים", () => {
-    const sessions = createImportedWorkoutSessions();
-    const pull1Aug22 = sessions.find((session) => session.id === "imported-pull1-2026-08-22");
-    const pull1 = sessions.find((session) => session.id === "imported-pull1-2026-08-13");
-    const pull2 = sessions.find((session) => session.id === "imported-pull2-2026-08-18");
-    const legs2 = sessions.find((session) => session.id === "imported-legs2-2026-08-20");
-
-    expect(pull1Aug22?.startedAt.startsWith("2026-08-22")).toBe(true);
-    expect(pull1Aug22?.sets).toHaveLength(27);
-    expect(pull1Aug22?.sets.filter((set) => set.exerciseId === "חתירה גבוהה במכונה").map((set) => `${set.weight}×${set.reps}`)).toEqual(["100×10", "80×12", "75×16"]);
-    expect(pull1Aug22?.sets.find((set) => set.exerciseId === "חתירה גבוהה במכונה" && set.setNumber === 3)?.note).toContain("Rest & Pause");
-    expect([...new Set(pull1Aug22?.sets.map((set) => set.exerciseId))]).toEqual([
-      "חתירה גבוהה במכונה", "חתירה במכונה עם תמיכה לחזה", "חתירה על ספסל דאמבל מסור", "פולי רחב", "פול־אובר בכבלים",
-      "כתף אחורית במכונה ייעודית", "שרגים", "יד קדמית בהאמר", "יד קדמית דאמבלים בישיבה קרוב מרפקים", "יד קדמית פולי תחתון עם כבל",
-    ]);
-    expect(pull1Aug22?.sets.filter((set) => set.exerciseId === "כתף אחורית במכונה ייעודית").map((set) => `${set.weight}×${set.reps}`)).toEqual(["60×10", "50×12", "45×15"]);
-    expect(pull1Aug22?.sets.filter((set) => set.exerciseId === "יד קדמית פולי תחתון עם כבל").map((set) => `${set.weight}×${set.reps}`)).toEqual(["25×10", "20×10", "17.5×10"]);
-
-    expect(pull1?.startedAt.startsWith("2026-08-13")).toBe(true);
-    expect(pull1?.sets).toHaveLength(25);
-    expect(pull1?.sets.find((set) => set.exerciseId === "חתירה גבוהה במכונה/כבל")?.note).toContain("Rest & Pause");
-
-    expect(pull2?.startedAt.startsWith("2026-08-18")).toBe(true);
-    expect(pull2?.sets).toHaveLength(24);
-    expect(pull2?.sets.filter((set) => set.exerciseId === "זוקפי גב").map((set) => `${set.weight}×${set.reps}`)).toEqual(["92×15", "96×15", "92×15"]);
-
-    expect(legs2?.startedAt.startsWith("2026-08-20")).toBe(true);
-    expect(legs2?.sets).toHaveLength(15);
-    expect(legs2?.sets.filter((set) => set.exerciseId === "האק סקוואט-legs2").map((set) => `${set.weight}×${set.reps}`)).toEqual(["170×8", "150×9", "120×14", "90×20"]);
+describe("אתחול נתוני אימונים", () => {
+  it("משאיר משתמש חדש ללא יומני אימון", () => {
+    expect(normalizeWorkoutSessions([])).toEqual([]);
   });
 
-  it("מחליף נתון LEGS 2 ישן בנתוני הצילום, בלי למחוק יומנים אישיים", () => {
-    const oldLegs2: WorkoutSession = {
-      id: "imported-legs2-2026-08-20",
-      templateId: "legs2",
-      startedAt: "2026-08-20T18:00:00.000Z",
-      sets: [{ id: "old", exerciseId: "האק סקוואט-legs2", setNumber: 1, weight: "999", reps: "1", completed: true }],
+  it("שומר אימונים אישיים ומסיר רק רשומות דמו ישנות", () => {
+    const personalSession: WorkoutSession = { id: "personal-session", templateId: "pull1", startedAt: "2026-08-22T18:00:00.000Z", sets: [] };
+    const demoSession: WorkoutSession = { id: "demo-legacy", templateId: "legs1", startedAt: "2026-08-20T18:00:00.000Z", sets: [] };
+    const sessions = normalizeWorkoutSessions([demoSession, personalSession]);
+    expect(sessions).toEqual([personalSession]);
+    expect(sortWorkoutSessionsNewestFirst([...sessions])[0]?.id).toBe("personal-session");
+  });
+
+  it("יוצר נתוני הדגמה מבודדים בלבד עם מזהים ייעודיים", () => {
+    const sessions = createDemoCompletedSessions(workoutTemplates);
+    expect(sessions).toHaveLength(3);
+    expect(sessions.every((session) => session.id.startsWith("demo-"))).toBe(true);
+    expect(sessions.every((session) => session.finishedAt === session.startedAt)).toBe(true);
+    expect(sessions.every((session) => session.sets.every((set) => set.completed))).toBe(true);
+  });
+
+  it("משחזר אימון פעיל תקין אחרי רענון ומתעלם מנתון פגום", () => {
+    const activeSession: WorkoutSession = {
+      id: "pull2-active",
+      templateId: "pull2",
+      startedAt: "2026-08-25T20:15:00.000Z",
+      sets: [{ id: "set-1", exerciseId: "pulldown", setNumber: 1, weight: "60", reps: "10", completed: true }],
     };
-    const personalSession: WorkoutSession = { id: "personal-session", templateId: "pull1", startedAt: "2026-08-21T18:00:00.000Z", sets: [] };
-    const merged = mergeImportedWorkoutSessions([oldLegs2, personalSession]);
-
-    expect(merged.find((session) => session.id === "personal-session")).toEqual(personalSession);
-    expect(merged.find((session) => session.id === "imported-legs2-2026-08-20")?.sets).toHaveLength(15);
-    expect(merged.find((session) => session.id === "imported-legs2-2026-08-20")?.sets[0].weight).toBe("170");
+    expect(restoreActiveWorkout(JSON.stringify(activeSession))).toEqual(activeSession);
+    expect(restoreActiveWorkout("{not-json")).toBeNull();
+    expect(restoreActiveWorkout(JSON.stringify({ id: "incomplete" }))).toBeNull();
   });
 
-  it("מציג את האימון המאוחר ביותר כאימון האחרון, ללא תלות בסדר הטעינה", () => {
-    const sessions = createImportedWorkoutSessions();
-    expect(sortWorkoutSessionsNewestFirst([...sessions].reverse())[0]?.startedAt.startsWith("2026-08-22")).toBe(true);
+  it("ממזג אימונים מהענן בלי למחוק אימון חדש מהמכשיר", () => {
+    const localSession: WorkoutSession = { id: "local-new", templateId: "push1", startedAt: "2026-08-26T19:00:00.000Z", sets: [] };
+    const cloudSession: WorkoutSession = { id: "cloud-old", templateId: "pull1", startedAt: "2026-08-25T19:00:00.000Z", sets: [] };
+    expect(mergeWorkoutSessions([localSession], [cloudSession])).toEqual([localSession, cloudSession]);
   });
+});
 
-  it("שומר את כל תרגילי PULL המיובאים כקבוצות נפרדות להצגה בהיסטוריה", () => {
-    const sessions = createImportedWorkoutSessions();
-    const pull1 = sessions.find((session) => session.id === "imported-pull1-2026-08-13");
-    const pull2 = sessions.find((session) => session.id === "imported-pull2-2026-08-18");
-    expect(new Set(pull1?.sets.map((set) => set.exerciseId)).size).toBe(10);
-    expect(new Set(pull2?.sets.map((set) => set.exerciseId)).size).toBe(9);
+describe("גיבוי חשבון ידני", () => {
+  it("מעדכן סטטוס ומבקש גיבוי ענן דרך ערוץ מבודד", () => {
+    const statuses: string[] = [];
+    const unsubscribeStatus = subscribeAccountBackupStatus((status) => statuses.push(status));
+    let requested = 0;
+    const unsubscribeRequest = subscribeAccountBackupRequests(() => { requested += 1; });
+    setAccountBackupStatus("saved");
+    requestAccountCloudBackup();
+    expect(getAccountBackupStatus()).toBe("saved");
+    expect(statuses).toContain("saved");
+    expect(requested).toBe(1);
+    unsubscribeStatus();
+    unsubscribeRequest();
   });
 });
