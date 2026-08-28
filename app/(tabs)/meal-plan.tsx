@@ -6,6 +6,7 @@ import {
   Animated,
   Easing,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   Keyboard,
@@ -221,6 +222,10 @@ export default function MealPlanScreen() {
   const [pinnedSupplementModalOpen, setPinnedSupplementModalOpen] = useState(false);
   const [pinnedSupplementName, setPinnedSupplementName] = useState("");
   const [selectedPinnedSupplementNames, setSelectedPinnedSupplementNames] = useState<string[]>([]);
+  const [pinnedSupplementScrollHasMore, setPinnedSupplementScrollHasMore] = useState(false);
+  const pinnedSupplementScrollYRef = useRef(0);
+  const pinnedSupplementViewportHeightRef = useRef(0);
+  const pinnedSupplementContentHeightRef = useRef(0);
   const [cycleRecords, setCycleRecords] = useState<CycleRecord[]>([]);
   const [cycleNameEditingId, setCycleNameEditingId] = useState<string | null>(null);
   const [cycleNameDraft, setCycleNameDraft] = useState("");
@@ -1187,18 +1192,40 @@ export default function MealPlanScreen() {
   const addAllPinnedSupplementOptions = () => {
     addPinnedSupplements(pinnedSupplementOptions.map((supplement) => supplement.name));
   };
-  const movePinnedSupplement = (name: string, direction: "up" | "down") => {
+  const reorderPinnedSupplement = (name: string, targetIndex: number) => {
     setPinnedSupplementNames((current) => {
-      const index = current.indexOf(name);
-      const nextIndex = direction === "up" ? index - 1 : index + 1;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const sourceIndex = current.indexOf(name);
+      if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= current.length || sourceIndex === targetIndex) return current;
       const next = [...current];
-      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
       return next;
     });
   };
+  const createPinnedSupplementPanResponder = (name: string) => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponderCapture: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponderCapture: () => true,
+    onPanResponderGrant: () => undefined,
+    onPanResponderRelease: (_, gestureState) => {
+      const currentIndex = pinnedSupplementNames.indexOf(name);
+      if (currentIndex >= 0) {
+        const offset = Math.round(gestureState.dy / 52);
+        const targetIndex = Math.max(0, Math.min(pinnedSupplementNames.length - 1, currentIndex + offset));
+        reorderPinnedSupplement(name, targetIndex);
+      }
+    },
+    onPanResponderTerminate: () => undefined,
+  });
   const removePinnedSupplement = (name: string) => {
     setPinnedSupplementNames((current) => current.filter((item) => item !== name));
+  };
+  const updatePinnedSupplementScrollHint = () => {
+    const viewportHeight = pinnedSupplementViewportHeightRef.current;
+    const contentHeight = pinnedSupplementContentHeightRef.current;
+    const scrollY = pinnedSupplementScrollYRef.current;
+    setPinnedSupplementScrollHasMore(contentHeight > viewportHeight + 12 && scrollY + viewportHeight < contentHeight - 12);
   };
   useEffect(() => {
     if (!hydrated || selectedDate !== todayKey()) return;
@@ -3682,9 +3709,29 @@ export default function MealPlanScreen() {
         >
           <View style={styles.quickSupplementBackdrop}>
             <View style={styles.quickSupplementModal}>
+              <ScrollView
+                style={styles.quickSupplementModalScroll}
+                contentContainerStyle={styles.quickSupplementModalScrollContent}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                scrollEventThrottle={16}
+                onLayout={(event) => {
+                  pinnedSupplementViewportHeightRef.current = event.nativeEvent.layout.height;
+                  updatePinnedSupplementScrollHint();
+                }}
+                onContentSizeChange={(_, height) => {
+                  pinnedSupplementContentHeightRef.current = height;
+                  updatePinnedSupplementScrollHint();
+                }}
+                onScroll={(event) => {
+                  pinnedSupplementScrollYRef.current = event.nativeEvent.contentOffset.y;
+                  updatePinnedSupplementScrollHint();
+                }}
+              >
               <Text style={styles.quickSupplementTitle}>ניהול קיצורי תוספים קבועים</Text>
               <Text style={styles.quickSupplementHint}>כאן אפשר להוסיף, להסיר ולסדר את הקיצורים. תוסף קבוע יוצג אוטומטית בכל יום. הסרת קיצור אינה מוחקת צריכה שכבר תועדה.</Text>
-              {pinnedSupplementNames.length ? <View style={styles.pinnedEditorSection}><Text style={styles.pinnedEditorSectionTitle}>הקיצורים שלך · סידור התצוגה היומית</Text>{pinnedSupplementNames.map((name, index) => <View key={name} style={styles.pinnedEditorRow}><View style={styles.pinnedEditorActions}><Pressable accessibilityRole="button" accessibilityLabel={`הזז את ${name} למעלה`} disabled={index === 0} onPress={() => movePinnedSupplement(name, "up")} style={[styles.pinnedEditorMove, index === 0 && styles.quickSupplementDisabled]}><Text style={styles.pinnedEditorMoveText}>↑</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`הזז את ${name} למטה`} disabled={index === pinnedSupplementNames.length - 1} onPress={() => movePinnedSupplement(name, "down")} style={[styles.pinnedEditorMove, index === pinnedSupplementNames.length - 1 && styles.quickSupplementDisabled]}><Text style={styles.pinnedEditorMoveText}>↓</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`הסר את ${name} מהקיצורים הקבועים`} onPress={() => removePinnedSupplement(name)} style={styles.pinnedEditorRemove}><Text style={styles.pinnedEditorRemoveText}>הסר</Text></Pressable></View><Text style={styles.pinnedEditorName}>{index + 1}. {name}</Text></View>)}</View> : null}
+              {pinnedSupplementNames.length ? <View style={styles.pinnedEditorSection}><Text style={styles.pinnedEditorSectionTitle}>הקיצורים שלך · גרור לסידור התצוגה היומית</Text>{pinnedSupplementNames.map((name, index) => <View key={name} style={styles.pinnedEditorRow}><View style={styles.pinnedEditorActions}><View accessibilityLabel={`גרור את ${name} כדי לשנות את הסדר`} {...createPinnedSupplementPanResponder(name).panHandlers} style={styles.pinnedEditorDragHandle}><Text style={styles.pinnedEditorDragText}>☷ גרור</Text></View><Pressable accessibilityRole="button" accessibilityLabel={`הסר את ${name} מהקיצורים הקבועים`} onPress={() => removePinnedSupplement(name)} style={styles.pinnedEditorRemove}><Text style={styles.pinnedEditorRemoveText}>הסר</Text></Pressable></View><Text style={styles.pinnedEditorName}>{index + 1}. {name}</Text></View>)}</View> : null}
               <TextInput
                 value={pinnedSupplementName}
                 onChangeText={setPinnedSupplementName}
@@ -3696,7 +3743,7 @@ export default function MealPlanScreen() {
                 textAlign="right"
                 accessibilityLabel="שם תוסף קבוע להוספה"
               />
-              <ScrollView style={styles.quickSupplementOptions} contentContainerStyle={styles.quickSupplementOptionsContent} keyboardShouldPersistTaps="handled">
+              <View style={styles.quickSupplementOptions}>
                 {pinnedSupplementOptions.length ? pinnedSupplementOptions.map((supplement) => (
                   <Pressable
                     key={supplement.name}
@@ -3709,7 +3756,7 @@ export default function MealPlanScreen() {
                     <View style={styles.pinnedOptionContent}><Text style={[styles.pinnedOptionCheck, selectedPinnedSupplementNames.includes(supplement.name) && styles.pinnedOptionCheckSelected]}>{selectedPinnedSupplementNames.includes(supplement.name) ? "✓" : "○"}</Text><Text style={[styles.quickSupplementOptionText, selectedPinnedSupplementNames.includes(supplement.name) && styles.quickSupplementOptionTextSelected]}>{supplement.name}</Text></View>
                   </Pressable>
                 )) : <Text style={styles.quickSupplementNoOptions}>כל התוספים ברשימה כבר הוגדרו כקיצורים קבועים.</Text>}
-              </ScrollView>
+              </View>
               <View style={styles.pinnedBulkActions}>
                 <Pressable accessibilityRole="button" onPress={toggleAllPinnedSupplementSelections} style={styles.pinnedBulkSecondary}>
                   <Text style={styles.pinnedBulkSecondaryText}>{selectedPinnedSupplementNames.length === pinnedSupplementOptions.length && pinnedSupplementOptions.length ? "נקה בחירה" : "בחר הכול"}</Text>
@@ -3727,6 +3774,8 @@ export default function MealPlanScreen() {
                   <Text style={styles.quickSupplementConfirmText}>הוסף שם אישי</Text>
                 </Pressable>
               </View>
+              </ScrollView>
+              {pinnedSupplementScrollHasMore ? <View pointerEvents="none" style={styles.pinnedSupplementScrollHint}><Text style={styles.pinnedSupplementScrollHintText}>יש עוד קיצורים · החלק למעלה</Text></View> : null}
             </View>
           </View>
         </Modal>
@@ -4634,8 +4683,8 @@ const styles = StyleSheet.create({
   pinnedEditorRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 7, backgroundColor: "#102C31", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 7 },
   pinnedEditorName: { flex: 1, minWidth: 0, color: "#E7FFF7", fontSize: 10, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
   pinnedEditorActions: { flexDirection: "row-reverse", alignItems: "center", gap: 4 },
-  pinnedEditorMove: { width: 27, height: 27, borderRadius: 7, borderColor: "#52759C", borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  pinnedEditorMoveText: { color: "#D9EEFF", fontSize: 14, fontWeight: "900" },
+  pinnedEditorDragHandle: { minHeight: 30, borderRadius: 8, borderColor: "#42D392", borderWidth: 1, backgroundColor: "#173E3B", alignItems: "center", justifyContent: "center", paddingHorizontal: 9 },
+  pinnedEditorDragText: { color: "#A7F3D0", fontSize: 10, fontWeight: "900" },
   pinnedEditorRemove: { minHeight: 27, borderRadius: 7, borderColor: "#B85A65", borderWidth: 1, backgroundColor: "#351C29", alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
   pinnedEditorRemoveText: { color: "#FFB7C1", fontSize: 9, fontWeight: "900" },
   dailySupplementRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 7, backgroundColor: "#11203A", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 7 },
@@ -4653,11 +4702,15 @@ const styles = StyleSheet.create({
   dailySupplementsQuickAddPressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
   dailySupplementsQuickAddText: { color: "#A7F3D0", fontSize: 10, fontWeight: "900", writingDirection: "rtl" },
   quickSupplementBackdrop: { flex: 1, backgroundColor: "rgba(3, 10, 24, 0.76)", justifyContent: "center", padding: 18 },
-  quickSupplementModal: { backgroundColor: "#13233D", borderColor: "#42D392", borderWidth: 1, borderRadius: 16, padding: 14, gap: 9, maxHeight: "82%" },
+  quickSupplementModal: { width: "100%", backgroundColor: "#13233D", borderColor: "#42D392", borderWidth: 1, borderRadius: 16, padding: 14, maxHeight: "82%" },
+  quickSupplementModalScroll: { flexShrink: 1 },
+  quickSupplementModalScrollContent: { gap: 9, paddingBottom: 58 },
+  pinnedSupplementScrollHint: { position: "absolute", left: 14, right: 14, bottom: 12, minHeight: 34, borderRadius: 9, backgroundColor: "#42D392", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  pinnedSupplementScrollHintText: { color: "#07111F", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" },
   quickSupplementTitle: { color: "#A7F3D0", fontSize: 17, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   quickSupplementHint: { color: "#C1CDDC", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" },
   quickSupplementInput: { minHeight: 42, borderColor: "#5B9FE3", borderWidth: 1, borderRadius: 9, backgroundColor: "#0B1224", color: "#F7F9FC", paddingHorizontal: 11, writingDirection: "rtl" },
-  quickSupplementOptions: { maxHeight: 260 },
+  quickSupplementOptions: { gap: 6, paddingVertical: 2 },
   quickSupplementOptionsContent: { gap: 6, paddingVertical: 2 },
   quickSupplementOption: { minHeight: 38, borderColor: "#3D587C", borderWidth: 1, borderRadius: 8, backgroundColor: "#10213B", justifyContent: "center", paddingHorizontal: 10 },
   quickSupplementOptionSelected: { backgroundColor: "#1D5B4D", borderColor: "#42D392" },

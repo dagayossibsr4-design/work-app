@@ -146,8 +146,16 @@ export function filterSupplementsForDay<T extends { name: string }>(
 ): T[] {
   if (showAll) return [...supplements];
   if (selectedNames.length === 0 && pinnedNames.length === 0) return [];
-  const selected = new Set([...selectedNames, ...pinnedNames]);
-  return supplements.filter((supplement) => selected.has(supplement.name));
+  const byName = new Map(supplements.map((supplement) => [supplement.name, supplement]));
+  const seen = new Set<string>();
+  const orderedNames = [...pinnedNames, ...selectedNames];
+  return orderedNames.reduce<T[]>((result, name) => {
+    if (seen.has(name)) return result;
+    seen.add(name);
+    const supplement = byName.get(name);
+    if (supplement) result.push(supplement);
+    return result;
+  }, []);
 }
 
 /** מנרמל שמות אישיים שנשמרו במכשיר, בלי כפילויות ובלי ערכים ריקים. */

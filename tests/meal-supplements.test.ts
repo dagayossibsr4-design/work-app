@@ -44,6 +44,16 @@ describe("meal supplement menu", () => {
     expect(filterSupplementsForDay(mealMenuSupplements, [], false)).toEqual([]);
   });
 
+  it("keeps pinned supplement order in the daily view", () => {
+    const visible = filterSupplementsForDay(
+      [{ name: "קריאטין" }, { name: "אומגה 3" }, { name: "קפאין" }],
+      ["קפאין"],
+      false,
+      ["אומגה 3", "קריאטין"],
+    );
+    expect(visible.map((supplement) => supplement.name)).toEqual(["אומגה 3", "קריאטין", "קפאין"]);
+  });
+
   it("keeps pinned supplements visible even when they have not been taken today", () => {
     const visible = filterSupplementsForDay(
       mealMenuSupplements,
