@@ -1,4 +1,4 @@
-import { foodItems, macrosForGrams } from "./food-nutrition";
+import { foodItems, macrosForFoodQuantity } from "./food-nutrition";
 import type { WeightMode } from "./cooking-weight";
 
 export type MealFood = {
@@ -19,6 +19,24 @@ export type MealFood = {
   quantityGrams?: number;
 };
 export type Meal = { id: string; title: string; foods: MealFood[] };
+
+/**
+ * יוצר עותק עצמאי של ארוחה. הסיומת ניתנת מבחוץ כדי לאפשר בדיקה דטרמיניסטית,
+ * ובמסך עצמו היא נוצרת עם חותמת זמן ומחרוזת אקראית קצרה.
+ */
+export function cloneMeal(meal: Meal, suffix: string): Meal {
+  const safeSuffix = suffix.trim() || "copy";
+  const mealId = `${meal.id}-copy-${safeSuffix}`;
+  return {
+    ...meal,
+    id: mealId,
+    title: `${meal.title} — עותק`,
+    foods: meal.foods.map((food, index) => ({
+      ...food,
+      id: `${food.id}-copy-${safeSuffix}-${index + 1}`,
+    })),
+  };
+}
 
 const rawDefaultMeals: Meal[] = [
   {
@@ -277,7 +295,7 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
           weightMode: food.weightMode ?? "cooked",
           servingGrams: portionGrams,
           quantityGrams: portionGrams,
-          ...macrosForGrams(source, portionGrams),
+          ...macrosForFoodQuantity(source, portionGrams),
         };
       }
       // מזון אישי או שורה ביחידה שאינה גרם נשמרים כפי שהוזנו. אין להמיר
@@ -346,7 +364,7 @@ export function mealFoodTotals(food: MealFood) {
   }
   const source = sourceForMealFood(food);
   if (source && currentGrams) {
-    return macrosForGrams(source, currentGrams);
+    return macrosForFoodQuantity(source, currentGrams);
   }
   const baseGrams = food.servingGrams ?? currentGrams;
   const factor = baseGrams && currentGrams ? currentGrams / baseGrams : 1;
