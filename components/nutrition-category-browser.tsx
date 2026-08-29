@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { foodSubgroupFor, type FoodGroup, type FoodItem, type FoodSubgroup } from "@/lib/food-nutrition";
+import { caloriesPer100g, foodSubgroupFor, macrosForReference, type FoodGroup, type FoodItem, type FoodSubgroup } from "@/lib/food-nutrition";
 import { nutritionSubgroupOrder } from "@/lib/nutrition-catalog";
 
 type NutritionCategoryBrowserProps = {
@@ -107,11 +107,15 @@ export function NutritionCategoryBrowser({
                   {subgroups.map((subgroup) => {
                     const isSubgroupSelected = isSelected && selectedSubgroup === subgroup;
                     return (
-                      <Pressable
-                        key={subgroup}
+                      <View key={subgroup} style={styles.subgroupItem}>
+                        <Pressable
                         accessibilityRole="button"
                         accessibilityState={{ selected: isSubgroupSelected }}
                         onPress={() => {
+                          if (isSubgroupSelected) {
+                            onSelectSubgroup("ללא");
+                            return;
+                          }
                           onSelectGroup(group);
                           onSelectSubgroup(subgroup);
                         }}
@@ -121,7 +125,25 @@ export function NutritionCategoryBrowser({
                         <Text style={[styles.subgroupText, isSubgroupSelected && { color: accent.text }]}>
                           {isSubgroupSelected ? "✓ " : ""}{subgroup}
                         </Text>
-                      </Pressable>
+                        </Pressable>
+                        {isSubgroupSelected ? (
+                        <View style={styles.productsForSubgroup}>
+                          {foods
+                            .filter((food) => food.group === group && foodSubgroupFor(food) === subgroup)
+                            .map((food) => {
+                              const macros = macrosForReference(food);
+                              return (
+                                <View key={food.id} style={styles.productRow}>
+                                  <Text style={styles.productName}>{food.name}</Text>
+                                  <Text style={styles.productMeta}>
+                                    {Math.round(caloriesPer100g(food))} קק״ל ל־100 ג׳ · חלבון {macros.protein} · פחמימות {macros.carbohydrates} · שומן {macros.fats}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                        </View>
+                        ) : null}
+                      </View>
                     );
                   })}
                 </View>
@@ -156,9 +178,14 @@ const styles = StyleSheet.create({
   categoryIcon: { width: 37, height: 37, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1 },
   iconText: { fontSize: 22, fontWeight: "800", lineHeight: 25 },
   subgroups: { borderTopColor: "#2C3B55", borderTopWidth: 1, padding: 8, gap: 6 },
+  subgroupItem: { gap: 6 },
   subgroup: { minHeight: 40, width: "100%", flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, borderColor: "#2C3B55", borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8 },
   subgroupText: { flex: 1, color: "#D9E2EF", textAlign: "right", fontSize: 10, fontWeight: "800" },
   subgroupCount: { fontSize: 10, fontWeight: "900" },
+  productsForSubgroup: { backgroundColor: "#0B1224", borderColor: "#3D587C", borderWidth: 1, borderRadius: 9, padding: 9, gap: 7 },
+  productRow: { borderBottomColor: "#2C3B55", borderBottomWidth: 1, paddingBottom: 6, gap: 2 },
+  productName: { color: "#F5B72C", fontSize: 10, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  productMeta: { color: "#AAB7C8", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" },
   selection: { backgroundColor: "#33265C", borderColor: "#8B5CF6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 3 },
   selectionTitle: { color: "#BBA8D9", textAlign: "right", fontSize: 9, fontWeight: "800" },
   selectionValue: { color: "#E9D5FF", textAlign: "right", fontSize: 12, fontWeight: "900", writingDirection: "rtl" },
