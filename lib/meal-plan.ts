@@ -17,8 +17,32 @@ export type MealFood = {
   manualNutrition?: boolean;
   /** הכמות שהמשתמש שמר בפועל; גוברת על ערכי בסיס של קטלוג המזון. */
   quantityGrams?: number;
+  /** מסמן שהכמות נוקתה באיפוס היומי, כדי שאפס יישמר גם לאחר הידרציה. */
+  dailyQuantityCleared?: boolean;
 };
 export type Meal = { id: string; title: string; foods: MealFood[] };
+
+/** מחלץ את מספר הגרמים מתווית כמות ומחזיר fallback בטוח רק כשהתווית אינה תקינה. */
+export function gramsFromMealQuantity(quantity: string, fallback = 100): number {
+  const parsed = Number(quantity.trim().replace(",", ".").match(/^([0-9]+(?:\.[0-9]+)?)/)?.[1]);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.round(parsed * 10) / 10;
+}
+
+/** מאפס את הכמויות היומיות אך משאיר את שמות הארוחות, הרכיבים והקטלוג במקומם. */
+export function clearMealPlanQuantities(meals: Meal[]): Meal[] {
+  return meals.map((meal) => ({
+    ...meal,
+    foods: (Array.isArray(meal.foods) ? meal.foods : []).map((food) => ({
+      ...food,
+      quantity: /^\s*[0-9]+(?:[.,][0-9]+)?\s*(?:יחידות?|כמוסות?|מנות?|מ״ל|מ"ל|מיליליטר)/.test(food.quantity)
+        ? "0 יחידות"
+        : "0 גרם",
+      quantityGrams: 0,
+      dailyQuantityCleared: true,
+    })),
+  }));
+}
 
 /** חישוב מקומי חסין ל־SSR עבור רכיבי ארוחה; תומך ב־100 גרם, יחידה, גביע, מנה ואריזה. */
 function mealMacrosForFoodQuantity(food: FoodItem, grams: number) {
@@ -368,6 +392,9 @@ export function hydrateMealPlan(meals: Meal[]): Meal[] {
 }
 
 export function mealFoodTotals(food: MealFood) {
+  if (food.dailyQuantityCleared) {
+    return { calories: 0, protein: 0, carbohydrates: 0, fats: 0 };
+  }
   const quantityMatch = food.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/);
   const currentGrams = Number.isFinite(food.quantityGrams) ? Number(food.quantityGrams) : quantityMatch ? Number(quantityMatch[1]) : null;
   if (food.manualNutrition) {

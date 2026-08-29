@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { foodItems, macrosForGrams } from "../lib/food-nutrition";
-import { eatenMealTotals, hydrateMealPlan, mealFoodTotals, normalizeMealsTo100Grams, restoreMissingDefaultMealSlots, type Meal } from "../lib/meal-plan";
+import { clearMealPlanQuantities, eatenMealTotals, gramsFromMealQuantity, hydrateMealPlan, mealFoodTotals, normalizeMealsTo100Grams, restoreMissingDefaultMealSlots, type Meal } from "../lib/meal-plan";
 import { convertMealFoodWeight } from "../lib/cooking-weight";
 
 describe("meal plan stored quantities", () => {
+  it.each([["166 גרם", 166], ["202.2 גרם", 202.2], ["  23,5 גרם", 23.5]])("extracts the exact grams from %s", (label, expected) => {
+    expect(gramsFromMealQuantity(label)).toBe(expected);
+  });
+
   it("preserves saved grams and recalculates their macros from the canonical food", () => {
     const saved: Meal[] = [
       {
@@ -257,5 +261,54 @@ describe("meal quantity migration safety", () => {
     }]);
     expect(hydrated.foods[0]).toMatchObject({ quantity: "מנה", calories: 200, protein: 20, carbohydrates: 10, fats: 5 });
     expect(hydrated.foods[0].quantityGrams).toBe(25609600.3);
+  });
+
+  it("keeps an edited 166 gram quantity exact after a save and reload cycle", () => {
+    const saved: Meal[] = [{
+      id: "meal-1",
+      title: "ארוחה 1",
+      foods: [{
+        id: "chicken",
+        name: "חזה עוף מבושל",
+        quantity: "166 גרם",
+        quantityGrams: 166,
+        servingGrams: 166,
+        reference: "בדיקה",
+        calories: 274,
+        protein: 51.5,
+        carbohydrates: 0,
+        fats: 6,
+      }],
+    }];
+    const [hydrated] = hydrateMealPlan(saved);
+    expect(hydrated.foods[0].quantity).toBe("166 גרם");
+    expect(hydrated.foods[0].quantityGrams).toBe(166);
+    expect(normalizeMealsTo100Grams([hydrated])[0].foods[0].quantity).toBe("166 גרם");
+  });
+
+  it("clears daily quantities without deleting foods and stays cleared after reload", () => {
+    const original: Meal[] = [{
+      id: "meal-1",
+      title: "ארוחה 1",
+      foods: [{
+        id: "chicken",
+        name: "חזה עוף מבושל",
+        quantity: "166 גרם",
+        quantityGrams: 166,
+        servingGrams: 166,
+        reference: "בדיקה",
+        calories: 274,
+        protein: 51.5,
+        carbohydrates: 0,
+        fats: 6,
+      }],
+    }];
+    const cleared = clearMealPlanQuantities(original);
+    expect(cleared[0].foods).toHaveLength(1);
+    expect(cleared[0].foods[0]).toMatchObject({ quantity: "0 גרם", quantityGrams: 0, dailyQuantityCleared: true });
+    expect(mealFoodTotals(cleared[0].foods[0])).toEqual({ calories: 0, protein: 0, carbohydrates: 0, fats: 0 });
+    const [reloaded] = hydrateMealPlan(cleared);
+    expect(reloaded.foods[0]).toMatchObject({ quantity: "0 גרם", quantityGrams: 0, dailyQuantityCleared: true });
+    expect(mealFoodTotals(reloaded.foods[0])).toEqual({ calories: 0, protein: 0, carbohydrates: 0, fats: 0 });
   });
 });

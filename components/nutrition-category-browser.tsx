@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Easing, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { caloriesPer100g, foodSubgroupFor, macrosForReference, type FoodGroup, type FoodItem, type FoodSubgroup } from "@/lib/food-nutrition";
 import { nutritionSubgroupOrder } from "@/lib/nutrition-catalog";
@@ -28,7 +28,7 @@ const categoryAccent: Record<FoodGroup, { border: string; background: string; te
   חלבון: { border: "#65BDF6", background: "#1C3152", text: "#8ED8FF" },
   פחמימה: { border: "#F5B72C", background: "#3B3015", text: "#F8D36B" },
   שומן: { border: "#F59E0B", background: "#3A2815", text: "#FBBF24" },
-  "ירק ופרי": { border: "#4FD1C5", background: "#173A3D", text: "#99F6E4" },
+  "ירק ופרי": { border: "#F27A7A", background: "#4A202A", text: "#FFB4B4" },
   שונות: { border: "#8B5CF6", background: "#33265C", text: "#E9D5FF" },
 };
 
@@ -50,10 +50,31 @@ export function NutritionCategoryBrowser({
   initiallyCollapsed = false,
 }: NutritionCategoryBrowserProps) {
   const [expandedGroup, setExpandedGroup] = useState<FoodGroup | null>(initiallyCollapsed ? null : selectedGroup);
+  const groupAnimationValues = useRef<Partial<Record<FoodGroup, Animated.Value>>>({});
   const visibleGroups = groups ?? categoryOrder;
 
+  const animationForGroup = (group: FoodGroup) => {
+    const existing = groupAnimationValues.current[group];
+    if (existing) return existing;
+    const value = new Animated.Value(!initiallyCollapsed && selectedGroup === group ? 1 : 0);
+    groupAnimationValues.current[group] = value;
+    return value;
+  };
+
+  const animateGroup = (group: FoodGroup, open: boolean) => {
+    Animated.timing(animationForGroup(group), {
+      toValue: open ? 1 : 0,
+      duration: 220,
+      easing: open ? Easing.out(Easing.cubic) : Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  };
+
   useEffect(() => {
-    if (!initiallyCollapsed) setExpandedGroup(selectedGroup);
+    if (!initiallyCollapsed) {
+      setExpandedGroup(selectedGroup);
+      visibleGroups.forEach((group) => animateGroup(group, group === selectedGroup));
+    }
   }, [initiallyCollapsed, selectedGroup]);
 
   const subgroupsByGroup = useMemo(() => {
@@ -73,11 +94,14 @@ export function NutritionCategoryBrowser({
     const isSameOpenGroup = expandedGroup === group && selectedGroup === group;
     if (allowGroupCollapse && isSameOpenGroup) {
       setExpandedGroup(null);
+      animateGroup(group, false);
       onClearGroup?.();
       onSelectSubgroup("ללא");
       return;
     }
+    if (expandedGroup && expandedGroup !== group) animateGroup(expandedGroup, false);
     setExpandedGroup(group);
+    animateGroup(group, true);
     onSelectGroup(group);
     onSelectSubgroup("ללא");
   };
@@ -126,8 +150,31 @@ export function NutritionCategoryBrowser({
                 </View>
               </Pressable>
 
-              {isExpanded ? (
-                <View style={styles.subgroups}>
+              <Animated.View
+                pointerEvents={isExpanded ? "auto" : "none"}
+                accessibilityElementsHidden={!isExpanded}
+                style={[
+                  styles.subgroups,
+                  {
+                    maxHeight: animationForGroup(group).interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 12000],
+                    }),
+                    opacity: animationForGroup(group).interpolate({
+                      inputRange: [0, 0.18, 1],
+                      outputRange: [0, 0.45, 1],
+                    }),
+                    transform: [
+                      {
+                        translateY: animationForGroup(group).interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-6, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
                   <Pressable
                     accessibilityRole="button"
                     accessibilityState={{ selected: isSelected && selectedSubgroup === "ללא" }}
@@ -198,8 +245,7 @@ export function NutritionCategoryBrowser({
                       </View>
                     );
                   })}
-                </View>
-              ) : null}
+                </Animated.View>
             </View>
           );
         })}
@@ -229,7 +275,7 @@ const styles = StyleSheet.create({
   countLabel: { color: "#7E8DA4", fontSize: 8 },
   categoryIcon: { width: 37, height: 37, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1 },
   iconText: { fontSize: 22, fontWeight: "800", lineHeight: 25 },
-  subgroups: { borderTopColor: "#2C3B55", borderTopWidth: 1, padding: 8, gap: 6 },
+  subgroups: { borderTopColor: "#2C3B55", borderTopWidth: 1, padding: 8, gap: 6, overflow: "hidden" },
   subgroupItem: { gap: 6 },
   subgroup: { minHeight: 40, width: "100%", flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, borderColor: "#2C3B55", borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8 },
   subgroupText: { flex: 1, color: "#D9E2EF", textAlign: "right", fontSize: 10, fontWeight: "800", writingDirection: "rtl" },
