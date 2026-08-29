@@ -1,4 +1,4 @@
-import { foodItems, macrosForFoodQuantity } from "./food-nutrition";
+import { foodItems, macrosForGrams, type FoodItem } from "./food-nutrition";
 import type { WeightMode } from "./cooking-weight";
 
 export type MealFood = {
@@ -19,6 +19,24 @@ export type MealFood = {
   quantityGrams?: number;
 };
 export type Meal = { id: string; title: string; foods: MealFood[] };
+
+/** חישוב מקומי חסין ל־SSR עבור רכיבי ארוחה; תומך ב־100 גרם, יחידה, גביע, מנה ואריזה. */
+function mealMacrosForFoodQuantity(food: FoodItem, grams: number) {
+  const basis = food.nutritionBasis ?? "100g";
+  if (basis === "100g") return macrosForGrams(food, grams);
+  const referenceGrams = food.unitGrams ?? food.servingGrams;
+  const referenceAmount = food.referenceAmount ?? 1;
+  if (!Number.isFinite(referenceGrams) || referenceGrams <= 0 || referenceAmount <= 0) {
+    return macrosForGrams(food, grams);
+  }
+  const factor = (grams / referenceGrams) / referenceAmount;
+  return {
+    calories: Math.round(food.calories * factor),
+    protein: Math.round(food.protein * factor * 10) / 10,
+    carbohydrates: Math.round(food.carbohydrates * factor * 10) / 10,
+    fats: Math.round(food.fats * factor * 10) / 10,
+  };
+}
 
 /**
  * יוצר עותק עצמאי של ארוחה. הסיומת ניתנת מבחוץ כדי לאפשר בדיקה דטרמיניסטית,
@@ -295,7 +313,7 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
           weightMode: food.weightMode ?? "cooked",
           servingGrams: portionGrams,
           quantityGrams: portionGrams,
-          ...macrosForFoodQuantity(source, portionGrams),
+          ...mealMacrosForFoodQuantity(source, portionGrams),
         };
       }
       // מזון אישי או שורה ביחידה שאינה גרם נשמרים כפי שהוזנו. אין להמיר
@@ -364,7 +382,7 @@ export function mealFoodTotals(food: MealFood) {
   }
   const source = sourceForMealFood(food);
   if (source && currentGrams) {
-    return macrosForFoodQuantity(source, currentGrams);
+    return mealMacrosForFoodQuantity(source, currentGrams);
   }
   const baseGrams = food.servingGrams ?? currentGrams;
   const factor = baseGrams && currentGrams ? currentGrams / baseGrams : 1;

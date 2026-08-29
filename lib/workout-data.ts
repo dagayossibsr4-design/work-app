@@ -13,6 +13,8 @@ export type ExerciseTemplate = {
   englishName?: string;
   sets: SetTarget[];
   note?: string;
+  /** שיטת ביצוע מובנית להשוואה ולהצגה במסך האימון. */
+  technique?: string;
 };
 
 export type WorkoutTemplate = {
@@ -22,6 +24,10 @@ export type WorkoutTemplate = {
   accent: string;
   icon?: string;
   exercises: ExerciseTemplate[];
+  /** תבנית מקור שממנה נוצרה תבנית מותאמת, לצורך השוואה בלבד. */
+  derivedFromTemplateId?: WorkoutId;
+  /** שילוב השיטות שנבחר בעת יצירת התבנית המותאמת. */
+  derivedMethodCombinationId?: string;
 };
 
 const standardTwoSet = (name: string, englishName: string, note?: string): ExerciseTemplate => ({

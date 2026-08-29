@@ -204,6 +204,16 @@ describe("meal plan stored quantities", () => {
     expect(eatenMealTotals(meals, { eaten: true })).toEqual({ calories: 100, protein: 10, carbohydrates: 5, fats: 2 });
     expect(meals[0].foods).toHaveLength(2);
   });
+
+  it("hydrates a unit-based Danone PRO cup without converting its label to 100 grams", () => {
+    const [hydrated] = hydrateMealPlan([{
+      id: "meal-pro",
+      title: "בדיקת גביע",
+      foods: [{ id: "danone-pro", name: "דנונה PRO טבעי 0%", quantity: "200 גרם", reference: "ישן", calories: 999, protein: 99, carbohydrates: 99, fats: 99 }],
+    }]);
+    expect(hydrated.foods[0]).toMatchObject({ quantity: "200 גרם", calories: 120, protein: 20, carbohydrates: 8, fats: 0.4, quantityGrams: 200 });
+    expect(mealFoodTotals(hydrated.foods[0])).toEqual({ calories: 120, protein: 20, carbohydrates: 8, fats: 0.4 });
+  });
 });
 
 
