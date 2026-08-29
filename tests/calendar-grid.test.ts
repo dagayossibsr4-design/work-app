@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CALENDAR_CELL_PERCENT, CALENDAR_COLUMN_GAP_PERCENT, CALENDAR_COLUMN_PERCENT, localDateKey, sundayFirstMonthCells } from "../lib/calendar-grid";
+import { CALENDAR_CELL_PERCENT, CALENDAR_COLUMN_GAP_PERCENT, CALENDAR_COLUMN_PERCENT, localDateKey, sundayFirstMonthCells, sundayWeekStart } from "../lib/calendar-grid";
 
 describe("לוח תאריכי אימון", () => {
   it("ממקם את אוגוסט 2026 נכון: ה־1 וה־22 הם שבת", () => {
@@ -16,5 +16,18 @@ describe("לוח תאריכי אימון", () => {
 
   it("יוצר תאריך מקומי תקין עבור פעולת היום", () => {
     expect(localDateKey(new Date(2026, 7, 22, 12))).toBe("2026-08-22");
+  });
+
+  it("מחשב את השבוע הנוכחי לפי יום ראשון המקומי", () => {
+    expect(sundayWeekStart(new Date(2026, 7, 30, 12))).toBe("2026-08-30");
+    expect(sundayWeekStart(new Date(2026, 7, 29, 12))).toBe("2026-08-23");
+    expect(sundayWeekStart(new Date(2026, 8, 1, 12))).toBe("2026-08-30");
+  });
+
+  it("מתרגם חצות UTC לתאריך ישראלי לפני חישוב השבוע", () => {
+    expect(localDateKey(new Date("2026-08-29T21:30:00.000Z"))).toBe("2026-08-30");
+    expect(localDateKey(new Date("2026-08-30T20:59:00.000Z"))).toBe("2026-08-30");
+    expect(localDateKey(new Date("2026-08-30T21:00:00.000Z"))).toBe("2026-08-31");
+    expect(sundayWeekStart(new Date("2026-08-29T21:30:00.000Z"))).toBe("2026-08-30");
   });
 });

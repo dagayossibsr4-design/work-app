@@ -8,6 +8,7 @@ import { completedWorkoutHistoryRoute } from "@/lib/completed-workout-route";
 import { isCardioWorkoutTemplate, splitSessionsForWorkoutDate, useWorkoutStore, type WorkoutSession } from "@/lib/workout-store";
 import { completedSessionForScheduleDay } from "@/lib/schedule-session";
 import type { WorkoutId, WorkoutTemplate } from "@/lib/workout-data";
+import { APP_TIME_ZONE, localDateKey, sundayWeekStart } from "@/lib/calendar-grid";
 
 const SCHEDULE_KEY = "workout-schedule-overrides-v1";
 const CYCLE_START = "2026-08-13";
@@ -31,17 +32,17 @@ const cycle: CycleEntry[] = [
 const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 
 function addDays(date: string, amount: number) {
-  const result = new Date(`${date}T12:00:00`);
-  result.setDate(result.getDate() + amount);
+  const result = new Date(`${date}T12:00:00Z`);
+  result.setUTCDate(result.getUTCDate() + amount);
   return result.toISOString().slice(0, 10);
 }
 
 function formatDate(date: string) {
-  return new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit" }).format(new Date(`${date}T12:00:00`));
+  return new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit", timeZone: APP_TIME_ZONE }).format(new Date(`${date}T12:00:00Z`));
 }
 
 function dayIndex(date: string) {
-  return Math.max(0, Math.round((new Date(`${date}T12:00:00`).getTime() - new Date(`${CYCLE_START}T12:00:00`).getTime()) / 86400000));
+  return Math.max(0, Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${CYCLE_START}T12:00:00Z`)) / 86400000));
 }
 
 function sessionTime(session: WorkoutSession) {
@@ -52,11 +53,9 @@ export default function ScheduleScreen() {
   const router = useRouter();
   const { demoFuture } = useLocalSearchParams<{ demoFuture?: string }>();
   const { templates, sessions, updateTemplate, startWorkoutOnDate } = useWorkoutStore();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
-  const [weekStart, setWeekStart] = useState(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return addDays(today, -new Date(`${today}T12:00:00`).getDay());
-  });
+  const [selectedDate, setSelectedDate] = useState(() => localDateKey(new Date()));
+  const [weekStart, setWeekStart] = useState(() => sundayWeekStart(new Date()));
+  const [manualWeekNavigation, setManualWeekNavigation] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, Override>>({});
   const [editing, setEditing] = useState(false);
   const [futurePreviewDay, setFuturePreviewDay] = useState<ScheduledDay | null>(null);
@@ -66,6 +65,20 @@ export default function ScheduleScreen() {
       if (value) setOverrides(JSON.parse(value) as Record<string, Override>);
     });
   }, []);
+  useEffect(() => {
+    const refreshCurrentWeek = () => {
+      if (manualWeekNavigation) return;
+      const today = new Date();
+      const todayKey = localDateKey(today);
+      const currentWeekStart = sundayWeekStart(today);
+      setSelectedDate((current) => current === todayKey ? current : todayKey);
+      setWeekStart((current) => current === currentWeekStart ? current : currentWeekStart);
+    };
+    refreshCurrentWeek();
+    const timer = setInterval(refreshCurrentWeek, 60 * 1000);
+    return () => clearInterval(timer);
+  }, [manualWeekNavigation]);
+
   useEffect(() => { void AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(overrides)); }, [overrides]);
 
   const week = useMemo<ScheduledDay[]>(() => Array.from({ length: 7 }, (_, index) => {
@@ -144,9 +157,9 @@ export default function ScheduleScreen() {
         </View>
 
         <View style={styles.weekHeader}>
-          <Pressable onPress={() => { const previous = addDays(weekStart, -7); setWeekStart(previous); setSelectedDate(previous); }} style={styles.navButton}><Text style={styles.navText}>‹</Text></Pressable>
+          <Pressable onPress={() => { const previous = addDays(weekStart, -7); setManualWeekNavigation(true); setWeekStart(previous); setSelectedDate(previous); }} style={styles.navButton}><Text style={styles.navText}>‹</Text></Pressable>
           <View><Text style={styles.weekTitle}>שבוע מתוכנן</Text><Text style={styles.weekRange}>{formatDate(week[0].date)} – {formatDate(week[6].date)}</Text></View>
-          <Pressable onPress={() => { const next = addDays(weekStart, 7); setWeekStart(next); setSelectedDate(next); }} style={styles.navButton}><Text style={styles.navText}>›</Text></Pressable>
+          <Pressable onPress={() => { const next = addDays(weekStart, 7); setManualWeekNavigation(true); setWeekStart(next); setSelectedDate(next); }} style={styles.navButton}><Text style={styles.navText}>›</Text></Pressable>
         </View>
 
         <View style={styles.days}>
