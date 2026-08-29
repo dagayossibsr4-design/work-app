@@ -45,6 +45,8 @@ export type SetLog = {
   target?: string;
   note?: string;
   restSeconds?: number;
+  /** שיטת ביצוע שנבחרה עבור הסט, נשמרת אופציונלית כדי לשמור תאימות לאימונים קיימים. */
+  method?: string;
   cardio?: {
     speedKph?: string;
     incline?: string;
@@ -259,6 +261,7 @@ function createSession(template: WorkoutTemplate, scheduledDate?: string): Worko
       reps: "",
       completed: false,
       target: exercise.sets[index]?.target,
+      method: exercise.sets[index]?.method,
     }))),
   };
 }

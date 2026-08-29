@@ -17,6 +17,7 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { WorkoutMethodPicker } from "@/components/workout-method-picker";
 import { completedWorkoutHistoryRoute } from "@/lib/completed-workout-route";
 import {
   libraryForWorkout,
@@ -312,6 +313,7 @@ function SessionDetail({
   const [insertionAfterExerciseId, setInsertionAfterExerciseId] = useState<
     string | null
   >(null);
+  const [methodPickerSetId, setMethodPickerSetId] = useState<string | null>(null);
   const toDateInput = (iso: string) => iso.slice(0, 10);
   const withDate = (iso: string, date: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return iso;
@@ -339,6 +341,7 @@ function SessionDetail({
     setExercisePickerVisible(false);
     setCustomExerciseName("");
     setInsertionAfterExerciseId(null);
+    setMethodPickerSetId(null);
   }, [session, openInEditMode]);
 
   const knownExerciseIds = new Set(
@@ -869,6 +872,7 @@ function SessionDetail({
                     placeholderTextColor="#7E8DA4"
                     style={styles.editInput}
                   />
+                  <Pressable accessibilityRole="button" accessibilityLabel={`בחר שיטת אימון ל${exercise.name} סט ${set.setNumber}`} onPress={() => setMethodPickerSetId(set.id)} style={[styles.methodButton, set.method && styles.methodButtonSelected]}><Text style={styles.methodButtonText}>{set.method ?? "שיטה"}</Text></Pressable>
                   <TextInput
                     accessibilityLabel={`${exercise.name} סט ${set.setNumber} הערה`}
                     value={set.note ?? ""}
@@ -918,6 +922,7 @@ function SessionDetail({
                     <Text style={styles.restValue}>
                       {formatRestSeconds(set.restSeconds)}
                     </Text>
+                    {set.method ? <Text style={styles.methodValue}>שיטה: {set.method}</Text> : null}
                     {set.note ? (
                       <Text style={styles.noteValue}>{set.note}</Text>
                     ) : null}
@@ -929,6 +934,7 @@ function SessionDetail({
           </View>
         ))
       )}
+      <WorkoutMethodPicker visible={Boolean(methodPickerSetId)} selectedMethod={draft.sets.find((set) => set.id === methodPickerSetId)?.method} onClose={() => setMethodPickerSetId(null)} onSelect={(method) => { if (methodPickerSetId) updateDraftSet(methodPickerSetId, { method: method.title === "ללא שיטה" ? undefined : method.title }); setMethodPickerSetId(null); }} />
       <Modal
         visible={calendarVisible}
         transparent
@@ -1650,6 +1656,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: "center",
   },
+  methodButton: { minHeight: 36, maxWidth: 130, borderRadius: 8, borderColor: "#526B8E", borderWidth: 1, backgroundColor: "#101C31", paddingHorizontal: 7, alignItems: "center", justifyContent: "center" },
+  methodButtonSelected: { borderColor: "#D77CFF", backgroundColor: "#33265C" },
+  methodButtonText: { color: "#D8A2F4", fontSize: 9, fontWeight: "900", textAlign: "center" },
+  methodValue: { color: "#D77CFF", fontSize: 10, fontWeight: "800", textAlign: "right" },
   cardioSession: {
     backgroundColor: "#102E2A",
     borderColor: "#367B68",

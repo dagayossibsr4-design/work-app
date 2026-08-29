@@ -3,6 +3,8 @@ export type WorkoutId = string;
 export type SetTarget = {
   target: string;
   restPause?: string;
+  /** שיטת ביצוע אופציונלית לסט, למשל Rest-Pause או Drop Set. */
+  method?: string;
   note?: string;
   suggestedWeight?: string;
 };
