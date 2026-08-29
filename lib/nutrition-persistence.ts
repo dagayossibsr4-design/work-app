@@ -171,3 +171,19 @@ export function subscribeNutritionCloudSaveStatus(
     nutritionCloudStatusListeners.delete(listener);
   };
 }
+
+import type { NutritionProfile } from "./workout-store";
+
+export function mergeHydratedNutritionProfile(
+  current: NutritionProfile,
+  saved: NutritionProfile,
+  pending: NutritionProfile | null,
+): NutritionProfile {
+  if (!pending) return { ...current, ...saved, customFoods: saved.customFoods ?? [] };
+  return {
+    ...current,
+    ...saved,
+    ...pending,
+    customFoods: pending.customFoods ?? saved.customFoods ?? [],
+  };
+}

@@ -1,15 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { caloriesPer100g, foodSubgroupFor, macrosForReference, type FoodGroup, type FoodItem, type FoodSubgroup } from "@/lib/food-nutrition";
 import { nutritionSubgroupOrder } from "@/lib/nutrition-catalog";
 
 type NutritionCategoryBrowserProps = {
   foods: FoodItem[];
-  selectedGroup: FoodGroup;
+  selectedGroup: FoodGroup | null;
   selectedSubgroup: FoodSubgroup | "ללא";
   onSelectGroup: (group: FoodGroup) => void;
+  onClearGroup?: () => void;
   onSelectSubgroup: (subgroup: FoodSubgroup | "ללא") => void;
+  groups?: FoodGroup[];
+  onSelectFood?: (food: FoodItem) => void;
+  productSearch?: string;
+  onProductSearchChange?: (value: string) => void;
+  productFilter?: (food: FoodItem) => boolean;
+  productActionText?: string;
+  productSearchPlaceholder?: string;
+  allowGroupCollapse?: boolean;
+  initiallyCollapsed?: boolean;
 };
 
 const categoryOrder: FoodGroup[] = ["חלבון", "פחמימה", "שומן", "ירק ופרי", "שונות"];
@@ -27,44 +37,67 @@ export function NutritionCategoryBrowser({
   selectedGroup,
   selectedSubgroup,
   onSelectGroup,
+  onClearGroup,
   onSelectSubgroup,
+  groups,
+  onSelectFood,
+  productSearch = "",
+  onProductSearchChange,
+  productFilter,
+  productActionText = "בחר",
+  productSearchPlaceholder,
+  allowGroupCollapse = false,
+  initiallyCollapsed = false,
 }: NutritionCategoryBrowserProps) {
-  const [expandedGroup, setExpandedGroup] = useState<FoodGroup | null>(selectedGroup);
+  const [expandedGroup, setExpandedGroup] = useState<FoodGroup | null>(initiallyCollapsed ? null : selectedGroup);
+  const visibleGroups = groups ?? categoryOrder;
 
   useEffect(() => {
-    setExpandedGroup(selectedGroup);
-  }, [selectedGroup]);
+    if (!initiallyCollapsed) setExpandedGroup(selectedGroup);
+  }, [initiallyCollapsed, selectedGroup]);
 
   const subgroupsByGroup = useMemo(() => {
-    return categoryOrder.reduce<Record<FoodGroup, FoodSubgroup[]>>((result, group) => {
+    return visibleGroups.reduce<Record<FoodGroup, FoodSubgroup[]>>((result, group) => {
       result[group] = nutritionSubgroupOrder.filter((subgroup) =>
         foods.some((food) => food.group === group && foodSubgroupFor(food) === subgroup),
       );
       return result;
     }, { חלבון: [], פחמימה: [], שומן: [], "ירק ופרי": [], שונות: [] });
-  }, [foods]);
+  }, [foods, visibleGroups]);
 
-  const countForGroup = (group: FoodGroup) => foods.filter((food) => food.group === group).length;
+  const countForGroup = (group: FoodGroup) => foods.filter((food) => food.group === group && (!productFilter || productFilter(food))).length;
   const countForSubgroup = (group: FoodGroup, subgroup: FoodSubgroup) =>
-    foods.filter((food) => food.group === group && foodSubgroupFor(food) === subgroup).length;
+    foods.filter((food) => food.group === group && foodSubgroupFor(food) === subgroup && (!productFilter || productFilter(food))).length;
 
   const selectGroup = (group: FoodGroup) => {
-    const nextExpanded = expandedGroup === group ? null : group;
-    setExpandedGroup(nextExpanded);
+    const isSameOpenGroup = expandedGroup === group && selectedGroup === group;
+    if (allowGroupCollapse && isSameOpenGroup) {
+      setExpandedGroup(null);
+      onClearGroup?.();
+      onSelectSubgroup("ללא");
+      return;
+    }
+    setExpandedGroup(group);
     onSelectGroup(group);
     onSelectSubgroup("ללא");
   };
+
+  const productsForSubgroup = (group: FoodGroup, subgroup: FoodSubgroup) =>
+    foods
+      .filter((food) => food.group === group && foodSubgroupFor(food) === subgroup)
+      .filter((food) => !productFilter || productFilter(food))
+      .filter((food) => food.name.toLocaleLowerCase("he").includes(productSearch.trim().toLocaleLowerCase("he")));
 
   return (
     <View style={styles.card}>
       <Text style={styles.eyebrow}>קטלוג מוצרים לפי קטגוריות</Text>
       <Text style={styles.title}>בחר קטגוריה להוספה או לעריכה</Text>
       <Text style={styles.helper}>
-        פתח קטגוריה, בחר תת־קטגוריה, והטופס למטה יקבל את השיוך. המוצרים האישיים והמאגר הבסיסי נשארים מופרדים.
+        פתח קבוצת מאקרו, בחר קטגוריה, ובחר מוצר מתוך הרשימה. לחיצה חוזרת סוגרת את השכבה הפתוחה.
       </Text>
 
       <View style={styles.categories}>
-        {categoryOrder.map((group) => {
+        {visibleGroups.map((group) => {
           const accent = categoryAccent[group];
           const isExpanded = expandedGroup === group;
           const isSelected = selectedGroup === group;
@@ -85,7 +118,7 @@ export function NutritionCategoryBrowser({
                 <View style={styles.categoryCopy}>
                   <Text style={[styles.categoryTitle, isSelected && { color: accent.text }]}>{group}</Text>
                   <Text style={styles.categoryHint}>
-                    {isExpanded ? "לחץ לסגירה" : "לחץ לפתיחת תתי־קטגוריות"} · {subgroups.length} תתי־קטגוריות
+                    {isExpanded ? "לחץ לסגירה" : "לחץ לפתיחה"} · {subgroups.length} תתי־קטגוריות
                   </Text>
                 </View>
                 <View style={[styles.categoryIcon, { backgroundColor: accent.background, borderColor: accent.border }]}>
@@ -106,42 +139,61 @@ export function NutritionCategoryBrowser({
                   </Pressable>
                   {subgroups.map((subgroup) => {
                     const isSubgroupSelected = isSelected && selectedSubgroup === subgroup;
+                    const products = productsForSubgroup(group, subgroup);
                     return (
                       <View key={subgroup} style={styles.subgroupItem}>
                         <Pressable
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isSubgroupSelected }}
-                        onPress={() => {
-                          if (isSubgroupSelected) {
-                            onSelectSubgroup("ללא");
-                            return;
-                          }
-                          onSelectGroup(group);
-                          onSelectSubgroup(subgroup);
-                        }}
-                        style={[styles.subgroup, isSubgroupSelected && { backgroundColor: accent.background, borderColor: accent.border }]}
-                      >
-                        <Text style={[styles.subgroupCount, { color: accent.text }]}>{countForSubgroup(group, subgroup)}</Text>
-                        <Text style={[styles.subgroupText, isSubgroupSelected && { color: accent.text }]}>
-                          {isSubgroupSelected ? "✓ " : ""}{subgroup}
-                        </Text>
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isSubgroupSelected }}
+                          onPress={() => {
+                            if (isSubgroupSelected) {
+                              onSelectSubgroup("ללא");
+                              return;
+                            }
+                            onSelectGroup(group);
+                            onSelectSubgroup(subgroup);
+                          }}
+                          style={[styles.subgroup, isSubgroupSelected && { backgroundColor: accent.background, borderColor: accent.border }]}
+                        >
+                          <Text style={[styles.subgroupCount, { color: accent.text }]}>{countForSubgroup(group, subgroup)}</Text>
+                          <Text style={[styles.subgroupText, isSubgroupSelected && { color: accent.text }]}> {isSubgroupSelected ? "✓ " : ""}{subgroup}</Text>
                         </Pressable>
                         {isSubgroupSelected ? (
-                        <View style={styles.productsForSubgroup}>
-                          {foods
-                            .filter((food) => food.group === group && foodSubgroupFor(food) === subgroup)
-                            .map((food) => {
+                          <View style={styles.productsForSubgroup}>
+                            {onProductSearchChange ? (
+                              <TextInput
+                                accessibilityLabel={`חיפוש מוצרים ב${subgroup}`}
+                                value={productSearch}
+                                onChangeText={onProductSearchChange}
+                                placeholder={productSearchPlaceholder ?? `חפש מוצר ב${subgroup}`}
+                                placeholderTextColor="#7E8DA4"
+                                returnKeyType="done"
+                                style={styles.productSearch}
+                                textAlign="right"
+                              />
+                            ) : null}
+                            {products.length ? products.map((food) => {
                               const macros = macrosForReference(food);
-                              return (
-                                <View key={food.id} style={styles.productRow}>
+                              const productBody = (
+                                <>
                                   <Text style={styles.productName}>{food.name}</Text>
                                   <Text style={styles.productMeta}>
                                     {Math.round(caloriesPer100g(food))} קק״ל ל־100 ג׳ · חלבון {macros.protein} · פחמימות {macros.carbohydrates} · שומן {macros.fats}
                                   </Text>
-                                </View>
+                                  {onSelectFood ? <Text style={styles.productAction}>{productActionText}</Text> : null}
+                                </>
                               );
-                            })}
-                        </View>
+                              return onSelectFood ? (
+                                <Pressable key={food.id} accessibilityRole="button" onPress={() => onSelectFood(food)} style={({ pressed }) => [styles.productButton, pressed && styles.pressed]}>
+                                  {productBody}
+                                </Pressable>
+                              ) : (
+                                <View key={food.id} style={styles.productRow}>{productBody}</View>
+                              );
+                            }) : (
+                              <Text style={styles.emptyProducts}>{productSearch.trim() ? "לא נמצאו מוצרים בחיפוש." : "אין מוצרים זמינים בקטגוריה זו."}</Text>
+                            )}
+                          </View>
                         ) : null}
                       </View>
                     );
@@ -154,8 +206,8 @@ export function NutritionCategoryBrowser({
       </View>
 
       <View style={styles.selection}>
-        <Text style={styles.selectionTitle}>השיוך שנבחר לטופס</Text>
-        <Text style={styles.selectionValue}>{selectedGroup} · {selectedSubgroup === "ללא" ? "ללא תת־קטגוריה" : selectedSubgroup}</Text>
+        <Text style={styles.selectionTitle}>הבחירה הנוכחית</Text>
+        <Text style={styles.selectionValue}>{selectedGroup ? `${selectedGroup} · ${selectedSubgroup === "ללא" ? "ללא תת־קטגוריה" : selectedSubgroup}` : "לא נבחרה קטגוריה"}</Text>
       </View>
     </View>
   );
@@ -180,12 +232,16 @@ const styles = StyleSheet.create({
   subgroups: { borderTopColor: "#2C3B55", borderTopWidth: 1, padding: 8, gap: 6 },
   subgroupItem: { gap: 6 },
   subgroup: { minHeight: 40, width: "100%", flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, borderColor: "#2C3B55", borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8 },
-  subgroupText: { flex: 1, color: "#D9E2EF", textAlign: "right", fontSize: 10, fontWeight: "800" },
+  subgroupText: { flex: 1, color: "#D9E2EF", textAlign: "right", fontSize: 10, fontWeight: "800", writingDirection: "rtl" },
   subgroupCount: { fontSize: 10, fontWeight: "900" },
   productsForSubgroup: { backgroundColor: "#0B1224", borderColor: "#3D587C", borderWidth: 1, borderRadius: 9, padding: 9, gap: 7 },
+  productSearch: { minHeight: 40, backgroundColor: "#101C31", borderColor: "#3D587C", borderWidth: 1, borderRadius: 8, color: "#F7F9FC", paddingHorizontal: 10, textAlign: "right" },
   productRow: { borderBottomColor: "#2C3B55", borderBottomWidth: 1, paddingBottom: 6, gap: 2 },
+  productButton: { backgroundColor: "#16233A", borderColor: "#3D587C", borderWidth: 1, borderRadius: 8, padding: 9, gap: 3 },
   productName: { color: "#F5B72C", fontSize: 10, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   productMeta: { color: "#AAB7C8", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" },
+  productAction: { color: "#8ED8FF", fontSize: 9, fontWeight: "900", textAlign: "right" },
+  emptyProducts: { color: "#AAB7C8", fontSize: 10, textAlign: "right", paddingVertical: 5 },
   selection: { backgroundColor: "#33265C", borderColor: "#8B5CF6", borderWidth: 1, borderRadius: 10, padding: 10, gap: 3 },
   selectionTitle: { color: "#BBA8D9", textAlign: "right", fontSize: 9, fontWeight: "800" },
   selectionValue: { color: "#E9D5FF", textAlign: "right", fontSize: 12, fontWeight: "900", writingDirection: "rtl" },

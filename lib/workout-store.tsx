@@ -1,8 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type ExerciseTemplate, type WorkoutId, type WorkoutTemplate } from "./workout-data";
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
+import { mergeHydratedNutritionProfile } from "./nutrition-persistence";
 
 function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
   return saved.map((template) => {
@@ -159,7 +160,7 @@ type WorkoutContextValue = {
   removeExerciseFromActiveWorkout: (exerciseId: string) => void;
   moveActiveExercise: (exerciseId: string, direction: -1 | 1) => void;
   saveCardioLog: (log: Omit<CardioLog, "id">) => void;
-  updateNutritionProfile: (profile: NutritionProfile) => void;
+  updateNutritionProfile: (profile: NutritionProfile | ((current: NutritionProfile) => NutritionProfile)) => void;
   updateExercise: (templateId: WorkoutId, exerciseId: string, patch: Partial<ExerciseTemplate>) => void;
   deleteExercise: (templateId: WorkoutId, exerciseId: string) => void;
   moveExercise: (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => void;
@@ -275,6 +276,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(cloneTemplates);
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const pendingNutritionUpdate = useRef<NutritionProfile | null>(null);
 
   useEffect(() => {
     Promise.all([AsyncStorage.getItem(SESSION_KEY), AsyncStorage.getItem(TEMPLATE_KEY), AsyncStorage.getItem(RECOVERY_KEY), AsyncStorage.getItem(CARDIO_KEY), AsyncStorage.getItem(NUTRITION_KEY), AsyncStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)]).then(([sessionValue, templateValue, recoveryValue, cardioValue, nutritionValue, activeSessionValue]) => {
@@ -289,7 +291,15 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       if (templateValue) setTemplates(hydrateWorkoutTemplates(JSON.parse(templateValue) as WorkoutTemplate[]));
       if (recoveryValue) setRecoveryLogs(JSON.parse(recoveryValue));
       if (cardioValue) setCardioLogs(JSON.parse(cardioValue));
-      if (nutritionValue) { const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile; setNutritionProfile((current) => ({ ...current, ...savedNutrition, customFoods: savedNutrition.customFoods ?? [] })); }
+      if (nutritionValue) {
+        const savedNutrition = JSON.parse(nutritionValue) as NutritionProfile;
+        setNutritionProfile((current) => {
+          const pending = pendingNutritionUpdate.current;
+          const merged = mergeHydratedNutritionProfile(current, savedNutrition, pending);
+          if (pending) pendingNutritionUpdate.current = null;
+          return merged;
+        });
+      }
       if (!demoCompletedPreview) setActiveSession(restoreActiveWorkout(activeSessionValue));
       setHydrated(true);
     }).catch(() => setHydrated(true));
@@ -522,7 +532,13 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setActiveSession((current) => current ? { ...current, sets: [...current.sets, { ...source, id: `${current.id}-${source.exerciseId}-${nextNumber}-${Date.now()}`, setNumber: nextNumber, completed: false }] } : current);
   };
   const saveCardioLog = (log: Omit<CardioLog, "id">) => setCardioLogs((current) => [{ ...log, id: `cardio-${Date.now()}` }, ...current]);
-  const updateNutritionProfile = (profile: NutritionProfile) => setNutritionProfile(profile);
+  const updateNutritionProfile = (profile: NutritionProfile | ((current: NutritionProfile) => NutritionProfile)) => {
+    setNutritionProfile((current) => {
+      const next = typeof profile === "function" ? profile(current) : profile;
+      if (!hydrated) pendingNutritionUpdate.current = next;
+      return next;
+    });
+  };
   const updateExercise = (templateId: WorkoutId, exerciseId: string, patch: Partial<ExerciseTemplate>) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.map((exercise) => exercise.id === exerciseId ? { ...exercise, ...patch } : exercise) } : template));
   const deleteExercise = (templateId: WorkoutId, exerciseId: string) => setTemplates((current) => current.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.filter((exercise) => exercise.id !== exerciseId) } : template));
   const getAccountState = useCallback((): AccountState => ({ sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, activeSession }), [sessions, templates, recoveryLogs, cardioLogs, nutritionProfile, activeSession]);
