@@ -254,11 +254,6 @@ export default function MuscleGainMethodsScreen() {
           <Text style={styles.subtitle}>כלים לתכנון עומס, להארכת סטים ולחיסכון בזמן — בלי להפוך כל אימון למבחן.</Text>
         </View>
 
-        <View style={styles.notice}>
-          <Text style={styles.noticeTitle}>איך להשתמש במדריך</Text>
-          <Text style={styles.noticeText}>הבסיס הוא תוכנית עקבית, טכניקה טובה, התאוששות והתקדמות מדורגת. השיטות המתקדמות הן כלים נקודתיים, לא חובה ולא תחליף לתוכנית מסודרת.</Text>
-        </View>
-
         <View style={styles.statsRow}>
           <View style={styles.stat}><Text style={styles.statValue}>{methods.length}</Text><Text style={styles.statLabel}>שיטות</Text></View>
           <View style={styles.stat}><Text style={styles.statValue}>{categories.length - 1}</Text><Text style={styles.statLabel}>קטגוריות</Text></View>
@@ -266,28 +261,28 @@ export default function MuscleGainMethodsScreen() {
         </View>
 
         <TextInput value={query} onChangeText={setQuery} placeholder="חפש שיטה או טכניקה" placeholderTextColor="#8291A8" style={styles.searchInput} textAlign="right" accessibilityLabel="חיפוש שיטת אימון" />
-        <View style={styles.filtersVertical}>
-          {categories.map((category) => <Pressable key={category} onPress={() => setSelectedCategory(category)} accessibilityRole="button" accessibilityState={{ selected: selectedCategory === category }} style={[styles.filterVertical, selectedCategory === category && styles.filterActive]}><Text style={[styles.filterText, selectedCategory === category && styles.filterTextActive]}>{category}</Text></Pressable>)}
-        </View>
-
         <View style={styles.combinationPanel}>
           <Text style={styles.panelTitle}>שילובי שיטות מומלצים</Text>
-          <Text style={styles.panelText}>שלב לכל היותר שיטה מרכזית אחת עם תוספת נקודתית. השילובים כאן מיועדים לתכנון ולאישור שלך, לא להוספה אוטומטית לכל סט.</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.combinationList}>
-            {combinations.map((combination) => <Pressable key={combination.id} onPress={() => setSelectedCombination(combination.id)} style={[styles.combinationChip, selectedCombination === combination.id && styles.combinationChipActive]}><Text style={[styles.combinationChipTitle, selectedCombination === combination.id && styles.combinationChipTitleActive]}>{combination.title}</Text><Text style={[styles.combinationChipMeta, selectedCombination === combination.id && styles.combinationChipMetaActive]}>{combination.methods}</Text></Pressable>)}
-          </ScrollView>
-          <Text style={styles.detailTitle}>{selectedCombinationData.description}</Text>
-          <Text style={styles.detailText}>מיקום: {selectedCombinationData.placement}</Text>
-          <Text style={styles.detailText}>זהירות: {selectedCombinationData.caution}</Text>
-        </View>
-
-        <View style={styles.applyPanel}>
-          <Text style={styles.panelTitle}>יישום על אימונים שכבר ביצעת</Text>
-          <Text style={styles.panelText}>בחר אימון אחד, כמה אימונים או את כל אימוני PPL1 ו־PPL2 מההיסטוריה. לכל אימון תיווצר תבנית חדשה על בסיס אותה תוכנית, עם השיטה שבחרת. האימון המקורי, התאריך והנתונים שלו נשארים ללא שינוי.</Text>
-          <Text style={styles.detailTitle}>יישום השיטה על האימונים שנבחרו</Text>
-          <View style={{ display: "none" }}>{splitPlans.map((plan) => { const selected = selectedSplitId === plan.id; const expandedPlan = expandedSplitId === plan.id; return <Pressable key={plan.id} onPress={() => { setSelectedSplitId(plan.id); setExpandedSplitId(expandedPlan ? null : plan.id); }} accessibilityRole="button" accessibilityState={{ selected, expanded: expandedPlan }} style={[styles.splitOption, selected && styles.splitOptionActive]}><View style={styles.splitOptionHeader}><Text style={[styles.splitOptionTitle, selected && styles.splitOptionTitleActive]}>{plan.title}</Text><Text style={[styles.splitOptionSubtitle, selected && styles.splitOptionSubtitleActive]}>{plan.subtitle}</Text></View>{plan.days.map((day) => <View key={day.name} style={styles.splitDayBlock}><Text style={[styles.splitDay, selected && styles.splitDayActive]}>{day.name} · {day.focus} · {day.exercises.length} תרגילים</Text>{expandedPlan ? <View style={styles.splitExerciseList}>{day.exercises.map((exercise, index) => <Text key={`${day.name}-${exercise}`} style={[styles.splitExercise, selected && styles.splitExerciseActive]}>{index + 1}. {exercise} · {index === 0 ? "5–8" : "8–12"} חזרות · 2 סטים</Text>)}</View> : null}</View>)}<Text style={[styles.splitOpenHint, selected && styles.splitOpenHintActive]}>{expandedPlan ? "סגור חלוקת עבודה" : "פתח חלוקת עבודה מלאה ›"}</Text></Pressable>; })}</View>
-          {completedSessions.length === 0 ? <Text style={styles.emptyText}>אין עדיין אימונים שהושלמו ליישום.</Text> : <><View style={styles.selectionToolbar}><Text style={styles.selectionHint}>{selectedSessionIds.length} מתוך {completedSessions.length} אימונים נבחרו</Text><Pressable onPress={toggleAllSessions} style={styles.selectAllButton}><Text style={styles.selectAllText}>{selectedSessionIds.length === completedSessions.length ? "נקה בחירה" : "בחר הכול"}</Text></Pressable></View><View style={styles.sessionList}>{completedSessions.map((session) => { const source = templates.find((template) => template.id === session.templateId); const selected = selectedSessionIds.includes(session.id); return <Pressable key={session.id} onPress={() => toggleSessionSelection(session.id)} accessibilityState={{ selected }} style={[styles.sessionChip, selected && styles.sessionChipActive]}><Text style={[styles.sessionChipTitle, selected && styles.sessionChipTitleActive]}>{source?.name ?? session.templateId}</Text><Text style={[styles.sessionChipMeta, selected && styles.sessionChipMetaActive]}>{new Date(session.finishedAt ?? session.startedAt).toLocaleDateString("he-IL")}</Text><Text style={[styles.sessionChipCheck, selected && styles.sessionChipCheckActive]}>{selected ? "✓ נבחר" : "בחר"}</Text></Pressable>; })}</View></>}
-          {selectedSessionIds.length > 0 ? <Pressable onPress={applyToCompletedWorkouts} style={({ pressed }) => [styles.applyButton, pressed && styles.pressed]}><Text style={styles.applyButtonText}>אשר וצור {selectedSessionIds.length} תבניות · {selectedCombinationData.title}</Text></Pressable> : <Text style={styles.selectionHint}>בחר אימון אחד, כמה אימונים או „בחר הכול”.</Text>}
+          <Text style={styles.panelText}>שילובים מעשיים לפי מטרה. בחר רובריקה כדי לראות את התיאור, המיקום והזהירות.</Text>
+          <View style={styles.combinationList}>
+            {combinations.map((combination) => {
+              const selected = selectedCombination === combination.id;
+              return (
+                <Pressable key={combination.id} onPress={() => setSelectedCombination(combination.id)} accessibilityRole="button" accessibilityState={{ selected, expanded: selected }} style={({ pressed }) => [styles.combinationChip, selected && styles.combinationChipActive, pressed && styles.pressed]}>
+                  <View style={styles.combinationChipHeader}>
+                    <Text style={[styles.combinationChipTitle, selected && styles.combinationChipTitleActive]}>{combination.title}</Text>
+                    <Text style={[styles.combinationChipArrow, selected && styles.combinationChipArrowActive]}>{selected ? "−" : "+"}</Text>
+                  </View>
+                  <Text style={[styles.combinationChipMeta, selected && styles.combinationChipMetaActive]}>{combination.methods}</Text>
+                  {selected ? <View style={styles.combinationDetails}>
+                    <Text style={styles.detailText}>{combination.description}</Text>
+                    <Text style={styles.detailText}>מיקום: {combination.placement}</Text>
+                    <Text style={styles.detailText}>זהירות: {combination.caution}</Text>
+                  </View> : null}
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         {visibleMethods.map((method, index) => {
@@ -296,10 +291,12 @@ export default function MuscleGainMethodsScreen() {
             <View key={method.title} style={[styles.card, isOpen && styles.cardOpen]}>
               <Pressable accessibilityRole="button" accessibilityState={{ expanded: isOpen }} accessibilityLabel={`${isOpen ? "סגור" : "פתח"} מידע על ${method.title}`} onPress={() => setExpanded(isOpen ? null : method.title)} style={({ pressed }) => [styles.cardButton, pressed && styles.pressed]}>
                 <View style={styles.cardTop}><Text style={styles.number}>{String(methods.indexOf(method) + 1).padStart(2, "0")}</Text><View style={styles.cardTopActions}><Text style={styles.category}>{method.category}</Text><Pressable onPress={() => toggleFavorite(method.title)} accessibilityRole="button" accessibilityLabel={`${favoriteTitles.includes(method.title) ? "הסר" : "הוסף"} את ${method.title} מהמועדפים`} style={styles.favoriteButton}><Text style={[styles.favorite, favoriteTitles.includes(method.title) && styles.favoriteActive]}>{favoriteTitles.includes(method.title) ? "★" : "☆"}</Text></Pressable></View></View>
-                <Text style={styles.methodTitle}>{method.title}</Text>
-                <Text style={styles.english}>{method.english}</Text>
-                <Text style={styles.summary}>{method.summary}</Text>
-                <Text style={styles.openHint}>{isOpen ? "סגור פרטים" : "פתח הסבר וביצוע  ›"}</Text>
+                <View style={styles.cardTextBlock}>
+                  <Text style={styles.methodTitle}>{method.title}</Text>
+                  <Text style={styles.english}>{method.english}</Text>
+                  <Text style={styles.summary}>{method.summary}</Text>
+                  <Text style={styles.openHint}>{isOpen ? "סגור פרטים" : "פתח הסבר וביצוע  ›"}</Text>
+                </View>
               </Pressable>
               {isOpen ? <View style={styles.details}>
                 <Detail title="איך מבצעים" text={method.how} />
@@ -325,8 +322,8 @@ const styles = StyleSheet.create({
   content: { gap: 12, paddingBottom: 36, width: "100%" },
   header: { alignItems: "flex-end", gap: 6 },
   back: { alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: 4 },
-  backText: { color: "#E38BFF", fontSize: 13, fontWeight: "900" },
-  eyebrow: { color: "#E38BFF", fontSize: 12, fontWeight: "900" },
+  backText: { color: "#C86DDE", fontSize: 13, fontWeight: "900" },
+  eyebrow: { color: "#C86DDE", fontSize: 12, fontWeight: "900" },
   title: { color: "#F7F9FC", fontSize: 27, fontWeight: "900", textAlign: "right" },
   subtitle: { color: "#AAB7C8", fontSize: 13, lineHeight: 20, textAlign: "right" },
   notice: { backgroundColor: "#271D36", borderColor: "#A768CF", borderWidth: 1, borderRadius: 16, padding: 14, gap: 5 },
@@ -335,15 +332,19 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: "row-reverse", gap: 8 },
   combinationPanel: { backgroundColor: "#16233A", borderColor: "#8053A6", borderWidth: 1, borderRadius: 14, padding: 14, gap: 8, width: "100%", overflow: "hidden" },
   applyPanel: { backgroundColor: "#132A2C", borderColor: "#42D392", borderWidth: 1, borderRadius: 14, padding: 14, gap: 8, width: "100%", overflow: "hidden" },
-  panelTitle: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl", maxWidth: "100%" },
-  panelText: { color: "#B8C7D8", fontSize: 11, lineHeight: 17, textAlign: "right", minWidth: 0, flexShrink: 1 },
-  combinationList: { flexDirection: "row", gap: 8, paddingVertical: 2 },
-  combinationChip: { width: 154, borderColor: "#52759C", borderWidth: 1, borderRadius: 11, padding: 9, gap: 4 },
-  combinationChipActive: { backgroundColor: "#E38BFF", borderColor: "#E38BFF" },
-  combinationChipTitle: { color: "#F7F9FC", fontSize: 11, fontWeight: "900", textAlign: "right" },
+  panelTitle: { width: "100%", color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl", maxWidth: "100%", flexShrink: 1 },
+  panelText: { width: "100%", color: "#B8C7D8", fontSize: 11, lineHeight: 17, textAlign: "right", writingDirection: "rtl", minWidth: 0, flexShrink: 1 },
+  combinationList: { width: "100%", gap: 9, paddingVertical: 2 },
+  combinationChip: { width: "100%", alignSelf: "stretch", minHeight: 74, borderColor: "#52759C", borderWidth: 1, borderRadius: 13, padding: 13, gap: 6, backgroundColor: "#101C31" },
+  combinationChipActive: { backgroundColor: "#C86DDE", borderColor: "#C86DDE" },
+  combinationChipTitle: { flex: 1, minWidth: 0, color: "#F7F9FC", fontSize: 12, fontWeight: "900", textAlign: "right", writingDirection: "rtl", flexShrink: 1 },
   combinationChipTitleActive: { color: "#211C2D" },
-  combinationChipMeta: { color: "#AAB7C8", fontSize: 9, lineHeight: 13, textAlign: "right", minWidth: 0, flexShrink: 1 },
+  combinationChipMeta: { width: "100%", color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "ltr", minWidth: 0, flexShrink: 1 },
   combinationChipMetaActive: { color: "#3B2850" },
+  combinationChipHeader: { width: "100%", minHeight: 24, flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  combinationChipArrow: { color: "#C86DDE", fontSize: 20, fontWeight: "900" },
+  combinationChipArrowActive: { color: "#211C2D" },
+  combinationDetails: { width: "100%", borderTopColor: "#C26BE8", borderTopWidth: 1, paddingTop: 7, gap: 4 },
   sessionList: { width: "100%", gap: 8, paddingVertical: 2 },
   sessionChip: { width: "100%", borderColor: "#466E6E", borderWidth: 1, borderRadius: 11, padding: 11, gap: 4 },
   sessionChipActive: { backgroundColor: "#42D392", borderColor: "#42D392" },
@@ -381,31 +382,32 @@ const styles = StyleSheet.create({
   splitOpenHint: { color: "#82B6AC", fontSize: 10, fontWeight: "900", textAlign: "right", marginTop: 3 },
   splitOpenHintActive: { color: "#0B2924" },
   filter: { borderColor: "#52759C", borderWidth: 1, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
-  filterActive: { backgroundColor: "#E38BFF", borderColor: "#E38BFF" },
+  filterActive: { backgroundColor: "#C86DDE", borderColor: "#C86DDE" },
   filterText: { color: "#C5D0DF", fontSize: 10, fontWeight: "800" },
   filterTextActive: { color: "#211C2D" },
   stat: { flex: 1, backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 13, paddingVertical: 10, alignItems: "center", gap: 2 },
-  statValue: { color: "#E38BFF", fontSize: 20, fontWeight: "900" },
+  statValue: { color: "#C86DDE", fontSize: 20, fontWeight: "900" },
   statLabel: { color: "#AAB7C8", fontSize: 10, fontWeight: "800" },
   card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 16, overflow: "hidden", width: "100%", maxWidth: "100%" },
   cardOpen: { borderColor: "#A768CF" },
-  cardButton: { padding: 14, gap: 5, minWidth: 0, width: "100%" },
-  cardTop: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
+  cardButton: { padding: 14, gap: 5, minWidth: 0, width: "100%", alignItems: "stretch" },
+  cardTop: { width: "100%", flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
+  cardTextBlock: { width: "100%", alignSelf: "stretch", alignItems: "flex-end", gap: 2 },
   cardTopActions: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
   favoriteButton: { minWidth: 28, minHeight: 28, alignItems: "center", justifyContent: "center" },
   favorite: { color: "#8291A8", fontSize: 23, lineHeight: 25 },
   favoriteActive: { color: "#F5B72C" },
-  number: { color: "#E38BFF", fontSize: 12, fontWeight: "900", letterSpacing: 1 },
+  number: { color: "#C86DDE", fontSize: 12, fontWeight: "900", letterSpacing: 1 },
   category: { color: "#AAB7C8", fontSize: 10, fontWeight: "800", textAlign: "right" },
-  methodTitle: { color: "#F7F9FC", fontSize: 17, fontWeight: "900", textAlign: "right", writingDirection: "rtl", marginTop: 2, minWidth: 0, maxWidth: "100%", flexShrink: 1 },
-  english: { color: "#C99DDF", fontSize: 10, textAlign: "left", writingDirection: "ltr", minWidth: 0, maxWidth: "100%", flexShrink: 1 },
-  summary: { color: "#C5D0DF", fontSize: 12, lineHeight: 18, textAlign: "right", writingDirection: "rtl", marginTop: 3, minWidth: 0, maxWidth: "100%", flexShrink: 1 },
-  openHint: { color: "#E38BFF", fontSize: 11, fontWeight: "900", textAlign: "right", marginTop: 4 },
-  details: { borderTopColor: "#49385B", borderTopWidth: 1, backgroundColor: "#101B2F", padding: 13, gap: 11, minWidth: 0 },
+  methodTitle: { width: "100%", alignSelf: "stretch", color: "#F7F9FC", fontSize: 17, fontWeight: "900", textAlign: "right", writingDirection: "rtl", marginTop: 2, minWidth: 0, maxWidth: "100%", flexShrink: 1, lineHeight: 23 },
+  english: { width: "100%", alignSelf: "stretch", color: "#C99DDF", fontSize: 10, textAlign: "left", writingDirection: "ltr", minWidth: 0, maxWidth: "100%", flexShrink: 1, lineHeight: 14 },
+  summary: { width: "100%", alignSelf: "stretch", color: "#C5D0DF", fontSize: 12, lineHeight: 18, textAlign: "right", writingDirection: "rtl", marginTop: 3, minWidth: 0, maxWidth: "100%", flexShrink: 1 },
+  openHint: { width: "100%", alignSelf: "stretch", color: "#C86DDE", fontSize: 11, fontWeight: "900", textAlign: "right", writingDirection: "rtl", marginTop: 4, lineHeight: 16 },
+  details: { width: "100%", borderTopColor: "#49385B", borderTopWidth: 1, backgroundColor: "#101B2F", padding: 13, gap: 11, minWidth: 0 },
   detail: { gap: 3 },
   detailTitle: { color: "#F0B9FF", fontSize: 11, fontWeight: "900", textAlign: "right" },
-  detailText: { color: "#D9E2EF", fontSize: 11, lineHeight: 18, textAlign: "right", minWidth: 0, flexShrink: 1 },
-  workoutLink: { minHeight: 42, backgroundColor: "#E38BFF", borderRadius: 10, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  detailText: { width: "100%", color: "#D9E2EF", fontSize: 11, lineHeight: 18, textAlign: "right", writingDirection: "rtl", minWidth: 0, flexShrink: 1 },
+  workoutLink: { minHeight: 42, backgroundColor: "#C86DDE", borderRadius: 10, alignItems: "center", justifyContent: "center", marginTop: 2 },
   workoutLinkText: { color: "#211C2D", fontSize: 11, fontWeight: "900" },
   caution: { backgroundColor: "#30242A", borderColor: "#855264", borderWidth: 1, borderRadius: 10, padding: 10, gap: 3 },
   footer: { backgroundColor: "#173755", borderColor: "#4C91BE", borderWidth: 1, borderRadius: 15, padding: 14, gap: 5 },
