@@ -75,6 +75,7 @@ export const foodItems: FoodItem[] = [
   base({ id: "rice", name: "אורז לבן מבושל", group: "פחמימה", reference: "מבושל", servingGrams: 180, calories: 130, protein: 2.7, carbohydrates: 28.2, fats: 0.3, aliases: ["אורז"] }),
   base({ id: "brown-rice", name: "אורז מלא מבושל", group: "פחמימה", reference: "מבושל · מדריך הערכים", servingGrams: 180, calories: 112, protein: 2.6, carbohydrates: 23.5, fats: 0.9 }),
   base({ id: "potato", name: "תפוח אדמה אפוי", group: "פחמימה", reference: "מבושל / אפוי · מדריך הערכים", servingGrams: 250, calories: 85, protein: 2, carbohydrates: 18.5, fats: 0.1, aliases: ["תפוא", "תפוח אדמה"] }),
+  base({ id: "boiled-potato", name: "תפוח אדמה מבושל", group: "פחמימה", reference: "מבושל בקליפה, ללא מלח · ערכים ל־100 גרם", servingGrams: 250, calories: 87, protein: 1.87, carbohydrates: 20.1, fats: 0.1, aliases: ["תפוח אדמה מבושל", "תפוח אדמה ללא שמן", "תפוא מבושל"] }),
   base({ id: "sweet-potato", name: "בטטה אפויה", group: "פחמימה", reference: "מבושלת / אפויה · מדריך הערכים", servingGrams: 200, calories: 85, protein: 2, carbohydrates: 18.5, fats: 0.1 }),
   commercial({ id: "oats", name: "שיבולת שועל / קוואקר", group: "פחמימה", reference: "יבש לפני בישול · מדריך הערכים", servingGrams: 60, calories: 375, protein: 13.5, carbohydrates: 62, fats: 7, brand: "Quaker", aliases: ["קוואקר"] }),
   base({ id: "quinoa", name: "קינואה מבושלת", group: "פחמימה", reference: "מבושלת", servingGrams: 185, calories: 120, protein: 4.4, carbohydrates: 21.3, fats: 1.9 }),
