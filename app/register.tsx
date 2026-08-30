@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Session } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
@@ -8,10 +8,12 @@ import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { supabase } from "@/lib/supabase";
 import { getCurrentAppRole } from "@/lib/admin-role";
-import { existingUserOtpOptions, NEW_USER_ACCESS_MESSAGE } from "@/lib/access-policy";
+import { NEW_USER_ACCESS_MESSAGE, validateExistingUserLogin } from "@/lib/access-policy";
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -19,6 +21,22 @@ export default function RegisterScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const incomingUrl = Linking.useURL();
   const goHome = () => router.replace("/(tabs)" as never);
+
+  const signOut = async () => {
+    if (!supabase) return;
+    setBusy(true);
+    setError("");
+    const { error: signOutError } = await supabase.auth.signOut();
+    setBusy(false);
+    if (signOutError) {
+      setError("לא ניתן להתנתק כרגע. נסה שוב.");
+      return;
+    }
+    setEmail("");
+    setPassword("");
+    setShowPassword(false);
+    setMessage("התנתקת בהצלחה.");
+  };
 
   useEffect(() => {
     if (!supabase) return;
@@ -57,26 +75,28 @@ export default function RegisterScreen() {
 
   const continueWithAccount = async () => {
     const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || !supabase) {
-      setError("הזן כתובת דוא״ל תקינה כדי להתחבר לחשבון האישי.");
+    const validationError = validateExistingUserLogin(normalizedEmail, password);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    if (!supabase) {
+      setError("מערכת ההתחברות אינה מוגדרת כרגע.");
       return;
     }
     setBusy(true);
     setError("");
     setMessage("");
-    const redirectTo = Platform.OS === "web" && typeof window !== "undefined"
-      ? `${window.location.origin}/register`
-      : Linking.createURL("register");
-    const { error: authError } = await supabase.auth.signInWithOtp({
+    const { error: authError } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
-      options: existingUserOtpOptions(redirectTo),
+      password,
     });
     setBusy(false);
     if (authError) {
-      setError(`הכתובת אינה מאושרת לכניסה. ${NEW_USER_ACCESS_MESSAGE}`);
+      setError(`פרטי ההתחברות אינם תקינים או שהחשבון עדיין לא אושר. ${NEW_USER_ACCESS_MESSAGE}`);
       return;
     }
-    setMessage("קישור כניסה נשלח לדוא״ל. פתח אותו כדי להשלים את החיבור והסנכרון.");
+    setMessage("ההתחברות הצליחה. החשבון המאושר נטען.");
   };
 
   return (
@@ -95,11 +115,14 @@ export default function RegisterScreen() {
               <Text style={styles.primaryText}>חזרה למסך הבית</Text>
             </Pressable>
             {isAdmin ? <Pressable accessibilityRole="button" accessibilityLabel="פתיחת לוח אדמין" onPress={() => router.push("/admin" as never)} style={({ pressed }) => [styles.adminButton, pressed && styles.pressed]}><Text style={styles.adminButtonText}>פתיחת לוח אדמין</Text></Pressable> : null}
+            <Pressable accessibilityRole="button" accessibilityLabel="התנתקות מהחשבון" onPress={() => void signOut()} disabled={busy} style={({ pressed }) => [styles.secondary, pressed && styles.pressed, busy && styles.disabled]}>
+              <Text style={styles.secondaryText}>התנתקות</Text>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>כניסה למשתמש קיים</Text>
-            <Text style={styles.note}>נשלח קישור חד־פעמי רק לכתובת שכבר אושרה במערכת. משתמש חדש צריך להתחיל במסלול תשלום.</Text>
+            <Text style={styles.note}>התחברות זמינה רק למשתמשים שהמנהל יצר ואישר לאחר התשלום. הזן אימייל וסיסמה.</Text>
             <TextInput
               accessibilityLabel="כתובת דוא״ל"
               autoCapitalize="none"
@@ -113,8 +136,25 @@ export default function RegisterScreen() {
               textAlign="right"
               value={email}
             />
-            <Pressable accessibilityRole="button" accessibilityLabel="שליחת קישור כניסה" onPress={() => void continueWithAccount()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
-              {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>שלח קישור כניסה</Text>}
+            <View style={styles.passwordRow}>
+              <TextInput
+                accessibilityLabel="סיסמה"
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={setPassword}
+                placeholder="סיסמה"
+                placeholderTextColor="#7E8DA4"
+                secureTextEntry={!showPassword}
+                style={styles.passwordInput}
+                textAlign="right"
+                value={password}
+              />
+              <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? "הסתרת סיסמה" : "הצגת סיסמה"} onPress={() => setShowPassword((visible) => !visible)} style={({ pressed }) => [styles.passwordToggle, pressed && styles.pressed]}>
+                <Text style={styles.passwordToggleText}>{showPassword ? "הסתר" : "הצג"}</Text>
+              </Pressable>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="התחברות עם אימייל וסיסמה" onPress={() => void continueWithAccount()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
+              {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>התחבר עם אימייל וסיסמה</Text>}
             </Pressable>
             {message ? <Text accessibilityLiveRegion="polite" style={styles.success}>{message}</Text> : null}
             {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
@@ -139,6 +179,10 @@ const styles = StyleSheet.create({
   cardTitle: { color: "#F7F9FC", fontSize: 18, fontWeight: "900", textAlign: "right" },
   note: { color: "#AAB7C8", fontSize: 12, lineHeight: 19, textAlign: "right" },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
+  passwordRow: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
+  passwordInput: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
+  passwordToggle: { minHeight: 44, minWidth: 58, borderRadius: 10, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#1D2D48", alignItems: "center", justifyContent: "center" },
+  passwordToggleText: { color: "#D9E2EF", fontSize: 12, fontWeight: "800" },
   primary: { minHeight: 48, backgroundColor: "#F5B72C", borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   primaryText: { color: "#0B1224", fontSize: 14, fontWeight: "900" },
   secondary: { minHeight: 46, backgroundColor: "#1D2D48", borderColor: "#52759C", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },

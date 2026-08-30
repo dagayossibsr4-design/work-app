@@ -100,7 +100,7 @@ export default function AdminScreen() {
         {!loading && (signedOut || !userId) ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>נדרשת התחברות</Text>
-            <Text style={styles.note}>התחבר עם קישור הכניסה לפני פתיחת לוח הבקרה.</Text>
+            <Text style={styles.note}>התחבר עם אימייל וסיסמה לפני פתיחת לוח הבקרה.</Text>
             <Pressable accessibilityRole="button" onPress={() => router.replace("/register" as never)} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}><Text style={styles.primaryText}>מעבר להתחברות</Text></Pressable>
           </View>
         ) : null}
@@ -147,7 +147,7 @@ export default function AdminScreen() {
               <Text style={styles.guideStep}><Text style={styles.stepNumber}>02</Text>  העבר את הבקשה ל“תשלום בבדיקה”.</Text>
               <Text style={styles.guideStep}><Text style={styles.stepNumber}>03</Text>  אשר ליצירת חשבון רק לאחר שהכסף התקבל.</Text>
               <Text style={styles.guideStep}><Text style={styles.stepNumber}>04</Text>  ב־Supabase בחר Authentication → Users → Add user.</Text>
-              <Text style={styles.guideStep}><Text style={styles.stepNumber}>05</Text>  אל תעניק למשתמש role של admin; הוא יתחבר עם OTP.</Text>
+              <Text style={styles.guideStep}><Text style={styles.stepNumber}>05</Text>  אל תעניק למשתמש role של admin; הוא יתחבר עם אימייל וסיסמה.</Text>
             </View>
             <View style={styles.infoCard}><Text style={styles.infoTitle}>השלב האוטומטי</Text><Text style={styles.note}>לאחר קבלת פרטי Hyp API ו־Notify, נחליף את בדיקת התשלום הידנית באימות אוטומטי.</Text></View>
             <Pressable accessibilityRole="button" onPress={signOut} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}><Text style={styles.secondaryText}>התנתקות</Text></Pressable>

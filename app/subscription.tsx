@@ -65,7 +65,7 @@ export default function SubscriptionScreen() {
     setPaymentAttempted(true);
     Alert.alert(
       "הבקשה התקבלה לבדיקה",
-      "בשלב זה התשלום עדיין אינו מאומת אוטומטית. לאחר שתבדוק את העסקה ותיצור את המשתמש ב־Supabase, המשתמש יוכל להתחבר עם קישור חד־פעמי.",
+      "בשלב זה התשלום עדיין אינו מאומת אוטומטית. לאחר שתבדוק את העסקה ותיצור את המשתמש ב־Supabase, המשתמש יוכל להתחבר עם אימייל וסיסמה.",
     );
   };
 
@@ -230,7 +230,7 @@ export default function SubscriptionScreen() {
 
         {requestError ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{requestError}</Text> : null}
         <Text style={styles.disclaimer}>
-          אין להזין פרטי כרטיס בתוך האפליקציה. התשלום מתבצע רק בדף המאובטח של Hyp. בקישור הנוכחי אין עדיין שיוך אוטומטי למשתמש או אישור Notify.
+          אין להזין פרטי כרטיס או סיסמה בתוך דף התשלום. התשלום מתבצע רק בדף המאובטח של Hyp. לאחר אישור התשלום, המנהל יוצר את המשתמש ומאפשר התחברות באימייל ובסיסמה.
         </Text>
       </ScrollView>
     </ScreenContainer>
