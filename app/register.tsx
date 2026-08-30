@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import type { Session } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { supabase } from "@/lib/supabase";
+import { getCurrentAppRole } from "@/lib/admin-role";
+import { existingUserOtpOptions, NEW_USER_ACCESS_MESSAGE } from "@/lib/access-policy";
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState("");
@@ -13,21 +16,24 @@ export default function RegisterScreen() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const incomingUrl = Linking.useURL();
   const goHome = () => router.replace("/(tabs)" as never);
 
   useEffect(() => {
     if (!supabase) return;
-    void supabase.auth.getSession().then(({ data }) => {
-      const sessionExists = Boolean(data.session);
-      setIsSignedIn(sessionExists);
-      if (sessionExists) goHome();
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const updateSessionState = (session: Session | null) => {
       const sessionExists = Boolean(session);
       setIsSignedIn(sessionExists);
-      if (sessionExists) goHome();
-    });
+      if (!sessionExists) {
+        setIsAdmin(false);
+        return;
+      }
+      void getCurrentAppRole(supabase).then((result) => setIsAdmin(result.role === "admin"));
+      goHome();
+    };
+    void supabase.auth.getSession().then(({ data }) => updateSessionState(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => updateSessionState(session));
     return () => listener.subscription.unsubscribe();
   }, []);
 
@@ -63,11 +69,11 @@ export default function RegisterScreen() {
       : Linking.createURL("register");
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: normalizedEmail,
-      options: { emailRedirectTo: redirectTo },
+      options: existingUserOtpOptions(redirectTo),
     });
     setBusy(false);
     if (authError) {
-      setError("לא ניתן לשלוח כרגע קישור כניסה. בדוק את כתובת הדוא״ל ונסה שוב.");
+      setError(`הכתובת אינה מאושרת לכניסה. ${NEW_USER_ACCESS_MESSAGE}`);
       return;
     }
     setMessage("קישור כניסה נשלח לדוא״ל. פתח אותו כדי להשלים את החיבור והסנכרון.");
@@ -78,8 +84,8 @@ export default function RegisterScreen() {
       <View style={styles.content}>
         <BrandMark />
         <Text style={styles.eyebrow}>חשבון אישי</Text>
-        <Text style={styles.title}>{isSignedIn ? "החשבון מחובר" : "יצירת חשבון"}</Text>
-        <Text style={styles.subtitle}>התחבר כדי לשמור את האימונים, התזונה וההתקדמות שלך בחשבון Supabase אישי ולעבור בין מכשירים.</Text>
+        <Text style={styles.title}>{isSignedIn ? "החשבון מחובר" : "כניסת משתמש מאושר"}</Text>
+        <Text style={styles.subtitle}>רק משתמשים שנוצרו ואושרו מראש יכולים להתחבר. משתמש חדש מתחיל קודם במסלול ובתשלום, ורק לאחר מכן החשבון מופעל על ידי מנהל.</Text>
 
         {isSignedIn ? (
           <View style={styles.card}>
@@ -88,11 +94,12 @@ export default function RegisterScreen() {
             <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הבית" onPress={goHome} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
               <Text style={styles.primaryText}>חזרה למסך הבית</Text>
             </Pressable>
+            {isAdmin ? <Pressable accessibilityRole="button" accessibilityLabel="פתיחת לוח אדמין" onPress={() => router.push("/admin" as never)} style={({ pressed }) => [styles.adminButton, pressed && styles.pressed]}><Text style={styles.adminButtonText}>פתיחת לוח אדמין</Text></Pressable> : null}
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>כניסה מאובטחת בדוא״ל</Text>
-            <Text style={styles.note}>נשלח לך קישור חד־פעמי. אין צורך בסיסמה, והנתונים נשמרים רק תחת החשבון שלך.</Text>
+            <Text style={styles.cardTitle}>כניסה למשתמש קיים</Text>
+            <Text style={styles.note}>נשלח קישור חד־פעמי רק לכתובת שכבר אושרה במערכת. משתמש חדש צריך להתחיל במסלול תשלום.</Text>
             <TextInput
               accessibilityLabel="כתובת דוא״ל"
               autoCapitalize="none"
@@ -114,10 +121,10 @@ export default function RegisterScreen() {
           </View>
         )}
 
-        <Pressable accessibilityRole="button" accessibilityLabel="המשך בלי חשבון" onPress={goHome} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
-          <Text style={styles.secondaryText}>המשך בלי חשבון</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="הרשמה ובחירת מסלול" onPress={() => router.push("/subscription" as never)} style={({ pressed }) => [styles.subscriptionButton, pressed && styles.pressed]}>
+          <Text style={styles.subscriptionButtonText}>הרשמה ובחירת מסלול</Text>
         </Pressable>
-        <Text style={styles.privacy}>בלי חשבון הנתונים נשמרים במכשיר בלבד. עם חשבון Supabase, מצב האימונים והתזונה מסתנכרן באופן פרטי בין מכשירים.</Text>
+        <Text style={styles.privacy}>משתמש חדש: בחר מסלול, בצע תשלום, וקבל אישור מנהל לפני יצירת החשבון. משתמשים קיימים יכולים להתחבר כאן.</Text>
       </View>
     </ScreenContainer>
   );
@@ -136,6 +143,10 @@ const styles = StyleSheet.create({
   primaryText: { color: "#0B1224", fontSize: 14, fontWeight: "900" },
   secondary: { minHeight: 46, backgroundColor: "#1D2D48", borderColor: "#52759C", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   secondaryText: { color: "#D9E2EF", fontWeight: "800" },
+  adminButton: { minHeight: 46, backgroundColor: "#5B2C83", borderColor: "#C86DDE", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  adminButtonText: { color: "#F4D9FF", fontWeight: "900" },
+  subscriptionButton: { minHeight: 48, backgroundColor: "#2A6F8F", borderColor: "#72C7E7", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  subscriptionButtonText: { color: "#E6F8FF", fontWeight: "900" },
   success: { color: "#81D7B5", fontSize: 11, lineHeight: 17, textAlign: "right" },
   error: { color: "#FF879A", fontSize: 11, lineHeight: 17, textAlign: "right" },
   privacy: { color: "#7E8DA4", fontSize: 10, lineHeight: 16, textAlign: "right" },
