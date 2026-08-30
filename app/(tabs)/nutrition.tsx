@@ -46,7 +46,7 @@ export default function NutritionScreen() {
     const isServingBasis = basis === "מנה"; const subgroupLabel = subgroup === "ללא" ? "ללא תת־קטגוריה" : subgroup; const fatPer100 = isServingBasis ? (numericValues[3] / serving) * 100 : numericValues[3]; const fatLevel = fatPer100 <= 5 ? "דל שומן" as const : fatPer100 <= 15 ? "בינוני" as const : "שומני" as const;
     const id = editingFoodId ?? `custom-food-${Date.now()}`;
     const item: FoodItem = { id, name: name.trim(), group, subgroup: subgroup === "ללא" ? undefined : subgroup, fatLevel, reference: `${reference.trim() || "מוצר אישי"} · ${isServingBasis ? `ערכים למנה של ${serving} ג׳` : "ערכים ל־100 ג׳"}`, servingGrams: serving, ...(isServingBasis ? { unitGrams: serving, referenceAmount: 1, referenceUnit: "מנה", nutritionBasis: "serving" as const } : {}), calories: Number(calories) || 0, protein: Number(protein) || 0, carbohydrates: Number(carbohydrates) || 0, fats: Number(fats) || 0, sourceType: "אישי" };
-    updateNutritionProfile((current) => ({ ...current, customFoods: upsertCustomFood(current.customFoods ?? [], item, editingFoodId) }));
+    updateNutritionProfile((current) => ({ ...current, customFoods: upsertCustomFood(current.customFoods ?? [], item, editingFoodId), customFoodsUpdatedAt: Date.now() }));
     setName(""); setReference("מוצר מסחרי"); setSubgroup("ללא"); setBasis("100"); setServingGrams("100"); setCalories(""); setProtein(""); setCarbohydrates(""); setFats(""); setEditingFoodId(null); setMessage(`${editingFoodId ? "המוצר עודכן" : "המוצר נשמר"} תחת ${group} · ${subgroupLabel} ויופיע בקטלוג.`);
   };
   const beginEditCustomFood = (food: FoodItem, reassignOnly = false) => {
@@ -58,7 +58,7 @@ export default function NutritionScreen() {
     if (!food) return;
     Alert.alert("מחיקת מוצר אישי", `למחוק את ${food.name}?`, [
       { text: "ביטול", style: "cancel" },
-      { text: "מחק", style: "destructive", onPress: () => { updateNutritionProfile((current) => ({ ...current, customFoods: removeCustomFood(current.customFoods ?? [], id) })); if (editingFoodId === id) cancelCustomFoodEdit(); setMessage(`המוצר ${food.name} נמחק.`); } },
+      { text: "מחק", style: "destructive", onPress: () => { updateNutritionProfile((current) => ({ ...current, customFoods: removeCustomFood(current.customFoods ?? [], id), customFoodsUpdatedAt: Date.now() })); if (editingFoodId === id) cancelCustomFoodEdit(); setMessage(`המוצר ${food.name} נמחק.`); } },
     ]);
   };
   const duplicateCustomFood = (food: FoodItem) => {
@@ -95,7 +95,7 @@ export default function NutritionScreen() {
           const index = next.findIndex((existing) => existing.id === item.id);
           if (index >= 0) next[index] = item; else next.unshift(item);
         });
-        return { ...current, customFoods: next };
+        return { ...current, customFoods: next, customFoodsUpdatedAt: Date.now() };
       });
       setMessage(`יובאו ${parsed.items.length} מוצרים לקטלוג האישי.${parsed.errors.length ? ` ${parsed.errors.length} שורות נדחו.` : ""}`);
     } catch (error) {

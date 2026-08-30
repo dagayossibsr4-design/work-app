@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type ExerciseTemplate, type WorkoutId, type WorkoutTemplate } from "./workout-data";
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
-import { mergeHydratedNutritionProfile } from "./nutrition-persistence";
+import { mergeAccountNutritionProfile, mergeHydratedNutritionProfile } from "./nutrition-persistence";
 
 function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
   return saved.map((template) => {
@@ -71,7 +71,7 @@ export function copyWorkoutSetValues(currentSets: SetLog[], previousSets: SetLog
 
 export type CardioLog = { id: string; date: string; type: string; durationMinutes: string; distanceKm: string; caloriesBurned?: string; intensity: string; note: string };
 export type NutritionGoal = "מסה" | "חיטוב" | "ניטרלי";
-export type NutritionProfile = { goal: NutritionGoal; weightKg: string; heightCm: string; age: string; sex: "זכר" | "נקבה"; activity: "נמוכה" | "בינונית" | "גבוהה"; proteinPerKg: string; fatPerKg: string; calorieTarget?: string; proteinTarget?: string; carbohydratesTarget?: string; fatsTarget?: string; autoMacroField?: "protein" | "carbohydrates" | "fats"; customFoods?: FoodItem[] };
+export type NutritionProfile = { goal: NutritionGoal; weightKg: string; heightCm: string; age: string; sex: "זכר" | "נקבה"; activity: "נמוכה" | "בינונית" | "גבוהה"; proteinPerKg: string; fatPerKg: string; calorieTarget?: string; proteinTarget?: string; carbohydratesTarget?: string; fatsTarget?: string; autoMacroField?: "protein" | "carbohydrates" | "fats"; customFoods?: FoodItem[]; customFoodsUpdatedAt?: number };
 
 export type RecoveryLog = {
   id: string;
@@ -549,7 +549,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (Array.isArray(state.templates)) setTemplates(hydrateWorkoutTemplates(state.templates));
     if (Array.isArray(state.recoveryLogs)) setRecoveryLogs(state.recoveryLogs);
     if (Array.isArray(state.cardioLogs)) setCardioLogs(state.cardioLogs);
-    if (state.nutritionProfile) setNutritionProfile((current) => ({ ...current, ...state.nutritionProfile }));
+    if (state.nutritionProfile) setNutritionProfile((current) => mergeAccountNutritionProfile(current, state.nutritionProfile as NutritionProfile));
     if ("activeSession" in state) setActiveSession((current) => current ?? state.activeSession ?? null);
   }, []);
   const moveExercise = (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => setTemplates((current) => current.map((template) => {

@@ -3,7 +3,10 @@
  * Values are kept in AsyncStorage for offline use and copied to account_state
  * by AccountSync whenever the user is signed in to Supabase.
  */
+export const NUTRITION_PROFILE_STORAGE_KEY = "workout-tracker-nutrition-v1";
+
 export const NUTRITION_PERSISTENCE_KEYS = [
+  NUTRITION_PROFILE_STORAGE_KEY,
   "meal-plan-state",
   "meal-plan-eaten-history",
   "meal-plan-day-history",
@@ -185,5 +188,29 @@ export function mergeHydratedNutritionProfile(
     ...saved,
     ...pending,
     customFoods: pending.customFoods ?? saved.customFoods ?? [],
+  };
+}
+
+/**
+ * מגן על מוצרי תזונה מקומיים כאשר סנכרון ענן מאוחר מחזיר פרופיל ישן או חלקי.
+ * פרופיל ענן עם מוצרים אמיתיים מתקבל; מערך ריק/חסר אינו מוחק מוצר מקומי שכבר קיים.
+ */
+export function mergeAccountNutritionProfile(
+  current: NutritionProfile,
+  remote: NutritionProfile,
+): NutritionProfile {
+  const localFoods = Array.isArray(current.customFoods) ? current.customFoods : [];
+  const remoteFoods = Array.isArray(remote.customFoods) ? remote.customFoods : [];
+  const localUpdatedAt = Number(current.customFoodsUpdatedAt) || 0;
+  const remoteUpdatedAt = Number(remote.customFoodsUpdatedAt) || 0;
+  const useRemoteFoods = remoteUpdatedAt > localUpdatedAt && remoteFoods.length > 0;
+  const useLocalFoods = localUpdatedAt > remoteUpdatedAt || (remoteFoods.length === 0 && localFoods.length > 0);
+  const customFoods = useRemoteFoods ? remoteFoods : useLocalFoods ? localFoods : remoteFoods.length || !localFoods.length ? remoteFoods : localFoods;
+  const customFoodsUpdatedAt = useRemoteFoods ? remoteUpdatedAt : useLocalFoods ? localUpdatedAt : Math.max(localUpdatedAt, remoteUpdatedAt) || undefined;
+  return {
+    ...current,
+    ...remote,
+    customFoods,
+    ...(customFoodsUpdatedAt ? { customFoodsUpdatedAt } : {}),
   };
 }
