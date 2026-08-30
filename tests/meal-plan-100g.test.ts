@@ -286,6 +286,20 @@ describe("meal quantity migration safety", () => {
     expect(normalizeMealsTo100Grams([hydrated])[0].foods[0].quantity).toBe("166 גרם");
   });
 
+  it("keeps integer and decimal quantities stable across repeated hydration cycles", () => {
+    let current: Meal[] = [{
+      id: "meal-stable",
+      title: "ארוחה יציבה",
+      foods: [
+        { id: "food-integer", name: "חזה עוף מבושל", quantity: "166 גרם", quantityGrams: 166, servingGrams: 166, reference: "בדיקה", calories: 274, protein: 51.5, carbohydrates: 0, fats: 6 },
+        { id: "food-decimal", name: "טחינה גולמית", quantity: "23.5 גרם", quantityGrams: 23.5, servingGrams: 23.5, reference: "בדיקה", calories: 150, protein: 4.7, carbohydrates: 3.6, fats: 13.3 },
+      ],
+    }];
+    for (let cycle = 0; cycle < 5; cycle += 1) current = hydrateMealPlan(current);
+    expect(current[0].foods.map((food) => food.quantityGrams)).toEqual([166, 23.5]);
+    expect(current[0].foods.map((food) => food.quantity)).toEqual(["166 גרם", "23.5 גרם"]);
+  });
+
   it("clears daily quantities without deleting foods and stays cleared after reload", () => {
     const original: Meal[] = [{
       id: "meal-1",

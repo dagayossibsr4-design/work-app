@@ -275,7 +275,6 @@ export default function MealPlanScreen() {
   const [mealConversionId, setMealConversionId] = useState<string | null>(null);
   const [mealConversionSelection, setMealConversionSelection] = useState<Record<string, ConversionFood | null>>({});
   const [mealConversionSubgroups, setMealConversionSubgroups] = useState<Record<string, FoodSubgroup | null>>({});
-  const manualMealEditRef = useRef(false);
   const mealsRef = useRef<Meal[]>(meals);
   useEffect(() => {
     mealsRef.current = meals;
@@ -895,47 +894,8 @@ export default function MealPlanScreen() {
     nutritionProfile.fatsTarget,
   ]);
   const targetKey = `${activeProfile.goal}:${targetCalories}:${activeProfile.protein}:${activeProfile.carbohydrates}:${activeProfile.fats}`;
-  const currentPlanTotals = useMemo(() => dailyMealTotals(meals), [meals]);
-  const targetAligned =
-    (!activeProfile.protein ||
-      Math.abs(currentPlanTotals.protein - Number(activeProfile.protein)) <=
-        2) &&
-    (!activeProfile.carbohydrates ||
-      Math.abs(
-        currentPlanTotals.carbohydrates - Number(activeProfile.carbohydrates),
-      ) <= 2) &&
-    (!activeProfile.fats ||
-      Math.abs(currentPlanTotals.fats - Number(activeProfile.fats)) <= 2);
-  useEffect(() => {
-    if (manualMealEditRef.current) {
-      manualMealEditRef.current = false;
-      return;
-    }
-    if (
-      !hydrated ||
-      !targetCalories ||
-      (appliedTarget === targetKey && targetAligned)
-    )
-      return;
-    setMeals((current) =>
-      scaleMealsToTargets(current, {
-        calories: targetCalories,
-        protein: Number(activeProfile.protein) || 0,
-        carbohydrates: Number(activeProfile.carbohydrates) || 0,
-        fats: Number(activeProfile.fats) || 0,
-      }),
-    );
-    setAppliedTarget(targetKey);
-  }, [
-    hydrated,
-    targetCalories,
-    targetKey,
-    appliedTarget,
-    targetAligned,
-    activeProfile.protein,
-    activeProfile.carbohydrates,
-    activeProfile.fats,
-  ]);
+  // אין איזון אוטומטי בעת הידרציה או כניסה מחדש: פעולה כזו שינתה כמויות
+  // שהמשתמש הזין. איזון נשאר זמין רק דרך כפתור "איזון מחדש" המפורש.
   const toggleEaten = (id: string) =>
     setEaten((current) => ({ ...current, [id]: !current[id] }));
   const selectMealDate = (nextDate: string) => {
@@ -987,7 +947,6 @@ export default function MealPlanScreen() {
   };
   const clearDailyQuantities = () => {
     const clearedMeals = clearMealPlanQuantities(mealsRef.current);
-    manualMealEditRef.current = true;
     mealsRef.current = clearedMeals;
     setMeals(clearedMeals);
     setEaten({});
@@ -1573,7 +1532,7 @@ export default function MealPlanScreen() {
     foodId: string,
     quantity: string,
   ) => {
-    manualMealEditRef.current = true;
+    const savedGrams = gramsFromMealQuantity(quantity.trim().replace(",", "."), 0);
     setMeals((current) => {
       const next = current.map((meal) =>
         meal.id !== mealId
@@ -1585,8 +1544,8 @@ export default function MealPlanScreen() {
                   ? {
                       ...food,
                       quantity,
-                      quantityGrams: Number(quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 0),
-                      servingGrams: food.servingGrams ?? Number(quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? 100),
+                      quantityGrams: savedGrams,
+                      servingGrams: food.servingGrams ?? (savedGrams > 0 ? savedGrams : 100),
                       dailyQuantityCleared: false,
                     }
                   : food,
@@ -1656,7 +1615,6 @@ export default function MealPlanScreen() {
         };
       }),
     }));
-    manualMealEditRef.current = true;
     setEditingNutritionKey(null);
     Keyboard.dismiss();
     setRebalanceMessage("ערכי התזונה נשמרו ידנית והסיכומים עודכנו.");
@@ -1705,8 +1663,10 @@ export default function MealPlanScreen() {
   ) => {
     const meal = meals.find((item) => item.id === mealId);
     const food = meal?.foods.find((item) => item.id === foodId);
-    const currentMatch = food?.quantity.match(/^\s*([0-9]+(?:\.[0-9]+)?)/);
-    const currentGrams = currentMatch ? Number(currentMatch[1]) : 0;
+    const storedGrams = Number(food?.quantityGrams);
+    const currentGrams = Number.isFinite(storedGrams)
+      ? storedGrams
+      : gramsFromMealQuantity(food?.quantity ?? "", 0);
     const nextGrams = Math.max(0, Math.round((currentGrams + delta) * 10) / 10);
     setQuantityDraft(String(nextGrams));
     updateMealFoodQuantity(mealId, foodId, `${nextGrams} גרם`);
@@ -2918,7 +2878,12 @@ export default function MealPlanScreen() {
                                   setEditingQuantityKey(null);
                                   Keyboard.dismiss();
                                 } else {
-                                  const numericQuantity = String(gramsFromMealQuantity(food.quantity));
+                                  const storedGrams = Number(food.quantityGrams);
+                                  const numericQuantity = String(
+                                    Number.isFinite(storedGrams)
+                                      ? storedGrams
+                                      : gramsFromMealQuantity(food.quantity, 0),
+                                  );
                                   setQuantityDraft(numericQuantity);
                                   setEditingQuantityKey(quantityEditKey);
                                 }
