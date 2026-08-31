@@ -13,6 +13,7 @@ import { calculateFivePercentProgress } from "@/lib/workout-progression";
 import { calculateProjectedVolume } from "@/lib/workout-volume";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { supabase } from "@/lib/supabase";
+import { confirmSignOut } from "@/lib/confirm-sign-out";
 
 const formatDate = (iso: string) => new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "long" }).format(new Date(iso));
 
@@ -61,6 +62,9 @@ export default function HomeScreen() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => updateAccountName(session));
     return () => listener.subscription.unsubscribe();
   }, []);
+  const requestAccountSignOut = () => confirmSignOut(() => {
+    void supabase?.auth.signOut().then(() => router.replace("/register" as never));
+  });
   const customMethods: TrainingMethod[] = templates.filter((template) => template.id.startsWith("custom-")).map((template) => ({ id: template.id, group: "תוכניות מותאמות", title: template.name, subtitle: template.focus, templateIds: [template.id], accent: template.accent, icon: (template.icon as IconSymbolName) || "dumbbell.fill" }));
   const methods = [...trainingMethods, ...customMethods];
   const selectedMethod = methods.find((method) => method.id === selectedMethodId) ?? methods[0];
@@ -111,7 +115,7 @@ export default function HomeScreen() {
           <View style={styles.headerActions}>
             <Pressable onPress={() => router.push("/menu" as never)} style={styles.menuButton}><Text style={styles.menuText}>☰ תפריט</Text></Pressable>
             <Pressable onPress={() => router.push("/(tabs)/meal-plan" as never)} style={styles.mealButton}><Text style={styles.mealButtonText}>הארוחות שלי</Text></Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={accountName ? "ניהול החשבון המחובר" : "הרשמה או התחברות"} onPress={() => router.push("/register" as never)} style={styles.accountButton}><Text style={styles.accountButtonText}>{accountName ? `👤 ${accountName}` : "הרשמה / התחברות"}</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={accountName ? "התנתקות מהחשבון המחובר" : "הרשמה או התחברות"} onPress={accountName ? requestAccountSignOut : () => router.push("/register" as never)} style={styles.accountButton}><Text style={styles.accountButtonText}>{accountName ? `👤 ${accountName}` : "הרשמה / התחברות"}</Text></Pressable>
           </View>
           <View style={styles.titleBlock}>
             <Text style={styles.eyebrow}>יומן האימונים</Text>
