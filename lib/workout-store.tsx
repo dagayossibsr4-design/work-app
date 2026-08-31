@@ -4,6 +4,7 @@ import { getTemplate, replaceExerciseInTemplate, workoutTemplates, type Exercise
 import type { ExerciseLibraryItem } from "./exercise-library";
 import type { FoodItem } from "./food-nutrition";
 import { mergeAccountNutritionProfile, mergeHydratedNutritionProfile } from "./nutrition-persistence";
+import { enqueueAsyncStorageRemove, enqueueAsyncStorageSet } from "./storage-write-queue";
 
 function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
   return saved.map((template) => {
@@ -305,19 +306,19 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => setHydrated(true));
   }, [demoCompletedPreview]);
 
-  useEffect(() => { if (hydrated && !demoCompletedPreview) AsyncStorage.setItem(SESSION_KEY, JSON.stringify(sessions)); }, [sessions, hydrated, demoCompletedPreview]);
+  useEffect(() => { if (hydrated && !demoCompletedPreview) enqueueAsyncStorageSet(SESSION_KEY, JSON.stringify(sessions)); }, [sessions, hydrated, demoCompletedPreview]);
   useEffect(() => {
     if (!hydrated || demoCompletedPreview) return;
     if (activeSession) {
-      void AsyncStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(activeSession));
+      void enqueueAsyncStorageSet(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(activeSession));
       return;
     }
-    void AsyncStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+    void enqueueAsyncStorageRemove(ACTIVE_SESSION_STORAGE_KEY);
   }, [activeSession, hydrated, demoCompletedPreview]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates)); }, [templates, hydrated]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryLogs)); }, [recoveryLogs, hydrated]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(CARDIO_KEY, JSON.stringify(cardioLogs)); }, [cardioLogs, hydrated]);
-  useEffect(() => { if (hydrated) AsyncStorage.setItem(NUTRITION_KEY, JSON.stringify(nutritionProfile)); }, [nutritionProfile, hydrated]);
+  useEffect(() => { if (hydrated) enqueueAsyncStorageSet(TEMPLATE_KEY, JSON.stringify(templates)); }, [templates, hydrated]);
+  useEffect(() => { if (hydrated) enqueueAsyncStorageSet(RECOVERY_KEY, JSON.stringify(recoveryLogs)); }, [recoveryLogs, hydrated]);
+  useEffect(() => { if (hydrated) enqueueAsyncStorageSet(CARDIO_KEY, JSON.stringify(cardioLogs)); }, [cardioLogs, hydrated]);
+  useEffect(() => { if (hydrated) void enqueueAsyncStorageSet(NUTRITION_KEY, JSON.stringify(nutritionProfile)).catch(() => undefined); }, [nutritionProfile, hydrated]);
 
 
   const startWorkoutOnDate = (templateId: WorkoutId, date: string, copyPrevious = false) => {
@@ -338,12 +339,12 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const startWorkoutFromTemplate = (template: WorkoutTemplate) => setActiveSession(createSession(template));
   const persistActiveSessionImmediately = (next: WorkoutSession | null) => {
     const operation = next
-      ? AsyncStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(next))
-      : AsyncStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+      ? enqueueAsyncStorageSet(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(next))
+      : enqueueAsyncStorageRemove(ACTIVE_SESSION_STORAGE_KEY);
     void operation.catch(() => undefined);
   };
   const persistTemplatesImmediately = (next: WorkoutTemplate[]) => {
-    void AsyncStorage.setItem(TEMPLATE_KEY, JSON.stringify(next)).catch(() => undefined);
+    void enqueueAsyncStorageSet(TEMPLATE_KEY, JSON.stringify(next)).catch(() => undefined);
   };
   const updateSet = (setId: string, patch: Partial<SetLog>) => setActiveSession((current) => {
     if (!current) return current;
@@ -358,7 +359,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     return next;
   });
   const persistSessionsImmediately = (nextSessions: WorkoutSession[]) => {
-    void AsyncStorage.setItem(SESSION_KEY, JSON.stringify(nextSessions)).catch(() => undefined);
+    void enqueueAsyncStorageSet(SESSION_KEY, JSON.stringify(nextSessions)).catch(() => undefined);
   };
   const finishWorkout = () => {
     if (!activeSession) return;

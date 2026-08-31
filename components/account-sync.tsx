@@ -15,6 +15,7 @@ import {
   setAccountBackupStatus,
   subscribeAccountBackupRequests,
 } from "@/lib/account-backup";
+import { enqueueAsyncStorageMultiSet } from "@/lib/storage-write-queue";
 
 const LOCAL_KEYS = [
   ...NUTRITION_PERSISTENCE_KEYS,
@@ -116,7 +117,7 @@ export function AccountSync() {
           );
           const storageToRestore = { ...nonNutritionCloudStorage, ...safeNutritionRestore };
           if (Object.keys(storageToRestore).length) {
-            await AsyncStorage.multiSet(Object.entries(storageToRestore));
+            await enqueueAsyncStorageMultiSet(Object.entries(storageToRestore));
             notifyNutritionStorageRestored();
           }
         }

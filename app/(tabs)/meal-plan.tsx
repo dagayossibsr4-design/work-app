@@ -111,6 +111,7 @@ import {
   type SupplementReminderSettings,
 } from "@/lib/supplement-reminder-types";
 import { buildImmediateMealSave } from "@/lib/meal-plan-immediate-save";
+import { enqueueAsyncStorageMultiSet, enqueueAsyncStorageSet } from "@/lib/storage-write-queue";
 import { CYCLE_STORAGE_KEY, cycleDateRangeLabel, cycleWeekdays, normalizeCycleRecords, renameCycleRecords, type CycleRecord } from "@/lib/cycle-tracking";
 import {
   createCustomSupplementDefinition,
@@ -315,7 +316,7 @@ export default function MealPlanScreen() {
   }, [nutritionStorageRevision]);
   useEffect(() => {
     if (!reminderSettingsLoaded) return;
-    AsyncStorage.setItem("supplement-reminder-settings-v1", JSON.stringify(reminderSettings))
+    enqueueAsyncStorageSet("supplement-reminder-settings-v1", JSON.stringify(reminderSettings))
       .then(requestNutritionCloudSave)
       .catch(() => undefined);
   }, [reminderSettings, reminderSettingsLoaded]);
@@ -347,7 +348,7 @@ export default function MealPlanScreen() {
   useEffect(() => subscribeNutritionStorageRestoreReady(setNutritionRestoreReady), []);
   useEffect(() => {
     if (hydrated)
-      AsyncStorage.setItem(
+      enqueueAsyncStorageSet(
         "conversion-favorites",
         JSON.stringify(favoriteConversionIds),
       ).catch(() => undefined);
@@ -410,7 +411,7 @@ export default function MealPlanScreen() {
               setMeals(saved.layoutVersion === 2 ? normalizedMeals : restoreMissingDefaultMealSlots(normalizedMeals));
             }
             if (defaultsVersion !== "1") {
-              AsyncStorage.setItem("meal-plan-defaults-v100", "1").catch(
+              enqueueAsyncStorageSet("meal-plan-defaults-v100", "1").catch(
                 () => undefined,
               );
             }
@@ -565,7 +566,7 @@ export default function MealPlanScreen() {
       });
       const nextEatenHistory = JSON.stringify({ ...eatenHistory, [selectedDate]: eaten });
       const nextDayHistory = JSON.stringify({ ...mealHistoryByDate, [selectedDate]: { meals: cloneMeals(meals), eaten } });
-      void AsyncStorage.multiSet([
+      void enqueueAsyncStorageMultiSet([
         ["meal-plan-state", nextMealsState],
         ["meal-plan-expanded-meal-v1", JSON.stringify(expandedMealIds)],
         ["meal-plan-eaten-history", nextEatenHistory],
@@ -623,7 +624,7 @@ export default function MealPlanScreen() {
     }
     const nextRecords = renameCycleRecords(cycleRecords, cycleNameEditingId, nextName);
     setCycleRecords(nextRecords);
-    await AsyncStorage.setItem(CYCLE_STORAGE_KEY, JSON.stringify(nextRecords))
+    await enqueueAsyncStorageSet(CYCLE_STORAGE_KEY, JSON.stringify(nextRecords))
       .then(requestNutritionCloudSave)
       .catch(() => undefined);
     setCycleNameEditingId(null);
@@ -774,7 +775,7 @@ export default function MealPlanScreen() {
       ...menuProfiles,
       [activeProfile.goal]: activeProfile,
     };
-    await AsyncStorage.setItem(
+    await enqueueAsyncStorageSet(
       "meal-plan-profiles",
       JSON.stringify(nextProfiles),
     );
@@ -979,6 +980,8 @@ export default function MealPlanScreen() {
       meals,
       user?.name ?? "",
       bodyWeight,
+      consumed,
+      macroDeviationItems,
     );
     try {
       if (Platform.OS === "web") {
@@ -1057,7 +1060,7 @@ export default function MealPlanScreen() {
     setFavoriteStatus(null);
     try {
       await Promise.all([
-        AsyncStorage.setItem(
+        enqueueAsyncStorageSet(
           "meal-plan-favorite",
           JSON.stringify({
             meals: normalizeMealsTo100Grams(meals),
@@ -1252,7 +1255,7 @@ export default function MealPlanScreen() {
           carbohydrates: consumed.carbohydrates,
           fats: consumed.fats,
         });
-        return AsyncStorage.setItem(
+        return enqueueAsyncStorageSet(
           "nutrition-daily-history",
           JSON.stringify(next),
         );
@@ -1264,6 +1267,22 @@ export default function MealPlanScreen() {
     protein: Number(activeProfile.protein) || 0,
     carbohydrates: Number(activeProfile.carbohydrates) || 0,
     fats: Number(activeProfile.fats) || 0,
+  };
+  const macroDeviationItems = useMemo(() => {
+    const definitions = [
+      { key: "protein", label: "חלבון", value: consumed.protein, target: targets.protein },
+      { key: "carbohydrates", label: "פחמימות", value: consumed.carbohydrates, target: targets.carbohydrates },
+      { key: "fats", label: "שומן", value: consumed.fats, target: targets.fats },
+    ] as const;
+    return definitions
+      .filter((item) => item.target > 0 && item.value > item.target + 0.5)
+      .map((item) => ({ ...item, excess: Math.ceil((item.value - item.target) * 10) / 10 }));
+  }, [consumed.carbohydrates, consumed.fats, consumed.protein, targets.carbohydrates, targets.fats, targets.protein]);
+  const dailyRemaining = {
+    calories: Math.max(0, targets.calories - consumed.calories),
+    protein: Math.max(0, targets.protein - consumed.protein),
+    carbohydrates: Math.max(0, targets.carbohydrates - consumed.carbohydrates),
+    fats: Math.max(0, targets.fats - consumed.fats),
   };
   const macroDistribution = useMemo(
     () => calculateMacroDistribution(displayedTotals),
@@ -1744,7 +1763,7 @@ export default function MealPlanScreen() {
       appliedTarget,
     });
     try {
-      await AsyncStorage.multiSet(payload.entries);
+      await enqueueAsyncStorageMultiSet(payload.entries);
       setEatenHistory(payload.nextEatenHistory);
       setMealHistoryByDate(payload.nextMealHistoryByDate);
       requestNutritionCloudSave();
@@ -1904,7 +1923,7 @@ export default function MealPlanScreen() {
               onPress={() => changeSelectedDate(-1)}
               style={styles.dateButton}
             >
-              <Text style={styles.dateButtonText}>‹</Text>
+              <Text style={styles.dateButtonText}>›</Text>
             </Pressable>
             <Pressable onPress={openCalendar} style={styles.dateCenter}>
               <Text style={styles.dateLabel}>
@@ -1925,7 +1944,7 @@ export default function MealPlanScreen() {
                 selectedDate === todayKey() && styles.dateButtonDisabled,
               ]}
             >
-              <Text style={styles.dateButtonText}>›</Text>
+              <Text style={styles.dateButtonText}>‹</Text>
             </Pressable>
           </View>
           <View style={styles.supplementReminderCard}>
@@ -2992,50 +3011,7 @@ export default function MealPlanScreen() {
                                     allowGroupCollapse
                                     initiallyCollapsed
                                   />
-                                  {foodPending ? (
-                                    <View style={styles.localConversionPreview}>
-                                      <Text style={styles.localConversionTitle}>
-                                        המרה מוכנה לבדיקה
-                                      </Text>
-                                      <Text style={styles.localConversionLine}>
-                                        מקור: {pending.sourceQuantity}{" "}
-                                        {pending.sourceName}
-                                      </Text>
-                                      <Text style={styles.localConversionLine}>
-                                        חלופה: {pending.result.grams} גרם{" "}
-                                        {pending.target.name}
-                                      </Text>
-                                      <Text
-                                        style={styles.localConversionDetail}
-                                      >
-                                        נשמר בעיקר: {pending.result.preserved} ·{" "}
-                                        {pending.result.calories} קק״ל · חלבון{" "}
-                                        {pending.result.protein} · פחמימות{" "}
-                                        {pending.result.carbohydrates} · שומן{" "}
-                                        {pending.result.fats}
-                                      </Text>
-                                      <View
-                                        style={styles.localConversionActions}
-                                      >
-                                        <Pressable
-                                          onPress={() => setPending(null)}
-                                          style={styles.cancel}
-                                        >
-                                          <Text style={styles.cancelText}>
-                                            ביטול
-                                          </Text>
-                                        </Pressable>
-                                        <Pressable
-                                          onPress={confirmSwap}
-                                          style={styles.confirm}
-                                        >
-                                          <Text style={styles.confirmText}>
-                                            אישור החלפה
-                                          </Text>
-                                        </Pressable>
-                                      </View>
-                                    </View>
-                                  ) : null}
+
                                 </View>
                               ) : null}
                             </>
@@ -3419,7 +3395,7 @@ export default function MealPlanScreen() {
         </Text>
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>
-            {viewMode === "planned" ? "תפריט מתוכנן" : "מה שנאכל היום"} · יעד{" "}
+            סיכום היום · {viewMode === "planned" ? "תפריט מתוכנן" : "מה שנאכל היום"} וחריגות · יעד{" "}
             {targetCalories || "—"} קק״ל
           </Text>
           <View style={styles.viewModeRow}>
@@ -3474,7 +3450,33 @@ export default function MealPlanScreen() {
               value={`${Math.round(displayedTotals.fats)} ג׳`}
             />
           </View>
-          <View style={styles.summaryActions}>
+          <View style={styles.dayComparisonCard}>
+            <Text style={styles.dayComparisonTitle}>תכנון מול אכילה בפועל</Text>
+            <View style={styles.dayComparisonRow}>
+              <Text style={styles.dayComparisonText}>נאכל: {Math.round(consumed.calories)} קק״ל · חלבון {Math.round(consumed.protein)} ג׳ · פחמימות {Math.round(consumed.carbohydrates)} ג׳ · שומן {Math.round(consumed.fats)} ג׳</Text>
+            </View>
+            <View style={styles.dayComparisonRow}>
+              <Text style={styles.dayComparisonText}>נשאר ליעד: {Math.round(dailyRemaining.calories)} קק״ל · חלבון {Math.round(dailyRemaining.protein)} ג׳ · פחמימות {Math.round(dailyRemaining.carbohydrates)} ג׳ · שומן {Math.round(dailyRemaining.fats)} ג׳</Text>
+            </View>
+          </View>
+          <View style={styles.macroDeviationCard}>
+            <Text style={styles.macroDeviationTitle}>ניתוח חריגת המאקרו היומית</Text>
+            {macroDeviationItems.length ? (
+              <>
+                <Text style={styles.macroDeviationWarning}>החריגה מבוססת על מה שנאכל בפועל היום:</Text>
+                {macroDeviationItems.map((item) => (
+                  <View key={item.key} style={styles.macroDeviationRow}>
+                    <Text style={styles.macroDeviationAmount}>+{item.excess.toFixed(1)} ג׳</Text>
+                    <Text style={styles.macroDeviationText}>כדאי להפחית {item.excess.toFixed(1)} ג׳ {item.label}</Text>
+                  </View>
+                ))}
+              </>
+            ) : (
+              <Text style={styles.macroDeviationOkay}>אין כרגע חריגה מחלבון, פחמימות או שומן.</Text>
+            )}
+          </View>
+        </View>
+        <View style={styles.summaryActions}>
             <Pressable
               disabled={pdfBusy || shareBusy || Boolean(favoriteBusy)}
               onPress={exportPdf}
@@ -3600,7 +3602,10 @@ export default function MealPlanScreen() {
           {rebalanceMessage ? (
             <Text style={styles.rebalanceMessage}>{rebalanceMessage}</Text>
           ) : null}
-        </View>
+          <View style={styles.endOfMenuCard}>
+            <Text style={styles.endOfMenuTitle}>סוף תפריט היום</Text>
+            <Text style={styles.endOfMenuText}>הסיכום, החריגות והכמויות נשמרו. אפשר לחזור למעלה לשינוי נוסף.</Text>
+          </View>
         <View style={styles.chart}>
           <Text style={styles.chartTitle}>צריכה יומית מול יעד</Text>
           <ProgressBar
@@ -3823,7 +3828,7 @@ export default function MealPlanScreen() {
             <View style={styles.clearDailyQuantitiesModal}>
               <Text style={styles.clearDailyQuantitiesTitle}>לנקות את כל הכמויות?</Text>
               <Text style={styles.clearDailyQuantitiesText}>
-                פעולה זו תאפס את כמויות כל רכיבי חמש הארוחות ותבטל את סימוני "נאכל היום".
+                פעולה זו תאפס את כמויות כל רכיבי חמש הארוחות ותבטל את סימוני &quot;נאכל היום&quot;.
               </Text>
               <Text style={styles.clearDailyQuantitiesHint}>
                 שמות הארוחות, הרכיבים, המוצרים האישיים וקטלוג המזון לא יימחקו.
@@ -3850,6 +3855,23 @@ export default function MealPlanScreen() {
           </View>
         </Modal>
         </ScrollView>
+
+        {pending ? (
+          <View style={styles.conversionOverlay}>
+            <Text style={styles.localConversionTitle}>המרה מוכנה לבדיקה</Text>
+            <Text style={styles.localConversionLine}>מקור: {pending.sourceQuantity} {pending.sourceName}</Text>
+            <Text style={styles.localConversionLine}>חלופה: {pending.result.grams} גרם {pending.target.name}</Text>
+            <Text style={styles.localConversionDetail}>נשמר בעיקר: {pending.result.preserved} · {pending.result.calories} קק״ל · חלבון {pending.result.protein} · פחמימות {pending.result.carbohydrates} · שומן {pending.result.fats}</Text>
+            <View style={styles.localConversionActions}>
+              <Pressable onPress={() => setPending(null)} style={styles.cancel}>
+                <Text style={styles.cancelText}>ביטול</Text>
+              </Pressable>
+              <Pressable onPress={confirmSwap} style={styles.confirm}>
+                <Text style={styles.confirmText}>אישור החלפה</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
     </ScreenContainer>
   );
@@ -3920,6 +3942,8 @@ function buildMealPlanHtml(
   meals: Meal[],
   userName: string,
   bodyWeight: string,
+  consumed: { calories: number; protein: number; carbohydrates: number; fats: number },
+  macroDeviationItems: Array<{ label: string; excess: number }>,
 ) {
   const mealsHtml = meals
     .map(
@@ -3927,7 +3951,8 @@ function buildMealPlanHtml(
         `<section class="meal"><div class="meal-head"><strong>ארוחה ${index + 1} — ${escapeHtml(meal.title)}</strong><span>${Math.round(mealTotals(meal).calories)} קק״ל</span></div>${meal.foods.map((food) => `<div class="food"><span>${escapeHtml(food.name)}</span><span>${escapeHtml(food.quantity)}</span></div>`).join("")}</section>`,
     )
     .join("");
-  return `<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>@page{size:A4;margin:28px}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#16233A;background:#fff;direction:rtl}h1{color:#10243A;margin:0 0 6px;font-size:26px}.subtitle{color:#53657C;margin-bottom:16px}.identity{display:flex;align-items:center;gap:12px;background:#10243A;color:#fff;border-radius:14px;padding:14px;margin-bottom:16px}.logo{width:46px;height:46px;border-radius:13px;background:#5B9FE3;color:#10243A;display:flex;align-items:center;justify-content:center;font-size:25px;font-weight:900}.identity-info{flex:1}.identity-name{font-size:17px;font-weight:700}.identity-meta{font-size:11px;color:#D2DFEF;margin-top:4px}.targets{display:flex;gap:8px;margin-bottom:18px}.target{flex:1;background:#EAF4FF;border:1px solid #9BC8E8;border-radius:10px;padding:9px;text-align:center}.target b{display:block;color:#10243A;font-size:16px}.target span{font-size:10px;color:#53657C}.meal{border:1px solid #C8D5E3;border-radius:11px;padding:11px;margin-bottom:10px;page-break-inside:avoid}.meal-head{display:flex;justify-content:space-between;color:#10243A;border-bottom:1px solid #DCE5EE;padding-bottom:7px;margin-bottom:4px}.meal-head span{color:#8A6B20}.food{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #EEF2F6;font-size:12px}.food:last-child{border-bottom:0}</style></head><body><div class="identity"><div class="logo">W</div><div class="identity-info"><div class="identity-name">${escapeHtml(userName.trim() || "משתמש")}</div><div class="identity-meta">${bodyWeight.trim() ? `משקל: ${escapeHtml(bodyWeight.trim())} ק״ג · ` : ""}תפריט ${meals.length} ארוחות · מצב ${escapeHtml(mealPlanGoalLabel(goal))}</div></div></div><h1>תפריט ${meals.length} ארוחות</h1><div class="subtitle">מצב: ${escapeHtml(mealPlanGoalLabel(goal))} · יעד יומי: ${targetCalories || "לא הוגדר"} קק״ל</div><div class="targets"><div class="target"><b>${escapeHtml(profile.protein || "—")} ג׳</b><span>חלבון</span></div><div class="target"><b>${escapeHtml(profile.carbohydrates || "—")} ג׳</b><span>פחמימות</span></div><div class="target"><b>${escapeHtml(profile.fats || "—")} ג׳</b><span>שומן</span></div></div>${mealsHtml}</body></html>`;
+  const consumedHtml = `<section class="daily-summary"><h2>סיכום היום</h2><p>נאכל בפועל: ${Math.round(consumed.calories)} קק״ל · חלבון ${Math.round(consumed.protein)} ג׳ · פחמימות ${Math.round(consumed.carbohydrates)} ג׳ · שומן ${Math.round(consumed.fats)} ג׳</p><p>חריגות: ${macroDeviationItems.length ? macroDeviationItems.map((item) => `הפחת ${item.excess.toFixed(1)} ג׳ ${escapeHtml(item.label)}`).join(" · ") : "אין חריגה"}</p></section>`;
+  return `<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>@page{size:A4;margin:28px}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#16233A;background:#fff;direction:rtl}h1{color:#10243A;margin:0 0 6px;font-size:26px}.subtitle{color:#53657C;margin-bottom:16px}.identity{display:flex;align-items:center;gap:12px;background:#10243A;color:#fff;border-radius:14px;padding:14px;margin-bottom:16px}.logo{width:46px;height:46px;border-radius:13px;background:#5B9FE3;color:#10243A;display:flex;align-items:center;justify-content:center;font-size:25px;font-weight:900}.identity-info{flex:1}.identity-name{font-size:17px;font-weight:700}.identity-meta{font-size:11px;color:#D2DFEF;margin-top:4px}.targets{display:flex;gap:8px;margin-bottom:18px}.target{flex:1;background:#EAF4FF;border:1px solid #9BC8E8;border-radius:10px;padding:9px;text-align:center}.target b{display:block;color:#10243A;font-size:16px}.target span{font-size:10px;color:#53657C}.meal{border:1px solid #C8D5E3;border-radius:11px;padding:11px;margin-bottom:10px;page-break-inside:avoid}.meal-head{display:flex;justify-content:space-between;color:#10243A;border-bottom:1px solid #DCE5EE;padding-bottom:7px;margin-bottom:4px}.meal-head span{color:#8A6B20}.daily-summary{background:#FCECEF;border:1px solid #E66A7A;border-radius:11px;padding:11px;margin-bottom:14px;page-break-inside:avoid}.daily-summary h2{color:#6C2634;margin:0 0 6px;font-size:16px}.daily-summary p{margin:4px 0;color:#3A2330;font-size:12px;line-height:1.5}.food{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #EEF2F6;font-size:12px}.food:last-child{border-bottom:0}</style></head><body><div class="identity"><div class="logo">W</div><div class="identity-info"><div class="identity-name">${escapeHtml(userName.trim() || "משתמש")}</div><div class="identity-meta">${bodyWeight.trim() ? `משקל: ${escapeHtml(bodyWeight.trim())} ק״ג · ` : ""}תפריט ${meals.length} ארוחות · מצב ${escapeHtml(mealPlanGoalLabel(goal))}</div></div></div><h1>תפריט ${meals.length} ארוחות</h1><div class="subtitle">מצב: ${escapeHtml(mealPlanGoalLabel(goal))} · יעד יומי: ${targetCalories || "לא הוגדר"} קק״ל</div><div class="targets"><div class="target"><b>${escapeHtml(profile.protein || "—")} ג׳</b><span>חלבון</span></div><div class="target"><b>${escapeHtml(profile.carbohydrates || "—")} ג׳</b><span>פחמימות</span></div><div class="target"><b>${escapeHtml(profile.fats || "—")} ג׳</b><span>שומן</span></div></div>${consumedHtml}${mealsHtml}</body></html>`;
 }
 function ProfileField({
   label,
@@ -4448,6 +4473,41 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     padding: 10,
   },
+  macroDeviationCard: {
+    backgroundColor: "#3D2028",
+    borderColor: "#F16B7A",
+    borderWidth: 2,
+    borderRadius: 14,
+    padding: 13,
+    gap: 8,
+  },
+  macroDeviationTitle: {
+    color: "#FFD7DC",
+    fontSize: 17,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  macroDeviationWarning: {
+    color: "#FFD7DC",
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "right",
+  },
+  macroDeviationRow: {
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    backgroundColor: "#5A2633",
+    borderColor: "#F16B7A",
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+  },
+  macroDeviationAmount: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  macroDeviationText: { flex: 1, color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "right" },
+  macroDeviationOkay: { color: "#B8F2D0", fontSize: 12, fontWeight: "800", textAlign: "right" },
   summaryTitle: {
     color: "#F7F9FC",
     fontSize: 17,
@@ -4457,6 +4517,60 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: "row-reverse",
     justifyContent: "space-between",
+  },
+  conversionOverlay: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 18,
+    zIndex: 20,
+    elevation: 20,
+    backgroundColor: "#17345D",
+    borderColor: "#65BDF6",
+    borderWidth: 2,
+    borderRadius: 14,
+    padding: 13,
+    gap: 8,
+    shadowColor: "#000000",
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  endOfMenuCard: {
+    backgroundColor: "#162A48",
+    borderColor: "#4C6A8F",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    gap: 4,
+  },
+  endOfMenuTitle: { color: "#B8D9F7", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  endOfMenuText: { color: "#B7C8DD", fontSize: 11, lineHeight: 16, textAlign: "right" },
+  dayComparisonCard: {
+    backgroundColor: "#10243A",
+    borderColor: "#5B9FE3",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 7,
+  },
+  dayComparisonTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  dayComparisonRow: {
+    backgroundColor: "#1D3557",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  dayComparisonText: {
+    color: "#DDEBFA",
+    fontSize: 11,
+    lineHeight: 17,
+    textAlign: "right",
   },
   summaryActions: { gap: 8 },
   pdfButton: {
