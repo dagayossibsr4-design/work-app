@@ -28,7 +28,7 @@ describe("Workout templates", () => {
     expect(push.exercises.find((exercise) => exercise.name === "פרפר במכשיר ייעודי")?.sets[0].restPause).toBe("Rest & Pause");
   });
 
-  it("matches the LEGS 2 photo structure with seven exercises and sixteen sets", () => {
+  it("includes the complete LEGS 2 structure with glute specialization exercises", () => {
     const legs = getTemplate("legs2");
     expect(legs.exercises.map((exercise) => exercise.name)).toEqual([
       "האק סקוואט במכונה",
@@ -38,12 +38,15 @@ describe("Workout templates", () => {
       "כפיפת ירך בעמידה",
       "מקרבי ירך במכונה",
       "תאומים",
+      "גלוט ברידג׳",
+      "הרחקת ירך בכבל או במכונה",
+      "הליכת סרטן עם גומייה",
     ]);
-    expect(legs.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)).toBe(16);
+    expect(legs.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)).toBe(22);
     expect(legs.exercises.find((exercise) => exercise.name === "האק סקוואט במכונה")?.sets[0].restPause).toContain("3 דקות");
   });
 
-  it("matches the Legs 1 photo structure with eight exercises and twenty sets", () => {
+  it("includes the complete Legs 1 structure with glute specialization exercises", () => {
     const legs = getTemplate("legs1");
     expect(legs.exercises.map((exercise) => exercise.name)).toEqual([
       "סקוואט חופשי",
@@ -54,8 +57,11 @@ describe("Workout templates", () => {
       "מקרבי ירך במכונה",
       "מרחיקי ירך במכונה",
       "תאומים בישיבה",
+      "היפ תראסט עם מוט",
+      "סקוואט בולגרי",
+      "בעיטת ישבן בכבל",
     ]);
-    expect(legs.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)).toBe(20);
+    expect(legs.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)).toBe(26);
     expect(legs.exercises.some((exercise) => exercise.note?.includes("Rest Pause"))).toBe(true);
   });
 });

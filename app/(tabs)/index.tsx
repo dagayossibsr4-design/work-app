@@ -7,22 +7,39 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { completedWorkoutHistoryRoute } from "@/lib/completed-workout-route";
 import { getTemplate, type WorkoutId, type WorkoutTemplate } from "@/lib/workout-data";
-import { exerciseLibrary } from "@/lib/exercise-library";
-import { calculateVolume, sortWorkoutSessionsNewestFirst, useWorkoutStore } from "@/lib/workout-store";
+import { categoryForExercise, exerciseLibrary } from "@/lib/exercise-library";
+import { calculateVolume, isCardioWorkoutTemplate, MAX_SELECTED_PROGRAMS, sortWorkoutSessionsNewestFirst, useWorkoutStore } from "@/lib/workout-store";
 import { calculateFivePercentProgress } from "@/lib/workout-progression";
 import { calculateProjectedVolume } from "@/lib/workout-volume";
+import { buildPlanMetrics } from "@/lib/workout-analysis";
+import { getWorkoutEncyclopediaProgram, workoutEncyclopediaCategories, workoutEncyclopediaPrograms } from "@/lib/workout-encyclopedia";
+import { muscleBuildingFolderIds, muscleBuildingFolderTemplateIds } from "@/lib/muscle-building-content";
+import { workoutCategoryTemplateIds } from "@/lib/workout-category-content";
+import { workoutAudienceSections } from "@/lib/workout-audience-sections";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
+import { assignWorkoutTemplateToDate, readWorkoutScheduleOverrides, setDefaultWorkoutTemplateId } from "@/lib/workout-schedule";
+import { localDateKey, sundayWeekStart } from "@/lib/calendar-grid";
 
 const formatDate = (iso: string) => new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "long" }).format(new Date(iso));
 
 type TrainingMethod = { id: string; title: string; subtitle: string; templateIds: WorkoutId[]; accent: string; icon: IconSymbolName; group: string };
+type CreatorExercise = { id: string; name: string; englishName: string; aliases?: string[]; category: string; defaultTarget: string; note?: string };
 const selectedMethodStorageKey = "workout-tracker-selected-method-v1";
 const selectedDayStorageKey = "workout-tracker-selected-days-v1";
 
+const workoutMenuFolders = [
+  { id: "ppl", title: "PPL", description: "PPL 1, PPL 2 ו־Arms/Pump: Push, Pull ו־Legs", accent: "#F5B72C" },
+  { id: "ab", title: "AB", description: "אימון A לפלג גוף עליון ואימון B לפלג גוף תחתון", accent: "#42D392" },
+  { id: "abc", title: "ABC", description: "שלושה ימי אימון לפי קבוצות השרירים", accent: "#65BDF6" },
+  { id: "abcd", title: "ABCD", description: "ארבעה ימי אימון ממוקדים", accent: "#C084FC" },
+  { id: "full-body", title: "Full Body", description: "אימון גוף מלא עם כל קבוצות השרירים", accent: "#22C55E" },
+  ...workoutEncyclopediaCategories.map((category) => category.id === "bodybuilding" ? { ...category, title: "שיטות למסת שריר" } : category),
+];
+
 const trainingMethods: TrainingMethod[] = [
-  { id: "fixed", group: "התוכניות שלי", title: "התוכנית הקבועה שלי", subtitle: "PPL1 ו־PPL2 · Push · Pull · Legs · Arms / Pump", templateIds: ["push1", "pull1", "legs1", "push2", "pull2", "legs2", "arms"], accent: "#F5B72C", icon: "dumbbell.fill" },
+  { id: "fixed", group: "PPL", title: "PPL", subtitle: "PPL1 ו־PPL2 · Push · Pull · Legs · Arms / Pump", templateIds: ["push1", "pull1", "legs1", "push2", "pull2", "legs2", "arms"], accent: "#F5B72C", icon: "dumbbell.fill" },
   { id: "muscle-gain-methods", group: "התוכניות שלי", title: "שיטות לעלייה במסת שריר", subtitle: "מדריך טכניקות: Rest-Pause, דרופ־סט, סופר־סט ועוד", templateIds: [], accent: "#E38BFF", icon: "bolt.fill" },
   { id: "ab", group: "תוכנית AB", title: "AB", subtitle: "A חזה, רגליים ויד אחורית · B גב, כתפיים ויד קדמית", templateIds: ["ab-upper", "ab-lower"], accent: "#42D392", icon: "arrow.up.and.down" },
   { id: "abc", group: "תוכנית ABC", title: "ABC", subtitle: "A חזה ויד אחורית · B גב ויד קדמית · C כתפיים ורגליים", templateIds: ["abc-a", "abc-b", "abc-c"], accent: "#65BDF6", icon: "square.grid.2x2.fill" },
@@ -32,7 +49,7 @@ const trainingMethods: TrainingMethod[] = [
 ];
 
 export default function HomeScreen() {
-  const { sessions, startWorkoutFromTemplate, hydrated, templates, addCustomTemplate, updateTemplate } = useWorkoutStore();
+  const { sessions, startWorkoutFromTemplate, hydrated, templates, addCustomTemplate, updateTemplate, selectedProgramIds, toggleSelectedProgram } = useWorkoutStore();
   const [accountName, setAccountName] = useState<string | null>(null);
   const [selectedMethodId, setSelectedMethodId] = useState("fixed");
   const [isSwitchingMethod, setIsSwitchingMethod] = useState(false);
@@ -40,6 +57,8 @@ export default function HomeScreen() {
   const [selectedDayByMethod, setSelectedDayByMethod] = useState<Record<string, WorkoutId>>({});
   useEffect(() => { void AsyncStorage.getItem(selectedMethodStorageKey).then((stored) => { if (stored) setSelectedMethodId(stored); }); void AsyncStorage.getItem(selectedDayStorageKey).then((stored) => { if (stored) { try { setSelectedDayByMethod(JSON.parse(stored) as Record<string, WorkoutId>); } catch { /* נתון ישן או פגום — נשארים בברירת המחדל */ } } }); }, []);
   const [isCreatorOpen, setIsCreatorOpen] = useState(false);
+  const [isMyProgramsOpen, setIsMyProgramsOpen] = useState(false);
+  const [isCustomDefault, setIsCustomDefault] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<WorkoutTemplate | null>(null);
   const [isPreviewEditing, setIsPreviewEditing] = useState(false);
   const [editingExerciseIndex, setEditingExerciseIndex] = useState<number | null>(null);
@@ -47,6 +66,7 @@ export default function HomeScreen() {
   const [autoProgressMessage, setAutoProgressMessage] = useState("");
   const [customName, setCustomName] = useState("");
   const [customSearch, setCustomSearch] = useState("");
+  const [customCategory, setCustomCategory] = useState("הכול");
   const [customIcon, setCustomIcon] = useState<IconSymbolName>("dumbbell.fill");
   const [customColor, setCustomColor] = useState("#F5B72C");
   const [selectedExerciseIds, setSelectedExerciseIds] = useState<string[]>([]);
@@ -70,7 +90,16 @@ export default function HomeScreen() {
   const selectedMethod = methods.find((method) => method.id === selectedMethodId) ?? methods[0];
   const selectedDayId = selectedDayByMethod[selectedMethod.id] ?? selectedMethod.templateIds[0];
   const selectedDayTemplate = templates.find((template) => template.id === selectedDayId) ?? getTemplate(selectedDayId) ?? templates.find((template) => template.id === selectedMethod.templateIds[0]);
-  const filteredCustomExercises = exerciseLibrary.filter((item) => `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(customSearch.toLowerCase())).slice(0, 14);
+  const selectedPersonalPrograms = selectedProgramIds.map((id) => ({ id, template: templates.find((template) => template.id === id) ?? getTemplate(id), program: getWorkoutEncyclopediaProgram(id) })).filter((item) => Boolean(item.template || item.program));
+  const planMetrics = buildPlanMetrics(sessions, templates);
+  const allBuilderExercises = useMemo<CreatorExercise[]>(() => {
+    const templateExercises = templates.flatMap((template) => template.exercises.map((exercise) => ({ id: `template-${exercise.id}`, name: exercise.name, englishName: exercise.englishName ?? "", note: exercise.note, category: categoryForExercise(`${exercise.name} ${exercise.englishName ?? ""}`) ?? "כללי", defaultTarget: exercise.sets[0]?.target ?? "8–12" })));
+    const merged = [...exerciseLibrary, ...templateExercises];
+    const seen = new Set<string>();
+    return merged.filter((item) => { const key = `${item.name.trim().toLowerCase()}|${item.englishName.trim().toLowerCase()}`; if (seen.has(key)) return false; seen.add(key); return Boolean(item.name.trim()); });
+  }, [templates]);
+  const builderCategories = ["הכול", ...Array.from(new Set(allBuilderExercises.map((item) => item.category)))];
+  const filteredCustomExercises = allBuilderExercises.filter((item) => customCategory === "הכול" || item.category === customCategory).filter((item) => `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(customSearch.toLowerCase()));
   const filteredReplacementExercises = exerciseLibrary.filter((item) => `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(replacementSearch.toLowerCase())).slice(0, 8);
   const completedSets = sessions.reduce((sum, session) => sum + session.sets.filter((set) => set.completed).length, 0);
   const last = useMemo(() => sortWorkoutSessionsNewestFirst(sessions)[0], [sessions]);
@@ -80,6 +109,8 @@ export default function HomeScreen() {
   const previewVolumeDelta = previousPreviewVolume && previousPreviewVolume > 0 ? ((projectedPreviewVolume - previousPreviewVolume) / previousPreviewVolume) * 100 : null;
   const volumeChartMax = Math.max(previousPreviewVolume ?? 0, projectedPreviewVolume);
   const openPreview = (id: WorkoutId) => { setPreviewTemplate(templates.find((template) => template.id === id) ?? getTemplate(id)); setIsPreviewEditing(false); setEditingExerciseIndex(null); setReplacementSearch(""); setAutoProgressMessage(""); };
+  const openPreviewForEditing = (id: WorkoutId) => { openPreview(id); setIsPreviewEditing(true); };
+  const startTemplateFromFolder = (template: WorkoutTemplate) => { startWorkoutFromTemplate(template); router.push("/active-workout" as never); };
   const updatePreview = (updater: (template: WorkoutTemplate) => WorkoutTemplate) => setPreviewTemplate((current) => current ? updater(current) : current);
   const updatePreviewSetTarget = (exerciseIndex: number, setIndex: number, target: string) => updatePreview((template) => ({ ...template, exercises: template.exercises.map((exercise, index) => index !== exerciseIndex ? exercise : { ...exercise, sets: exercise.sets.map((set, currentIndex) => currentIndex === setIndex ? { ...set, target, note: undefined, suggestedWeight: undefined } : set) }) }));
   const addPreviewSet = (exerciseIndex: number) => updatePreview((template) => ({ ...template, exercises: template.exercises.map((exercise, index) => index !== exerciseIndex ? exercise : { ...exercise, sets: [...exercise.sets, { target: exercise.sets[exercise.sets.length - 1]?.target ?? "8–12" }] }) }));
@@ -99,14 +130,15 @@ export default function HomeScreen() {
   const toggleCustomExercise = (id: string) => setSelectedExerciseIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   const switchMethod = (methodId: string) => { if (methodId === "muscle-gain-methods") { router.push("/muscle-gain-methods" as never); return; } if (methodId === "cardio") { setSelectedMethodId(methodId); void AsyncStorage.setItem(selectedMethodStorageKey, methodId); setIsCardioPickerOpen(true); return; } if (methodId === selectedMethodId) return; setIsSwitchingMethod(true); setSelectedMethodId(methodId); void AsyncStorage.setItem(selectedMethodStorageKey, methodId); setTimeout(() => setIsSwitchingMethod(false), 180); };
   const selectTrainingDay = (methodId: string, templateId: WorkoutId) => { setSelectedDayByMethod((current) => { const next = { ...current, [methodId]: templateId }; void AsyncStorage.setItem(selectedDayStorageKey, JSON.stringify(next)); return next; }); };
-  const createCustomWorkout = () => {
+  const createCustomWorkout = async () => {
     const name = customName.trim();
-    const exercises = selectedExerciseIds.map((id) => exerciseLibrary.find((item) => item.id === id)).filter(Boolean).map((item) => ({ id: `${item!.id}-custom-${Date.now()}`, name: item!.name, englishName: item!.englishName, note: item!.note, sets: [{ target: item!.defaultTarget }, { target: item!.defaultTarget }] }));
+    const exercises = selectedExerciseIds.map((id) => allBuilderExercises.find((item) => item.id === id)).filter(Boolean).map((item) => ({ id: `${item!.id}-custom-${Date.now()}`, name: item!.name, englishName: item!.englishName, note: item!.note, sets: [{ target: item!.defaultTarget }, { target: item!.defaultTarget }] }));
     if (!name || exercises.length === 0) return;
     const template: WorkoutTemplate = { id: `custom-${Date.now()}`, name, focus: exercises.map((exercise) => exercise.name).slice(0, 3).join(" · "), accent: customColor, icon: customIcon, exercises };
     addCustomTemplate(template);
+    if (isCustomDefault) await setDefaultWorkoutTemplateId(template.id);
     setSelectedMethodId(template.id);
-    setCustomName(""); setCustomSearch(""); setSelectedExerciseIds([]); setIsCreatorOpen(false);
+    setCustomName(""); setCustomSearch(""); setCustomCategory("הכול"); setSelectedExerciseIds([]); setIsCustomDefault(false); setIsCreatorOpen(false);
   };
   return (
     <ScreenContainer containerClassName="bg-background" className="px-5 pt-4">
@@ -128,19 +160,22 @@ export default function HomeScreen() {
           <Pressable accessibilityRole="button" accessibilityLabel="פתח סטים שהושלמו בהיסטוריה" onPress={() => router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{completedSets}</Text><Text style={styles.statLabel}>סטים שהושלמו · פירוט</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="פתח את האימון האחרון" onPress={() => last ? router.push(completedWorkoutHistoryRoute(last.id) as never) : router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{last ? `${Math.round(calculateVolume(last))}` : "—"}</Text><Text style={styles.statLabel}>נפח אחרון · פרטים</Text></Pressable>
         </View>
-        <Pressable onPress={() => router.push("/(tabs)/meal-plan" as never)} style={({ pressed }) => [styles.menuCard, pressed && styles.pressed]}>
-          <View><Text style={styles.menuCardTitle}>הארוחות שלי</Text><Text style={styles.menuCardText}>מעקב ארוחות, מאקרו ושמירה קבועה לחשבון שלך</Text></View><Text style={styles.menuCardArrow}>‹</Text>
-        </Pressable>
-        <View style={styles.sectionHeader}><View><Text style={styles.sectionTitle}>תוכניות האימון</Text><Text style={styles.sectionHint}>בחר תוכנית כדי לפתוח את האימון והתרגילים</Text></View><Text style={styles.sectionHint}>{methods.length} סדרות</Text></View>
-        <Pressable accessibilityRole="button" onPress={() => setIsCreatorOpen(true)} style={({ pressed }) => [styles.creatorButton, pressed && styles.pressed]}><IconSymbol name="plus" size={20} color="#0B1224" /><Text style={styles.creatorButtonText}>צור תוכנית מותאמת</Text></Pressable>
-        <View style={styles.methodList}>{methods.map((item, index) => <View key={item.id}><Text style={[styles.categoryTitle, index === 0 && styles.categoryTitleFirst]}>{index === 0 || methods[index - 1].group !== item.group ? item.group : ""}</Text><Pressable accessibilityRole="button" accessibilityLabel={`בחר ${item.title}`} onPress={() => { if (item.id === "muscle-gain-methods") { router.push("/muscle-gain-methods" as never); } else { router.push({ pathname: "/(tabs)/workouts" as never, params: { category: item.group } } as never); } }} testID={item.id === "cardio" ? "cardio-method-card" : undefined} style={({ pressed }) => [styles.methodRow, { borderColor: selectedMethod.id === item.id ? item.accent : "#2C3B55" }, selectedMethod.id === item.id && { backgroundColor: `${item.accent}18` }, pressed && styles.pressed]}><View style={[styles.methodIcon, { backgroundColor: `${item.accent}24`, borderColor: `${item.accent}88` }]}><IconSymbol name={item.icon} size={22} color={item.accent} /></View><View style={styles.methodRowText}><Text style={styles.methodTitle}>{item.title}</Text><Text style={styles.methodSubtitle}>{item.subtitle}</Text><Text style={[styles.methodState, { color: item.accent }]}>{item.id === "muscle-gain-methods" ? "פתח מדריך טכניקות · לחץ להצגה" : selectedMethod.id === item.id ? "✓ הסדרה הפעילה" : `${item.templateIds.length} אימונים · לחץ להצגה`}</Text></View><Text style={[styles.methodCount, { color: item.accent }]}>{item.templateIds.length}</Text></Pressable></View>)}</View>
-        <View style={styles.selectedMethodHeader}><View><Text style={styles.sectionTitle}>{selectedMethod.title} · חלוקת האימונים</Text><Text style={styles.selectedMethodText}>{selectedMethod.subtitle}</Text></View><Text style={[styles.methodCount, { color: selectedMethod.accent }]}>{selectedMethod.templateIds.length} ימים</Text></View>
-        <View style={styles.methodChangeHint}>{isSwitchingMethod ? <><ActivityIndicator size="small" color={selectedMethod.accent} /><Text style={[styles.methodChangeText, { color: selectedMethod.accent }]}>מעדכן את סדרת האימונים…</Text></> : <Text style={styles.methodChangeText}>הבחירה האחרונה נשמרת אוטומטית במכשיר</Text>}</View><Text style={styles.exercisePreviewHint}>כל כרטיס הוא יום/אימון בסדרה. אפשר לראות את התרגילים כאן לפני הבחירה.</Text>
-        <View style={styles.dayTabs} accessibilityRole="tablist">{selectedMethod.templateIds.map((templateId, index) => { const template = templates.find((item) => item.id === templateId) ?? getTemplate(templateId); if (!template) return null; const tabLabel = selectedMethod.id === "fixed" || selectedMethod.id === "full-body" || selectedMethod.id === "cardio" ? template.name : String.fromCharCode(65 + index); const active = selectedDayId === template.id; return <Pressable key={template.id} accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={`יום ${tabLabel}, ${template.name}`} onPress={() => selectTrainingDay(selectedMethod.id, template.id)} style={({ pressed }) => [styles.dayTab, active && { backgroundColor: selectedMethod.accent, borderColor: selectedMethod.accent }, pressed && styles.pressed]}><Text style={[styles.dayTabLabel, active && styles.dayTabLabelActive]}>{tabLabel}</Text><Text style={[styles.dayTabMeta, active && styles.dayTabMetaActive]}>{template.exercises.length} תרגילים</Text></Pressable>; })}</View>
-        {selectedDayTemplate ? <Pressable accessibilityRole="button" accessibilityLabel={`פתח ${selectedDayTemplate.name} עם ${selectedDayTemplate.exercises.length} תרגילים`} onPress={() => openPreview(selectedDayTemplate.id)} style={({ pressed }) => [styles.templateCard, styles.selectedDayCard, { borderColor: `${selectedDayTemplate.accent}88` }, pressed && styles.pressed]}><View style={[styles.accent, { backgroundColor: selectedDayTemplate.accent }]} /><View style={styles.templateCardHeader}><Text style={styles.templateName}>{selectedDayTemplate.name}</Text><Text style={[styles.exerciseCount, { color: selectedDayTemplate.accent }]}>{selectedDayTemplate.exercises.length} תרגילים</Text></View><Text style={styles.templateFocus}>{selectedDayTemplate.focus}</Text><View style={styles.templateExercisePreview}>{selectedDayTemplate.exercises.map((exercise) => <Text key={exercise.id} style={styles.templateExerciseName}>• {exercise.name}</Text>)}</View><Text style={[styles.startText, { color: selectedDayTemplate.accent }]}>פתח תרגילים והתחל  ›</Text></Pressable> : null}
+        <View style={styles.personalProfilePanel}>
+          <View style={styles.personalProfileHeader}><View style={styles.personalProfileIcon}><Text style={styles.personalProfileIconText}>◉</Text></View><View style={styles.personalProfileHeading}><Text style={styles.personalProfileTitle}>הפרופיל האישי שלי</Text><Text style={styles.personalProfileSubtitle}>כל הכלים האישיים שלך במקום אחד</Text></View></View>
+          <View style={styles.personalProfileList}>{[
+            { id: "meals", title: "מעקב אחרי הארוחות שלי", description: "ניהול ארוחות, מאקרו וכמויות בפועל" },
+            { id: "programs", title: "התוכנית שלי", description: "בחירת עד 5 תוכניות ושיבוץ לפי ימי השבוע" },
+            { id: "builder", title: "בניית תוכנית מותאמת אישית", description: "בחירת כל תרגילי האפליקציה ללא שיוך מגדרי" },
+            { id: "progress", title: "ניתוח פרופיל והתקדמות", description: "סיכום אימונים, נפח, עומס ומגמות אישיות" },
+            { id: "sleep", title: "מדדי שינה", description: "שינה, התאוששות, עייפות ודופק מנוחה" },
+          ].map((item) => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={item.title} onPress={() => { if (item.id === "meals") router.push("/(tabs)/meal-plan" as never); else if (item.id === "programs") setIsMyProgramsOpen(true); else if (item.id === "builder") setIsCreatorOpen(true); else if (item.id === "progress") router.push("/(tabs)/profile" as never); else router.push("/(tabs)/recovery" as never); }} style={({ pressed }) => [styles.personalProfileRow, pressed && styles.pressed]}><View style={styles.personalProfileArrow}><Text style={styles.personalProfileArrowText}>‹</Text></View><View style={styles.personalProfileRowText}><Text style={styles.personalProfileRowTitle}>{item.title}</Text><Text style={styles.personalProfileRowDescription}>{item.description}</Text></View></Pressable>)}</View>
+        </View>
+        <View style={styles.personalProgramsPanel}><View style={styles.personalProgramsHeader}><Text style={styles.sectionTitle}>התוכניות שלי · {selectedPersonalPrograms.length}/5</Text><Pressable accessibilityRole="button" onPress={() => setIsMyProgramsOpen(true)} style={styles.personalProgramsLink}><Text style={styles.personalProgramsLinkText}>פתיחה ושיבוץ ›</Text></Pressable></View>{selectedPersonalPrograms.length ? selectedPersonalPrograms.map(({ id, template, program }) => { const title = template?.name ?? program?.title ?? id; const accent = template?.accent ?? "#F5B72C"; return <Pressable key={`personal-${id}`} accessibilityRole="button" onPress={() => template ? openPreview(template.id) : router.push({ pathname: "/(tabs)/workouts" as never, params: { category: program?.categoryId ?? "bodybuilding" } } as never)} style={({ pressed }) => [styles.personalProgramRow, { borderColor: `${accent}99` }, pressed && styles.pressed]}><Text style={styles.personalProgramRowTitle}>{title}</Text><Text style={styles.personalProgramRowMeta}>{template ? `${template.exercises.length} תרגילים · ${template.focus}` : program?.description}</Text></Pressable>; }) : <Text style={styles.personalProgramsEmpty}>עדיין לא נבחרו תוכניות. פתח את הקטלוג והוסף עד 5 תוכניות.</Text>}</View>
+        <WorkoutCategoryMenu templates={templates} selectedProgramIds={selectedProgramIds} selectedCount={selectedPersonalPrograms.length} onToggleSelected={toggleSelectedProgram} onOpenTemplate={openPreview} onEditTemplate={(template) => openPreviewForEditing(template.id)} onStartTemplate={startTemplateFromFolder} />
         <Pressable accessibilityRole="button" accessibilityLabel="פתח פירוט האימון האחרון" onPress={() => last ? router.push(completedWorkoutHistoryRoute(last.id) as never) : router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.lastCard, pressed && styles.pressed]}><View style={styles.sectionHeader}><Text style={styles.sectionTitle}>האימון האחרון · לחץ לפירוט</Text><Text style={styles.sectionHint}>{last ? formatDate(last.startedAt) : "עדיין אין נתונים"}</Text></View>{last ? <Text style={styles.lastText}>{last.templateId.toUpperCase()} · {last.sets.filter((set) => set.completed).length} סטים הושלמו · הצג תרגילים וסטים</Text> : <Text style={styles.lastText}>אחרי האימון הראשון שלך יופיע כאן סיכום קצר.</Text>}</Pressable>
         {Platform.OS === "web" && isCardioPickerOpen ? <View style={styles.webCardioPicker}><View style={styles.modalHeader}><View><Text style={styles.modalTitle}>בחר סוג אירובי</Text><Text style={styles.previewSubtitle}>בחר פעילות כדי להתחיל מיד ולשמור את הנתונים בניתוח</Text></View><Pressable accessibilityRole="button" accessibilityLabel="סגור בחירת אירובי" onPress={() => setIsCardioPickerOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable></View>{["cardio", "cycling", "elliptical", "stairs", "treadmill", "outdoor-run", "walking", "rowing", "swimming", "hiit"].map((id) => { const template = templates.find((item) => item.id === id) ?? getTemplate(id); if (!template) return null; return <Pressable key={`web-${id}`} accessibilityRole="button" accessibilityLabel={`בחר ${template.name}`} onPress={() => { selectTrainingDay("cardio", template.id); setIsCardioPickerOpen(false); openPreview(template.id); }} style={({ pressed }) => [styles.cardioOption, { borderColor: `${template.accent}99` }, pressed && styles.pressed]}><View style={[styles.cardioOptionIcon, { backgroundColor: `${template.accent}24`, borderColor: template.accent }]}><IconSymbol name="figure.run" size={26} color={template.accent} /></View><View style={styles.cardioOptionText}><Text style={styles.cardioOptionTitle}>{template.name}</Text><Text style={styles.cardioOptionSubtitle}>{template.focus}</Text><Text style={[styles.cardioOptionAction, { color: template.accent }]}>הגדר והתחל ›</Text></View></Pressable>; })}</View> : null}
       </ScrollView>
+      <MyProgramsModal visible={isMyProgramsOpen} selectedPrograms={selectedPersonalPrograms.map(({ template, program, id }) => ({ id, template, program }))} onClose={() => setIsMyProgramsOpen(false)} />
       <Modal visible={isCardioPickerOpen && Platform.OS !== "web"} animationType="slide" transparent onRequestClose={() => setIsCardioPickerOpen(false)}>
         <View style={styles.modalBackdrop}><View style={styles.cardioPickerModal}><View style={styles.modalHeader}><View><Text style={styles.modalTitle}>בחר סוג אירובי</Text><Text style={styles.previewSubtitle}>בחר פעילות כדי להתחיל מיד ולשמור את הנתונים בניתוח</Text></View><Pressable accessibilityRole="button" accessibilityLabel="סגור בחירת אירובי" onPress={() => setIsCardioPickerOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable></View><ScrollView contentContainerStyle={styles.cardioPickerContent}>{["cardio", "cycling", "elliptical", "stairs", "treadmill", "outdoor-run", "walking", "rowing", "swimming", "hiit"].map((id) => { const template = templates.find((item) => item.id === id) ?? getTemplate(id); if (!template) return null; return <Pressable key={id} accessibilityRole="button" accessibilityLabel={`בחר ${template.name}`} onPress={() => { selectTrainingDay("cardio", template.id); setIsCardioPickerOpen(false); openPreview(template.id); }} style={({ pressed }) => [styles.cardioOption, { borderColor: `${template.accent}99` }, pressed && styles.pressed]}><View style={[styles.cardioOptionIcon, { backgroundColor: `${template.accent}24`, borderColor: template.accent }]}><IconSymbol name={id === "cycling" ? "bicycle" : id === "elliptical" ? "figure.run" : id === "stairs" ? "stairs" : id === "rowing" ? "rowing" : id === "swimming" ? "water" : id === "treadmill" || id === "outdoor-run" || id === "walking" ? "figure.run" : id === "hiit" ? "bolt.fill" : "figure.run"} size={26} color={template.accent} /></View><View style={styles.cardioOptionText}><Text style={styles.cardioOptionTitle}>{template.name}</Text><Text style={styles.cardioOptionSubtitle}>{template.focus}</Text><Text style={[styles.cardioOptionAction, { color: template.accent }]}>הגדר והתחל ›</Text></View></Pressable>; })}<View style={styles.cardioMoreCard}><Text style={styles.cardioMoreTitle}>אפשרויות נוספות</Text><Text style={styles.cardioMoreText}>ריצה בחוץ, הליכה מהירה, חתירה, שחייה ואינטרוולים זמינים להוספה דרך אירובי מותאם.</Text></View></ScrollView></View></View>
       </Modal>
@@ -157,20 +192,156 @@ export default function HomeScreen() {
       </Modal>
       <Modal visible={isCreatorOpen} animationType="slide" transparent onRequestClose={() => setIsCreatorOpen(false)}>
         <View style={styles.modalBackdrop}><View style={styles.creatorModal}><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.creatorContent}>
-          <View style={styles.modalHeader}><Text style={styles.modalTitle}>תוכנית חדשה</Text><Pressable onPress={() => setIsCreatorOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable></View>
+          <View style={styles.modalHeader}><Text style={styles.modalTitle}>בניית תוכנית מותאמת אישית</Text><Pressable onPress={() => setIsCreatorOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable></View>
           <Text style={styles.fieldLabel}>שם התוכנית</Text><TextInput value={customName} onChangeText={setCustomName} placeholder="לדוגמה: כוח וידיים" placeholderTextColor="#718096" style={styles.creatorInput} textAlign="right" />
           <Text style={styles.fieldLabel}>בחר אייקון</Text><View style={styles.optionRow}>{(["dumbbell.fill", "square.grid.2x2.fill", "figure.run", "bicycle"] as IconSymbolName[]).map((icon) => <Pressable key={icon} accessibilityRole="button" onPress={() => setCustomIcon(icon)} style={[styles.iconChoice, customIcon === icon && styles.selectedIconChoice]}><IconSymbol name={icon} size={22} color={customIcon === icon ? "#0B1224" : "#F7F9FC"} /></Pressable>)}</View>
           <Text style={styles.fieldLabel}>בחר צבע</Text><View style={styles.optionRow}>{["#F5B72C", "#65BDF6", "#C084FC", "#42D392", "#FB7185", "#F59E0B"].map((color) => <Pressable key={color} accessibilityRole="button" onPress={() => setCustomColor(color)} style={[styles.colorChoice, { backgroundColor: color }, customColor === color && styles.selectedColorChoice]} />)}</View>
-          <Text style={styles.fieldLabel}>בחר תרגילים ({selectedExerciseIds.length})</Text><TextInput value={customSearch} onChangeText={setCustomSearch} placeholder="חפש תרגיל בעברית או באנגלית" placeholderTextColor="#718096" style={styles.creatorInput} textAlign="right" />
-          <View style={styles.exercisePicker}>{filteredCustomExercises.map((exercise) => { const selected = selectedExerciseIds.includes(exercise.id); return <Pressable key={exercise.id} onPress={() => toggleCustomExercise(exercise.id)} style={[styles.exerciseChoice, selected && { borderColor: customColor, backgroundColor: `${customColor}18` }]}><View style={[styles.checkCircle, selected && { backgroundColor: customColor }]}><Text style={styles.checkText}>{selected ? "✓" : ""}</Text></View><View style={styles.exerciseChoiceText}><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseCategory}>{exercise.category} · יעד {exercise.defaultTarget}</Text></View></Pressable>; })}</View>
-          <Pressable accessibilityRole="button" disabled={!customName.trim() || selectedExerciseIds.length === 0} onPress={createCustomWorkout} style={({ pressed }) => [styles.saveCreatorButton, { backgroundColor: customName.trim() && selectedExerciseIds.length ? customColor : "#334155" }, pressed && styles.pressed]}><Text style={styles.saveCreatorText}>הוסף לקרוסלה</Text></Pressable>
+          <Text style={styles.fieldLabel}>בחר תרגילים מכל תרגילי האפליקציה ({selectedExerciseIds.length} נבחרו מתוך {allBuilderExercises.length})</Text><TextInput value={customSearch} onChangeText={setCustomSearch} placeholder="חפש תרגיל בעברית, באנגלית או בכינוי" placeholderTextColor="#718096" style={styles.creatorInput} textAlign="right" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.creatorCategoryRow}>{builderCategories.map((category) => <Pressable key={category} accessibilityRole="button" accessibilityState={{ selected: customCategory === category }} onPress={() => setCustomCategory(category)} style={[styles.creatorCategory, customCategory === category && { backgroundColor: customColor, borderColor: customColor }]}><Text style={[styles.creatorCategoryText, customCategory === category && styles.creatorCategoryTextActive]}>{category}</Text></Pressable>)}</ScrollView>
+          <Text style={styles.creatorResultCount}>{filteredCustomExercises.length} תרגילים מוצגים · ללא שיוך מגדרי · ניתן לבחור מכל נושא</Text>
+          <View style={styles.exercisePicker}>{filteredCustomExercises.map((exercise) => { const selected = selectedExerciseIds.includes(exercise.id); return <Pressable key={exercise.id} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => toggleCustomExercise(exercise.id)} style={[styles.exerciseChoice, selected && { borderColor: customColor, backgroundColor: `${customColor}18` }]}><View style={[styles.checkCircle, selected && { backgroundColor: customColor }]}><Text style={styles.checkText}>{selected ? "✓" : ""}</Text></View><View style={styles.exerciseChoiceText}><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseCategory}>{exercise.category} · יעד {exercise.defaultTarget}{exercise.englishName ? ` · ${exercise.englishName}` : ""}</Text></View></Pressable>; })}</View>
+          <Pressable accessibilityRole="switch" accessibilityState={{ checked: isCustomDefault }} onPress={() => setIsCustomDefault((current) => !current)} style={({ pressed }) => [styles.defaultProgramRow, isCustomDefault && styles.defaultProgramRowActive, pressed && styles.pressed]}><View style={[styles.defaultProgramCheck, isCustomDefault && styles.defaultProgramCheckActive]}><Text style={styles.defaultProgramCheckText}>{isCustomDefault ? "✓" : ""}</Text></View><View style={styles.defaultProgramCopy}><Text style={styles.defaultProgramTitle}>הפוך לברירת מחדל בלוח האימונים</Text><Text style={styles.defaultProgramDescription}>התוכנית תופיע בלוח גם אם אינה אחת מחמש התוכניות שנבחרו.</Text></View></Pressable>
+          <Pressable accessibilityRole="button" disabled={!customName.trim() || selectedExerciseIds.length === 0} onPress={() => void createCustomWorkout()} style={({ pressed }) => [styles.saveCreatorButton, { backgroundColor: customName.trim() && selectedExerciseIds.length ? customColor : "#334155" }, pressed && styles.pressed]}><Text style={styles.saveCreatorText}>הוסף לקרוסלה</Text></Pressable>
         </ScrollView></View></View>
       </Modal>
     </ScreenContainer>
   );
 }
 
+
+function FolderWorkoutCard({ template, isSelected, selectedCount, onToggleSelected, onOpen, onEdit, onStart }: { template: WorkoutTemplate; isSelected: boolean; selectedCount: number; onToggleSelected: () => { selected: boolean; limitReached: boolean }; onOpen: () => void; onEdit: () => void; onStart: () => void }) {
+  const handleToggle = () => { const result = onToggleSelected(); if (result.limitReached) alert(`אפשר לבחור עד ${MAX_SELECTED_PROGRAMS} אימונים. הסר אימון קיים כדי לבחור אחר.`); };
+  return <View style={[styles.folderWorkoutCard, { borderColor: `${template.accent}88` }]}>
+    <View style={styles.folderWorkoutHeader}><View style={[styles.folderWorkoutBadge, { borderColor: template.accent, backgroundColor: `${template.accent}22` }]}><Text style={[styles.folderWorkoutBadgeText, { color: template.accent }]}>{template.exercises.length}</Text></View><View style={styles.folderWorkoutHeading}><Text style={styles.folderWorkoutTitle}>{template.name}</Text><Text style={styles.folderWorkoutFocus}>{template.focus}</Text></View></View>
+    <View style={styles.folderExerciseList}>{template.exercises.map((exercise, index) => <View key={exercise.id} style={styles.folderExerciseRow}><Text style={[styles.folderExerciseNumber, { color: template.accent }]}>{index + 1}</Text><View style={styles.folderExerciseInfo}><Text style={styles.folderExerciseName}>{exercise.name || exercise.id}</Text><Text style={styles.folderExerciseMeta}>{exercise.sets.length} סטים · {exercise.sets.map((set) => set.target).join(" · ")}</Text></View></View>)}</View>
+    <View style={styles.folderWorkoutActions}><Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.folderOutlineButton, { borderColor: template.accent }, pressed && styles.pressed]}><Text style={[styles.folderOutlineButtonText, { color: template.accent }]}>פירוט מלא</Text></Pressable><Pressable accessibilityRole="button" accessibilityState={{ selected: isSelected }} onPress={handleToggle} style={({ pressed }) => [styles.folderSelectButton, isSelected && { backgroundColor: "#42D39222", borderColor: "#42D392" }, pressed && styles.pressed]}><Text style={[styles.folderSelectButtonText, isSelected && { color: "#9AF2C7" }]}>{isSelected ? "✓ בתוכנית שלי" : `הוסף לתוכנית שלי · ${selectedCount}/${MAX_SELECTED_PROGRAMS}`}</Text></Pressable></View>
+    <View style={styles.folderWorkoutActions}><Pressable accessibilityRole="button" onPress={onEdit} style={({ pressed }) => [styles.folderOutlineButton, pressed && styles.pressed]}><Text style={styles.folderOutlineButtonText}>ערוך אימון</Text></Pressable><Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.folderStartButton, { backgroundColor: template.accent }, pressed && styles.pressed]}><Text style={styles.folderStartButtonText}>התחל אימון</Text></Pressable></View>
+  </View>;
+}
+
+function WorkoutCategoryMenu({ templates, selectedProgramIds, selectedCount, onToggleSelected, onOpenTemplate, onEditTemplate, onStartTemplate }: { templates: WorkoutTemplate[]; selectedProgramIds: string[]; selectedCount: number; onToggleSelected: (templateId: string) => { selected: boolean; limitReached: boolean }; onOpenTemplate: (templateId: WorkoutId) => void; onEditTemplate: (template: WorkoutTemplate) => void; onStartTemplate: (template: WorkoutTemplate) => void }) {
+  const [expandedFolder, setExpandedFolder] = useState<string | null>(null);
+  const [isMuscleBuildingExpanded, setIsMuscleBuildingExpanded] = useState(false);
+  const [expandedAudience, setExpandedAudience] = useState<string | null>(null);
+  const categories = workoutMenuFolders as Array<{ id: string; title: string; description: string; accent: string }>;
+  const muscleFolders = categories.filter((category) => muscleBuildingFolderIds.includes(category.id as typeof muscleBuildingFolderIds[number]));
+  const audienceCategoryIds = new Set(workoutAudienceSections.flatMap((section) => section.categoryIds));
+  const otherFolders = categories.filter((category) => !muscleBuildingFolderIds.includes(category.id as typeof muscleBuildingFolderIds[number]) && category.id !== "bodybuilding" && !audienceCategoryIds.has(category.id));
+
+  const renderFolder = (category: { id: string; title: string; description: string; accent: string }) => {
+    const categoryPrograms = workoutEncyclopediaPrograms.filter((program) => program.categoryId === category.id);
+    const categoryTemplateIds = (workoutCategoryTemplateIds[category.id] ?? (muscleBuildingFolderTemplateIds as Record<string, WorkoutId[]>)[category.id] ?? []);
+    const categoryTemplates = categoryTemplateIds.map((id) => templates.find((template) => template.id === id)).filter((template): template is WorkoutTemplate => Boolean(template));
+    const visiblePrograms = categoryPrograms.filter((program) => !categoryTemplateIds.includes(program.id) && !muscleBuildingFolderIds.includes(program.id as typeof muscleBuildingFolderIds[number]));
+    const isExpanded = expandedFolder === category.id;
+    return <View key={category.id} style={[styles.categoryFolder, styles.nestedCategoryFolder, { borderColor: `${category.accent}88` }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${isExpanded ? "סגור" : "פתח"} את קטגוריית ${category.title}`} onPress={() => setExpandedFolder(isExpanded ? null : category.id)} style={({ pressed }) => [styles.categoryFolderHeader, pressed && styles.pressed]}>
+        <View style={[styles.categoryFolderIcon, { backgroundColor: `${category.accent}22`, borderColor: `${category.accent}88` }]}><Text style={[styles.categoryFolderIconText, { color: category.accent }]}>{category.title.slice(0, 2)}</Text></View>
+        <View style={styles.categoryFolderText}><Text style={[styles.categoryFolderTitle, { color: category.accent }]}>{category.title}</Text><Text style={styles.categoryFolderDescription}>{category.description}</Text></View>
+        <Text style={[styles.categoryFolderCount, { color: category.accent }]}>{categoryTemplates.length + visiblePrograms.length}</Text>
+        <Text style={[styles.categoryFolderChevron, { color: category.accent }]}>{isExpanded ? "−" : "+"}</Text>
+      </Pressable>
+      {isExpanded ? <View style={styles.categoryFolderContent}>
+        {categoryTemplates.map((template) => <FolderWorkoutCard key={template.id} template={template} isSelected={selectedProgramIds.includes(template.id)} selectedCount={selectedCount} onToggleSelected={() => onToggleSelected(template.id)} onOpen={() => onOpenTemplate(template.id)} onEdit={() => onEditTemplate(template)} onStart={() => onStartTemplate(template)} />)}
+        {visiblePrograms.map((program) => <Pressable key={program.id} accessibilityRole="button" accessibilityLabel={`פתח את התוכנית ${program.title}`} onPress={() => router.push("/(tabs)/workouts" as never)} style={({ pressed }) => [styles.categoryProgramRow, pressed && styles.pressed]}><View style={styles.categoryProgramText}><Text style={styles.categoryProgramTitle}>{program.title}</Text><Text style={styles.categoryProgramDescription}>{program.description}</Text></View><Text style={[styles.categoryProgramAction, { color: category.accent }]}>פרטים ›</Text></Pressable>)}
+        {!categoryTemplates.length && !visiblePrograms.length ? <Text style={styles.categoryEmptyText}>התוכן יתווסף בקרוב.</Text> : null}
+      </View> : null}
+    </View>;
+  };
+
+  const muscleExpanded = isMuscleBuildingExpanded;
+  const renderAudienceSection = (section: typeof workoutAudienceSections[number]) => {
+    const sectionFolders = section.categoryIds.map((id) => categories.find((category) => category.id === id)).filter((category): category is (typeof categories)[number] => Boolean(category));
+    const sectionTemplates = (section.templateIds ?? []).map((id) => templates.find((template) => template.id === id)).filter((template): template is WorkoutTemplate => Boolean(template));
+    const isExpanded = expandedAudience === section.id;
+    return <View key={section.id} style={[styles.categoryFolder, styles.audienceFolder, { borderColor: `${section.accent}88` }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${isExpanded ? "סגור" : "פתח"} את קבוצת ${section.title}`} onPress={() => setExpandedAudience(isExpanded ? null : section.id)} style={({ pressed }) => [styles.categoryFolderHeader, pressed && styles.pressed]}>
+        <View style={[styles.categoryFolderIcon, { backgroundColor: `${section.accent}22`, borderColor: `${section.accent}88` }]}><Text style={[styles.categoryFolderIconText, { color: section.accent }]}>{section.title.slice(0, 2)}</Text></View>
+        <View style={styles.categoryFolderText}><Text style={[styles.categoryFolderTitle, { color: section.accent }]}>{section.title}</Text><Text style={styles.categoryFolderDescription}>{section.description}</Text></View>
+        <Text style={[styles.categoryFolderCount, { color: section.accent }]}>{sectionTemplates.length || sectionFolders.length}</Text>
+        <Text style={[styles.categoryFolderChevron, { color: section.accent }]}>{isExpanded ? "−" : "+"}</Text>
+      </Pressable>
+      {isExpanded ? <View style={styles.nestedFolderList}>{sectionTemplates.map((template) => <FolderWorkoutCard key={template.id} template={template} isSelected={selectedProgramIds.includes(template.id)} selectedCount={selectedCount} onToggleSelected={() => onToggleSelected(template.id)} onOpen={() => onOpenTemplate(template.id)} onEdit={() => onEditTemplate(template)} onStart={() => onStartTemplate(template)} />)}{sectionTemplates.length === 0 ? sectionFolders.map(renderFolder) : null}</View> : null}
+    </View>;
+  };
+  return <View style={styles.categoryMenu}>
+    <View style={styles.categoryMenuHeader}>
+      <Text style={styles.categoryMenuTitle}>תפריט אימונים</Text>
+      <Text style={styles.categoryMenuSubtitle}>פתח את שיטת האימון כדי לראות את התוכניות והתרגילים שלה.</Text>
+    </View>
+    <View style={[styles.categoryFolder, styles.muscleBuildingFolder, { borderColor: "#F5B72C99" }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${muscleExpanded ? "סגור" : "פתח"} אימונים לבניית מסת שריר`} onPress={() => setIsMuscleBuildingExpanded((current) => !current)} style={({ pressed }) => [styles.categoryFolderHeader, pressed && styles.pressed]}>
+        <View style={[styles.categoryFolderIcon, styles.muscleBuildingIcon]}><Text style={[styles.categoryFolderIconText, { color: "#F5B72C" }]}>מ׳</Text></View>
+        <View style={styles.categoryFolderText}><Text style={[styles.categoryFolderTitle, { color: "#F5B72C" }]}>אימונים לבניית מסת שריר</Text><Text style={styles.categoryFolderDescription}>PPL, AB, ABC, ABCD ו־Full Body — פתח כדי לראות את כל האימונים והתרגילים</Text></View>
+        <Text style={[styles.categoryFolderCount, { color: "#F5B72C" }]}>{muscleFolders.length}</Text>
+        <Text style={[styles.categoryFolderChevron, { color: "#F5B72C" }]}>{muscleExpanded ? "−" : "+"}</Text>
+      </Pressable>
+      {muscleExpanded ? <View style={styles.nestedFolderList}>{muscleFolders.map(renderFolder)}</View> : null}
+    </View>
+    {workoutAudienceSections.map(renderAudienceSection)}
+    {otherFolders.map(renderFolder)}
+  </View>;
+}
+
+type SelectedProgramItem = { id: string; template?: WorkoutTemplate; program?: ReturnType<typeof getWorkoutEncyclopediaProgram> };
+
+function MyProgramsModal({ visible, selectedPrograms, onClose }: { visible: boolean; selectedPrograms: SelectedProgramItem[]; onClose: () => void }) {
+  const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const weekStart = sundayWeekStart(new Date());
+  const days = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+  const availablePrograms = selectedPrograms.filter((item): item is SelectedProgramItem & { template: WorkoutTemplate } => Boolean(item.template));
+
+  useEffect(() => {
+    if (!visible) return;
+    void readWorkoutScheduleOverrides().then((overrides) => {
+      const next: Record<string, string> = {};
+      days.forEach((_day, index) => {
+        const date = new Date(`${weekStart}T12:00:00Z`);
+        date.setUTCDate(date.getUTCDate() + index);
+        const dateKey = date.toISOString().slice(0, 10);
+        const templateId = overrides[dateKey]?.templateId;
+        if (templateId) next[dateKey] = templateId;
+      });
+      setAssignments(next);
+    });
+  }, [visible, weekStart]);
+
+  const assignToDay = async (date: string, item: SelectedProgramItem & { template: WorkoutTemplate }) => {
+    const next = await assignWorkoutTemplateToDate(date, item.template, isCardioWorkoutTemplate(item.template.id) ? "cardio" : "workout");
+    setAssignments(Object.fromEntries(Object.entries(next).flatMap(([key, value]) => value.templateId ? [[key, value.templateId]] : [])));
+  };
+
+  return <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <View style={styles.modalBackdrop}>
+      <View style={styles.myProgramsModal}>
+        <View style={styles.modalHeader}>
+          <View><Text style={styles.modalTitle}>התוכנית שלי</Text><Text style={styles.previewSubtitle}>בחרת {availablePrograms.length}/5 תוכניות. עכשיו שייך כל תוכנית ליום הרצוי ביומן.</Text></View>
+          <Pressable accessibilityRole="button" accessibilityLabel="סגור התוכנית שלי" onPress={onClose} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable>
+        </View>
+        {availablePrograms.length ? <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.myProgramsContent}>
+          {days.map((day, index) => {
+            const date = new Date(`${weekStart}T12:00:00Z`);
+            date.setUTCDate(date.getUTCDate() + index);
+            const dateKey = date.toISOString().slice(0, 10);
+            const assignedId = assignments[dateKey];
+            const assigned = availablePrograms.find((item) => item.template.id === assignedId)?.template;
+            return <View key={dateKey} style={styles.assignmentCard}>
+              <View style={styles.assignmentHeader}><Text style={styles.assignmentDate}>{localDateKey(date)}</Text><Text style={styles.assignmentDay}>{day}</Text></View>
+              <Text style={styles.assignmentCurrent}>{assigned ? `משובץ: ${assigned.name}` : "לא שובצה תוכנית ליום הזה"}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assignmentChoices}>
+                {availablePrograms.map((item) => <Pressable key={`${dateKey}-${item.template.id}`} accessibilityRole="button" accessibilityState={{ selected: assignedId === item.template.id }} onPress={() => void assignToDay(dateKey, item)} style={[styles.assignmentChoice, assignedId === item.template.id && { backgroundColor: `${item.template.accent}33`, borderColor: item.template.accent }]}><Text style={[styles.assignmentChoiceText, assignedId === item.template.id && { color: item.template.accent }]}>{item.template.name}</Text></Pressable>)}
+              </ScrollView>
+            </View>;
+          })}
+        </ScrollView> : <View style={styles.myProgramsEmpty}><Text style={styles.myProgramsEmptyTitle}>עדיין לא נבחרו תוכניות</Text><Text style={styles.myProgramsEmptyText}>סגור את החלונית, פתח את הקטלוג ובחר עד 5 תוכניות. לאחר מכן ניתן יהיה לשבץ אותן לפי ימים.</Text></View>}
+        <Pressable accessibilityRole="button" onPress={onClose} style={styles.myProgramsDone}><Text style={styles.myProgramsDoneText}>סיום ושמירה ביומן</Text></Pressable>
+      </View>
+    </View>
+  </Modal>;
+}
+
 const styles = StyleSheet.create({
+  categoryMenu: { marginTop: 18, gap: 10 }, personalProfilePanel: { backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1.5, borderRadius: 18, padding: 13, gap: 11 }, personalProfileHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10 }, personalProfileIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#F5B72C22", borderColor: "#F5B72C88", borderWidth: 1, alignItems: "center", justifyContent: "center" }, personalProfileIconText: { fontSize: 19 }, personalProfileHeading: { flex: 1, alignItems: "flex-end", gap: 2 }, personalProfileTitle: { color: "#F5B72C", fontSize: 20, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, personalProfileSubtitle: { color: "#AAB7C8", fontSize: 11, lineHeight: 16, textAlign: "right", writingDirection: "rtl" }, personalProfileList: { gap: 7 }, personalProfileRow: { flexDirection: "row-reverse", alignItems: "center", gap: 9, borderColor: "#2C3B55", borderWidth: 1, borderRadius: 11, backgroundColor: "#0F1A2E", paddingHorizontal: 10, paddingVertical: 9 }, personalProfileArrow: { width: 27, height: 27, borderRadius: 9, backgroundColor: "#F5B72C22", alignItems: "center", justifyContent: "center" }, personalProfileArrowText: { color: "#F5B72C", fontSize: 22, lineHeight: 22, fontWeight: "900" }, personalProfileRowText: { flex: 1, alignItems: "flex-end", gap: 2 }, personalProfileRowTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, personalProfileRowDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 14, textAlign: "right", writingDirection: "rtl" }, categoryMenuHeader: { alignItems: "flex-end", gap: 4, marginBottom: 2 }, categoryMenuTitle: { color: "#F7F9FC", fontSize: 22, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryMenuSubtitle: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right", writingDirection: "rtl" }, categoryFolder: { backgroundColor: "#111D31", borderWidth: 1, borderRadius: 16, padding: 10, gap: 7 }, audienceFolder: { backgroundColor: "#111D31", borderWidth: 1, borderRadius: 16, padding: 10, gap: 8 }, muscleBuildingFolder: { backgroundColor: "#14243D", borderWidth: 1.5, borderRadius: 16, padding: 10, gap: 8 }, muscleBuildingIcon: { backgroundColor: "#F5B72C22", borderColor: "#F5B72C88" }, nestedFolderList: { gap: 8, paddingTop: 4 }, nestedCategoryFolder: { borderRadius: 13, padding: 8 }, categoryFolderContent: { gap: 7, paddingTop: 3 }, categoryFolderChevron: { fontSize: 22, fontWeight: "900", lineHeight: 22 }, categoryEmptyText: { color: "#AAB7C8", fontSize: 11, textAlign: "right", paddingVertical: 7 }, categoryFolderHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10, paddingVertical: 4 }, categoryFolderIcon: { width: 38, height: 38, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" }, categoryFolderIconText: { fontSize: 11, fontWeight: "900" }, categoryFolderText: { flex: 1, alignItems: "flex-end", gap: 2 }, categoryFolderTitle: { fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryFolderDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, categoryFolderCount: { fontSize: 12, fontWeight: "900" }, categoryProgramRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, backgroundColor: "#16233A", borderWidth: 1, borderRadius: 11, padding: 9 }, categoryProgramText: { flex: 1, alignItems: "flex-end", gap: 2 }, categoryProgramTitle: { color: "#F7F9FC", fontSize: 12, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryProgramDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, categoryProgramAction: { fontSize: 10, fontWeight: "900" }, folderWorkoutCard: { backgroundColor: "#0B1224", borderWidth: 1, borderRadius: 13, padding: 11, gap: 9 }, folderWorkoutHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 9 }, folderWorkoutBadge: { width: 34, height: 34, borderWidth: 1, borderRadius: 11, alignItems: "center", justifyContent: "center" }, folderWorkoutBadgeText: { fontSize: 13, fontWeight: "900" }, folderWorkoutHeading: { flex: 1, alignItems: "flex-end", gap: 2 }, folderWorkoutTitle: { color: "#F7F9FC", fontSize: 16, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, folderWorkoutFocus: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, folderExerciseList: { gap: 5, borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 8 }, folderExerciseRow: { flexDirection: "row-reverse", alignItems: "flex-start", gap: 7 }, folderExerciseNumber: { minWidth: 15, fontSize: 10, fontWeight: "900", textAlign: "right" }, folderExerciseInfo: { flex: 1, alignItems: "flex-end", gap: 1 }, folderExerciseName: { color: "#EAF1F8", fontSize: 11, fontWeight: "800", textAlign: "right", writingDirection: "rtl" }, folderExerciseMeta: { color: "#7E8DA4", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" }, folderWorkoutActions: { flexDirection: "row-reverse", gap: 8 }, folderOutlineButton: { flex: 1, minHeight: 37, borderColor: "#52759C", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, folderOutlineButtonText: { color: "#A9CFF2", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, folderSelectButton: { flex: 1.45, minHeight: 37, borderColor: "#42D392", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 }, folderSelectButtonText: { color: "#42D392", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, folderStartButton: { flex: 1, minHeight: 37, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, folderStartButtonText: { color: "#081222", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" },
   content: { paddingBottom: 28, gap: 22 },
   header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12 },
   titleBlock: { flex: 1, minWidth: 0, alignItems: "flex-end" },
@@ -198,10 +369,18 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
   sectionTitle: { color: "#F7F9FC", fontSize: 18, fontWeight: "800", textAlign: "right" },
   sectionHint: { color: "#AAB7C8", fontSize: 12 },
-  creatorButton: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#F5B72C", borderRadius: 14, paddingVertical: 12 },
-  creatorButtonText: { color: "#0B1224", fontSize: 13, fontWeight: "900" },
+        creatorButton: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#F5B72C", borderRadius: 14, paddingVertical: 12 },
+      creatorButtonText: { color: "#0B1224", fontSize: 13, fontWeight: "900" },
+      defaultProgramRow: { flexDirection: "row-reverse", alignItems: "center", gap: 10, borderColor: "#2C3B55", borderWidth: 1, borderRadius: 12, backgroundColor: "#0F1A2E", padding: 11 },
+      defaultProgramRowActive: { borderColor: "#F5B72C", backgroundColor: "#2A2413" },
+      defaultProgramCheck: { width: 28, height: 28, borderRadius: 9, borderColor: "#52759C", borderWidth: 1, alignItems: "center", justifyContent: "center" },
+      defaultProgramCheckActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" },
+      defaultProgramCheckText: { color: "#0B1224", fontSize: 18, fontWeight: "900" },
+      defaultProgramCopy: { flex: 1, alignItems: "flex-end", gap: 2 },
+      defaultProgramTitle: { color: "#F7F9FC", fontSize: 12, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+      defaultProgramDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, personalProgramsPanel: { backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 18, padding: 14, gap: 9 }, personalProgramsHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, personalProgramsLink: { borderColor: "#F5B72C", borderWidth: 1, borderRadius: 9, paddingHorizontal: 9, paddingVertical: 6 }, personalProgramsLinkText: { color: "#F5D27A", fontSize: 10, fontWeight: "900" }, personalProgramRow: { backgroundColor: "#0F1A2E", borderWidth: 1, borderRadius: 11, padding: 10, alignItems: "flex-end", gap: 3 }, personalProgramRowTitle: { color: "#F7F9FC", fontSize: 14, fontWeight: "900", textAlign: "right" }, personalProgramRowMeta: { color: "#AAB7C8", fontSize: 10, textAlign: "right" }, personalProgramsEmpty: { color: "#AAB7C8", fontSize: 11, textAlign: "right", lineHeight: 17 },
   methodCarousel: { paddingHorizontal: 4, gap: 10 },
-  methodList: { gap: 8 },
+  analysisPanel: { backgroundColor: "#101C31", borderColor: "#65BDF6", borderWidth: 1, borderRadius: 18, padding: 14, gap: 9, marginTop: 15 }, analysisPanelHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 10 }, analysisLink: { borderColor: "#65BDF6", borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 7 }, analysisLinkText: { color: "#8FD3F4", fontSize: 11, fontWeight: "900" }, analysisTotals: { flexDirection: "row-reverse", gap: 8 }, analysisTotal: { flex: 1, backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 5, alignItems: "center" }, analysisTotalValue: { color: "#F7F9FC", fontSize: 14, fontWeight: "900", textAlign: "center" }, analysisTotalLabel: { color: "#AAB7C8", fontSize: 9, marginTop: 3, textAlign: "center", writingDirection: "rtl" }, analysisRow: { flexDirection: "row-reverse", alignItems: "center", gap: 10, backgroundColor: "#16233A", borderWidth: 1, borderRadius: 12, padding: 10 }, analysisIcon: { width: 38, height: 38, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" }, analysisIconText: { fontSize: 11, fontWeight: "900" }, analysisRowText: { flex: 1, gap: 3, alignItems: "flex-end" }, analysisRowTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right" }, analysisRowMeta: { color: "#AAB7C8", fontSize: 10, textAlign: "right", writingDirection: "rtl" }, analysisRowStatus: { fontSize: 10, fontWeight: "900", textAlign: "right" }, methodList: { gap: 8 },
   categoryTitle: { color: "#F5B72C", fontSize: 14, fontWeight: "900", textAlign: "right", marginTop: 12, marginBottom: 2 },
   categoryTitleFirst: { marginTop: 0 },
   methodRow: { flexDirection: "row-reverse", alignItems: "center", gap: 11, backgroundColor: "#16233A", borderRadius: 15, padding: 12, borderWidth: 1 },
@@ -240,7 +419,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
   lastCard: { backgroundColor: "#16233A", borderRadius: 18, padding: 16, borderWidth: 1, borderColor: "#2C3B55", gap: 13 },
   lastText: { color: "#AAB7C8", fontSize: 13, textAlign: "right" },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(3, 8, 20, 0.78)", justifyContent: "flex-end" },
+  myProgramsModal: { maxHeight: "88%", backgroundColor: "#101B31", borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, borderColor: "#334155", padding: 18 }, myProgramsContent: { paddingBottom: 16, gap: 9 }, assignmentCard: { backgroundColor: "#16233A", borderColor: "#3F76A7", borderWidth: 1, borderRadius: 14, padding: 11, gap: 7 }, assignmentHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, assignmentDate: { color: "#7E8DA4", fontSize: 10 }, assignmentDay: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right" }, assignmentCurrent: { color: "#AAB7C8", fontSize: 11, textAlign: "right", writingDirection: "rtl" }, assignmentChoices: { flexDirection: "row-reverse", gap: 7, paddingVertical: 2 }, assignmentChoice: { minHeight: 34, borderColor: "#52759C", borderWidth: 1, borderRadius: 9, paddingHorizontal: 9, alignItems: "center", justifyContent: "center" }, assignmentChoiceText: { color: "#C7D4E5", fontSize: 10, fontWeight: "800", textAlign: "center" }, myProgramsEmpty: { alignItems: "flex-end", gap: 7, paddingVertical: 20 }, myProgramsEmptyTitle: { color: "#F5B72C", fontSize: 17, fontWeight: "900", textAlign: "right" }, myProgramsEmptyText: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right", writingDirection: "rtl" }, myProgramsDone: { minHeight: 44, borderRadius: 11, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center", marginTop: 8 }, myProgramsDoneText: { color: "#0B1224", fontSize: 12, fontWeight: "900" }, modalBackdrop: { flex: 1, backgroundColor: "rgba(3, 8, 20, 0.78)", justifyContent: "flex-end" },
   webCardioPicker: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 999, maxHeight: "88%", overflow: "scroll", backgroundColor: "#101A30", borderColor: "#5278A8", borderWidth: 1, borderRadius: 18, padding: 15, gap: 10 }, cardioPickerModal: { maxHeight: "88%", backgroundColor: "#101B31", borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, borderColor: "#334155", padding: 18 }, cardioPickerContent: { paddingBottom: 20 }, cardioOption: { position: "relative", flexDirection: "row-reverse", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 16, backgroundColor: "#16233A", padding: 14, marginBottom: 10, minHeight: 82 }, cardioOptionIcon: { width: 52, height: 52, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" }, cardioOptionText: { flex: 1, alignItems: "flex-end" }, cardioOptionTitle: { color: "#F7F9FC", fontSize: 16, fontWeight: "900", textAlign: "right" }, cardioOptionSubtitle: { color: "#AAB7C8", fontSize: 11, textAlign: "right", marginTop: 3 }, cardioOptionAction: { fontSize: 11, fontWeight: "900", marginTop: 7 }, cardioMoreCard: { backgroundColor: "#0B1224", borderRadius: 14, padding: 14, marginTop: 2 }, cardioMoreTitle: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" }, cardioMoreText: { color: "#AAB7C8", fontSize: 11, lineHeight: 17, textAlign: "right", marginTop: 5 },
   previewModal: { maxHeight: "88%", backgroundColor: "#101B31", borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, borderColor: "#334155" },
   previewContent: { padding: 20, gap: 14, paddingBottom: 30 },
@@ -310,7 +489,7 @@ const styles = StyleSheet.create({
   previewStartButton: { flex: 1.5, borderRadius: 13, alignItems: "center", justifyContent: "center", paddingVertical: 13 },
   previewStartText: { color: "#0B1224", fontSize: 13, fontWeight: "900" },
   creatorModal: { maxHeight: "92%", backgroundColor: "#101B31", borderTopLeftRadius: 26, borderTopRightRadius: 26, borderWidth: 1, borderColor: "#334155" },
-  creatorContent: { padding: 20, gap: 14, paddingBottom: 34 },
+  creatorContent: { padding: 20, gap: 14, paddingBottom: 34 }, creatorCategoryRow: { flexDirection: "row-reverse", gap: 7, paddingVertical: 2 }, creatorCategory: { borderColor: "#48617E", borderWidth: 1, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 8 }, creatorCategoryText: { color: "#C7D4E5", fontSize: 10, fontWeight: "800" }, creatorCategoryTextActive: { color: "#0B1224" }, creatorResultCount: { color: "#8ED8FF", fontSize: 10, textAlign: "right", writingDirection: "rtl" },
   modalHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
   previewHeaderActions: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
   editPreviewButton: { backgroundColor: "#253653", borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 },

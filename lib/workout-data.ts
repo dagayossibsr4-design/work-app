@@ -1,3 +1,5 @@
+import { workoutGuideTemplates } from "./workout-guide-templates";
+
 export type WorkoutId = string;
 
 export type SetTarget = {
@@ -91,6 +93,9 @@ export const workoutTemplates: WorkoutTemplate[] = [
       standardTwoSet("מקרבי ירך במכונה", "Adductor Machine"),
       standardTwoSet("מרחיקי ירך במכונה", "Abductor Machine"),
       standardTwoSet("תאומים בישיבה", "Seated Calf Raise"),
+      standardTwoSet("היפ תראסט עם מוט", "Heavy Barbell Hip Thrust", "עומס ממוקד על שרירי הישבן"),
+      standardTwoSet("סקוואט בולגרי", "Bulgarian Split Squat", "עבודה חד־רגלית על ישבן וירך"),
+      standardTwoSet("בעיטת ישבן בכבל", "Cable Glute Kickback", "בידוד החלק העליון של הישבן"),
     ],
   },
   {
@@ -140,6 +145,9 @@ export const workoutTemplates: WorkoutTemplate[] = [
       { id: "כפיפת ירך בעמידה-legs2", name: "כפיפת ירך בעמידה", englishName: "Standing Hip Flexion", sets: [{ target: "10–15" }, { target: "10–15" }] },
       { id: "מקרבי ירך-legs2", name: "מקרבי ירך במכונה", englishName: "Adductor Machine", sets: [{ target: "8–12" }, { target: "10–15" }] },
       { id: "תאומים-legs2", name: "תאומים", englishName: "Calf Raise", sets: [{ target: "8–12" }, { target: "8–12" }] },
+      standardTwoSet("גלוט ברידג׳", "Glute Bridge", "כיווץ שיא של הישבן עם עומס נמוך על הגב"),
+      standardTwoSet("הרחקת ירך בכבל או במכונה", "Cable or Machine Hip Abduction", "מיקוד בעכוז האמצעי"),
+      standardTwoSet("הליכת סרטן עם גומייה", "Banded Monster Walks", "אקטיבציה למייצבי האגן והירך"),
     ],
   },
   {
@@ -159,43 +167,43 @@ export const workoutTemplates: WorkoutTemplate[] = [
   },
   {
     id: "abc-a", name: "ABC · A", focus: "חזה, כתפיים ויד אחורית", accent: "#F5B72C",
-    exercises: [standardTwoSet("לחיצת חזה במכונה", "Chest Press Machine"), standardTwoSet("לחיצת חזה בשיפוע עם דאמבלים", "Incline Dumbbell Press"), standardTwoSet("הרחקת כתפיים לצדדים", "Lateral Raise"), standardTwoSet("פשיטת מרפקים בחבל", "Triceps Rope Pushdown")],
+    exercises: [standardTwoSet("לחיצת חזה במכונה", "Chest Press Machine"), standardTwoSet("לחיצת חזה בשיפוע עם דאמבלים", "Incline Dumbbell Press"), standardTwoSet("לחיצת כתפיים מעל הראש", "Overhead Press"), standardTwoSet("הרחקת כתפיים לצדדים", "Lateral Raise"), standardTwoSet("פשיטת מרפקים בחבל", "Triceps Rope Pushdown")],
   },
   {
     id: "abc-b", name: "ABC · B", focus: "גב, כתף אחורית ויד קדמית", accent: "#65BDF6",
-    exercises: [standardTwoSet("פולי עליון באחיזה רחבה", "Wide Grip Lat Pulldown"), standardTwoSet("חתירה עם תמיכה לחזה", "Chest Supported Row"), standardTwoSet("פרפר הפוך לכתף אחורית", "Reverse Fly"), standardTwoSet("כפיפת מרפקים עם מוט", "Barbell Curl")],
+    exercises: [standardTwoSet("פולי עליון באחיזה רחבה", "Wide Grip Lat Pulldown"), standardTwoSet("עליות מתח", "Pull Up"), standardTwoSet("חתירה עם תמיכה לחזה", "Chest Supported Row"), standardTwoSet("חתירה עם מוט בהטיית גו", "Barbell Bent-Over Row"), standardTwoSet("פרפר הפוך לכתף אחורית", "Reverse Fly"), standardTwoSet("משיכת פנים", "Face Pull"), standardTwoSet("כפיפת מרפקים עם מוט", "Barbell Curl")],
   },
   {
     id: "abc-c", name: "ABC · C", focus: "כתפיים ורגליים", accent: "#FB7185",
-    exercises: [standardTwoSet("לחיצת כתפיים במכונה", "Shoulder Press"), standardTwoSet("סקוואט במכונת סמית", "Smith Squat"), standardTwoSet("לחיצת רגליים", "Leg Press"), standardTwoSet("כפיפת ברכיים בישיבה", "Seated Leg Curl"), standardTwoSet("הרמת עקבים בעמידה", "Standing Calf Raise")],
+    exercises: [standardTwoSet("לחיצת כתפיים במכונה", "Shoulder Press"), standardTwoSet("סקוואט במכונת סמית", "Smith Squat"), standardTwoSet("לחיצת רגליים", "Leg Press"), standardTwoSet("כפיפת ברכיים בישיבה", "Seated Leg Curl"), standardTwoSet("היפ תראסט עם מוט", "Heavy Barbell Hip Thrust", "עומס ממוקד על שרירי הישבן"), standardTwoSet("סקוואט בולגרי", "Bulgarian Split Squat", "עבודה חד־רגלית על ישבן וירך"), standardTwoSet("הרחקת ירך בכבל או במכונה", "Cable or Machine Hip Abduction", "מיקוד בעכוז האמצעי"), standardTwoSet("הרמת עקבים בעמידה", "Standing Calf Raise")],
   },
   {
     id: "abcd-a", name: "ABCD · A", focus: "חזה ויד אחורית", accent: "#F5B72C",
-    exercises: [standardTwoSet("לחיצת חזה במוט", "Barbell Bench Press"), standardTwoSet("לחיצת חזה בשיפוע עם דאמבלים", "Incline Dumbbell Press"), standardTwoSet("פרפר במכונה", "Pec Deck"), standardTwoSet("פשיטת מרפקים מעל הראש", "Overhead Triceps Extension")],
+    exercises: [standardTwoSet("לחיצת חזה במוט", "Barbell Bench Press"), standardTwoSet("לחיצת חזה בשיפוע עם דאמבלים", "Incline Dumbbell Press"), standardTwoSet("פרפר במכונה", "Pec Deck"), standardTwoSet("פשיטת מרפקים מעל הראש", "Overhead Triceps Extension"), standardTwoSet("פשיטת מרפקים בכבל", "Triceps Pushdown")],
   },
   {
     id: "abcd-b", name: "ABCD · B", focus: "גב ויד קדמית", accent: "#65BDF6",
-    exercises: [standardTwoSet("מתח או פולי עליון", "Pull Up"), standardTwoSet("חתירת T", "T Bar Row"), standardTwoSet("חתירה בכבלים", "Cable Row"), standardTwoSet("כפיפת מרפקים בדאמבלים", "Dumbbell Curl")],
+    exercises: [standardTwoSet("מתח או פולי עליון", "Pull Up"), standardTwoSet("חתירת T", "T Bar Row"), standardTwoSet("חתירה בכבלים", "Cable Row"), standardTwoSet("משיכת פנים", "Face Pull"), standardTwoSet("כפיפת מרפקים בדאמבלים", "Dumbbell Curl")],
   },
   {
     id: "abcd-c", name: "ABCD · C", focus: "כתפיים", accent: "#C084FC",
-    exercises: [standardTwoSet("לחיצת כתפיים בישיבה", "Seated Shoulder Press"), standardTwoSet("הרחקה לצדדים בכבלים", "Cable Lateral Raise"), standardTwoSet("הרחקה לכתף אחורית", "Rear Delt Raise"), standardTwoSet("משיכת פנים", "Face Pull")],
+    exercises: [standardTwoSet("לחיצת כתפיים בישיבה", "Seated Shoulder Press"), standardTwoSet("הרחקה לצדדים בכבלים", "Cable Lateral Raise"), standardTwoSet("הרחקה לכתף אחורית", "Rear Delt Raise"), standardTwoSet("משיכת פנים", "Face Pull"), standardTwoSet("הרמת כתפיים לפנים", "Front Raise")],
   },
   {
     id: "abcd-d", name: "ABCD · D", focus: "רגליים", accent: "#FB7185",
-    exercises: [standardTwoSet("סקוואט", "Squat"), standardTwoSet("דדליפט רומני", "Romanian Deadlift"), standardTwoSet("פשיטת ברכיים", "Leg Extension"), standardTwoSet("כפיפת ברכיים", "Leg Curl"), standardTwoSet("הרמת עקבים", "Calf Raise")],
+    exercises: [standardTwoSet("סקוואט", "Squat"), standardTwoSet("דדליפט רומני", "Romanian Deadlift"), standardTwoSet("פשיטת ברכיים", "Leg Extension"), standardTwoSet("כפיפת ברכיים", "Leg Curl"), standardTwoSet("היפ תראסט עם מוט", "Heavy Barbell Hip Thrust", "עומס ממוקד על שרירי הישבן"), standardTwoSet("בעיטת ישבן בכבל", "Cable Glute Kickback", "בידוד החלק העליון של הישבן"), standardTwoSet("הרמת עקבים", "Calf Raise")],
   },
   {
     id: "ab-upper", name: "AB · עליון", focus: "חזה, גב, כתפיים וידיים", accent: "#F5B72C",
-    exercises: [standardTwoSet("לחיצת חזה במכונה", "Chest Press"), standardTwoSet("פולי עליון", "Lat Pulldown"), standardTwoSet("חתירה בכבלים", "Cable Row"), standardTwoSet("לחיצת כתפיים", "Shoulder Press"), standardTwoSet("פשיטת מרפקים בחבל", "Triceps Pushdown"), standardTwoSet("כפיפת מרפקים עם מוט", "Barbell Curl")],
+    exercises: [standardTwoSet("לחיצת חזה במכונה", "Chest Press"), standardTwoSet("לחיצת חזה בשיפוע עם דאמבלים", "Incline Dumbbell Press"), standardTwoSet("עליות מתח עם משקל או סיוע", "Weighted or Assisted Pull Up"), standardTwoSet("חתירה עם מוט בהטיית גו", "Barbell Bent-Over Row"), standardTwoSet("לחיצת כתפיים מעל הראש", "Overhead Press"), standardTwoSet("הרחקת כתפיים לצדדים", "Lateral Raise"), standardTwoSet("משיכת פנים", "Face Pull"), standardTwoSet("פשיטת מרפקים בחבל", "Triceps Pushdown"), standardTwoSet("כפיפת מרפקים עם מוט", "Barbell Curl")],
   },
   {
     id: "ab-lower", name: "AB · תחתון", focus: "ארבע־ראשי, המסטרינג, ישבן ותאומים", accent: "#FB7185",
-    exercises: [standardTwoSet("סקוואט במכונת סמית", "Smith Squat"), standardTwoSet("לחיצת רגליים", "Leg Press"), standardTwoSet("דדליפט רומני", "Romanian Deadlift"), standardTwoSet("כפיפת ברכיים", "Leg Curl"), standardTwoSet("הרמת עקבים", "Calf Raise")],
+    exercises: [standardTwoSet("סקוואט במכונת סמית", "Smith Squat"), standardTwoSet("האק סקוואט", "Hack Squat"), standardTwoSet("לחיצת רגליים", "Leg Press"), standardTwoSet("דדליפט רומני", "Romanian Deadlift"), standardTwoSet("כפיפת ברכיים", "Leg Curl"), standardTwoSet("הרמת עקבים", "Calf Raise"), standardTwoSet("היפ תראסט עם מוט", "Heavy Barbell Hip Thrust"), standardTwoSet("סקוואט בולגרי", "Bulgarian Split Squat"), standardTwoSet("בעיטת ישבן בכבל", "Cable Glute Kickback"), standardTwoSet("הרחקת ירך בכבל או במכונה", "Cable or Machine Hip Abduction")],
   },
   {
     id: "full-body", name: "Full Body", focus: "אימון גוף מלא לכל קבוצות השרירים", accent: "#42D392",
-    exercises: [standardTwoSet("סקוואט או לחיצת רגליים", "Squat or Leg Press"), standardTwoSet("לחיצת חזה", "Chest Press"), standardTwoSet("פולי עליון", "Lat Pulldown"), standardTwoSet("לחיצת כתפיים", "Shoulder Press"), standardTwoSet("דדליפט רומני", "Romanian Deadlift"), standardTwoSet("כפיפת מרפקים", "Biceps Curl"), standardTwoSet("פשיטת מרפקים", "Triceps Extension")],
+    exercises: [standardTwoSet("סקוואט או לחיצת רגליים", "Squat or Leg Press"), standardTwoSet("היפ תראסט או גלוט ברידג׳", "Hip Thrust or Glute Bridge"), standardTwoSet("לחיצת חזה", "Chest Press"), standardTwoSet("פולי עליון", "Lat Pulldown"), standardTwoSet("חתירה במוט או בכבל", "Barbell or Cable Row"), standardTwoSet("לחיצת כתפיים", "Shoulder Press"), standardTwoSet("דדליפט רומני", "Romanian Deadlift"), standardTwoSet("כפיפת מרפקים", "Biceps Curl"), standardTwoSet("פשיטת מרפקים", "Triceps Extension")],
   },
   {
     id: "cardio", name: "אירובי", focus: "אימון אירובי כללי ושליטה בעצימות", accent: "#F59E0B",
@@ -237,6 +245,7 @@ export const workoutTemplates: WorkoutTemplate[] = [
     id: "hiit", name: "אינטרוולים", focus: "מחזורי עבודה ומנוחה בעצימות גבוהה", accent: "#F43F5E",
     exercises: [{ id: "אינטרוולים", name: "אימון אינטרוולים", englishName: "HIIT", sets: [{ target: "10–25 דקות" }] }],
   },
+  ...workoutGuideTemplates,
 ];
 
 export const getTemplate = (id: WorkoutId) => workoutTemplates.find((template) => template.id === id) ?? workoutTemplates[0];
