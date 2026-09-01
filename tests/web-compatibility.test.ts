@@ -6,12 +6,13 @@ const root = resolve(__dirname, "..");
 const readSource = (relativePath: string) => readFileSync(resolve(root, relativePath), "utf8");
 
 describe("תאימות Web ונתיבים", () => {
-  it("מעלה את הניווט מיד בדפדפן ולא ממתין לאנימציית כניסה", () => {
+  it("מציג מסך פתיחה מונפש לפני הניווט בכל הפלטפורמות", () => {
     const rootLayout = readSource("app/_layout.tsx");
     const entryAnimation = readSource("components/entry-animation.tsx");
-    expect(rootLayout).toContain('useState(Platform.OS === "web")');
+    expect(rootLayout).toContain("useState(false)");
     expect(rootLayout).toContain('import { ThemeProvider } from "../lib/theme-provider"');
-    expect(entryAnimation).toContain("Platform.OS");
+    expect(entryAnimation).toContain("useState(true)");
+    expect(entryAnimation).toContain("Created by Yossi Daga");
     expect(entryAnimation).toContain("onFinishedRef.current?.()");
     const home = readSource("app/(tabs)/index.tsx");
     expect(home).toContain("שיטות לעלייה במסת שריר");
@@ -81,5 +82,13 @@ describe("תאימות Web ונתיבים", () => {
     expect(home).toContain("builderSelectionBadge");
     expect(home).toContain("toggleBuilderCategory");
     expect(home).toContain("ללא שיוך מגדרי");
+  });
+
+  it("מאפשר לבחור מאקרו חורג ולסנן את המלצת הקיצוץ", () => {
+    const mealPlan = readSource("app/(tabs)/meal-plan.tsx");
+    expect(mealPlan).toContain("selectedDeviationMacros");
+    expect(mealPlan).toContain("toggleDeviationMacro");
+    expect(mealPlan).toContain("filteredDeviationSuggestions");
+    expect(mealPlan).toContain("בחר ממה להפחית לפי הערכים שחרגו מהיעד");
   });
 });

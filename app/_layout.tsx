@@ -24,8 +24,6 @@ function reminderSlotFromNotification(notification: Notifications.Notification):
 }
 
 if (Platform.OS !== "web") {
-  // Keep Android RTL support enabled without forcing a second native mirror.
-  // Screens and navigation use explicit direction styles for deterministic layout.
   I18nManager.allowRTL(true);
 }
 
@@ -33,7 +31,8 @@ export default function RootLayout() {
   const router = useRouter();
   const [queryClient] = useState(() => new QueryClient());
   const [trpcClient] = useState(() => createTRPCClient());
-  const [booted, setBooted] = useState(Platform.OS === "web");
+  const [booted, setBooted] = useState(false);
+
   useEffect(() => {
     void initializeSupplementReminders();
     if (Platform.OS === "web") return;
@@ -60,6 +59,7 @@ export default function RootLayout() {
       responseSubscription.remove();
     };
   }, [router]);
+
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#0B1224" }}>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
@@ -67,10 +67,10 @@ export default function RootLayout() {
           <ThemeProvider>
             <WorkoutProvider>
               <AccountSync />
-              <WebComplianceOverlay />
               <StatusBar style="light" />
-              {booted ? <Stack screenOptions={{ headerShown: false }} /> : null}
+              <Stack screenOptions={{ headerShown: false }} />
               {!booted ? <EntryAnimation onFinished={() => setBooted(true)} /> : null}
+              <WebComplianceOverlay />
             </WorkoutProvider>
           </ThemeProvider>
         </QueryClientProvider>
