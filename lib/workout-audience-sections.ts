@@ -24,8 +24,6 @@ export const workoutAudienceSections: WorkoutAudienceSection[] = [
       "olympic",
       "calisthenics",
       "functional-hybrid",
-      "pilates-barre",
-      "yoga-mobility",
       "combat",
       "rehab",
       "cardio-endurance",
@@ -37,8 +35,7 @@ export const workoutAudienceSections: WorkoutAudienceSection[] = [
     title: "נשים",
     description: "ישבן, קו מותניים, פלג גוף עליון, יציבה והתאמות סביב הריון ולאחר לידה.",
     accent: "#E38BFF",
-    categoryIds: ["women-lower-body"],
-    templateIds: ["glute-shape", "glute-medius-waist", "upper-body-posture", "prenatal-postnatal"],
+    categoryIds: ["women-lower-body", "pilates-barre", "yoga-mobility"],
   },
   {
     id: "kids",

@@ -27,15 +27,24 @@ export function getAllowedScheduleTemplates(
       muscleBuildingFolderTemplateIds[id as keyof typeof muscleBuildingFolderTemplateIds] ?? [id],
     ),
   );
-  if (defaultTemplateId) allowedStrengthIds.add(defaultTemplateId);
-  return templates.filter((template) => cardioTemplateIds.has(template.id) || allowedStrengthIds.has(template.id));
+
+  if (defaultTemplateId) {
+    allowedStrengthIds.add(defaultTemplateId);
+  }
+
+  return templates.filter(
+    (template) =>
+      cardioTemplateIds.has(template.id) || allowedStrengthIds.has(template.id),
+  );
 }
 
 export async function readDefaultWorkoutTemplateId(): Promise<string | null> {
   return AsyncStorage.getItem(DEFAULT_WORKOUT_TEMPLATE_KEY);
 }
 
-export async function setDefaultWorkoutTemplateId(templateId: string | null): Promise<void> {
+export async function setDefaultWorkoutTemplateId(
+  templateId: string | null,
+): Promise<void> {
   if (templateId) {
     await enqueueAsyncStorageSet(DEFAULT_WORKOUT_TEMPLATE_KEY, templateId);
   } else {
@@ -46,6 +55,7 @@ export async function setDefaultWorkoutTemplateId(templateId: string | null): Pr
 export async function readWorkoutScheduleOverrides(): Promise<ScheduleOverrides> {
   const value = await AsyncStorage.getItem(WORKOUT_SCHEDULE_KEY);
   if (!value) return {};
+
   try {
     return JSON.parse(value) as ScheduleOverrides;
   } catch {
@@ -53,8 +63,13 @@ export async function readWorkoutScheduleOverrides(): Promise<ScheduleOverrides>
   }
 }
 
-export async function assignWorkoutTemplateToDate(date: string, template: Pick<WorkoutTemplate, "id" | "name" | "focus">, kind: ScheduleOverride["kind"] = "workout") {
+export async function assignWorkoutTemplateToDate(
+  date: string,
+  template: Pick<WorkoutTemplate, "id" | "name" | "focus">,
+  kind: ScheduleOverride["kind"] = "workout",
+): Promise<ScheduleOverrides> {
   const overrides = await readWorkoutScheduleOverrides();
+
   overrides[date] = {
     ...overrides[date],
     kind,
@@ -62,6 +77,7 @@ export async function assignWorkoutTemplateToDate(date: string, template: Pick<W
     label: template.name,
     focus: template.focus,
   };
+
   await AsyncStorage.setItem(WORKOUT_SCHEDULE_KEY, JSON.stringify(overrides));
   return overrides;
 }

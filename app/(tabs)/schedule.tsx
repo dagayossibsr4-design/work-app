@@ -9,7 +9,6 @@ import { CARDIO_WORKOUT_TEMPLATE_IDS, isCardioWorkoutTemplate, splitSessionsForW
 import { completedSessionForScheduleDay } from "@/lib/schedule-session";
 import type { WorkoutId, WorkoutTemplate } from "@/lib/workout-data";
 import { APP_TIME_ZONE, localDateKey, sundayWeekStart } from "@/lib/calendar-grid";
-import { getWorkoutEncyclopediaProgram } from "@/lib/workout-encyclopedia";
 import { getAllowedScheduleTemplates, readDefaultWorkoutTemplateId, WORKOUT_SCHEDULE_KEY } from "@/lib/workout-schedule";
 
 const SCHEDULE_KEY = WORKOUT_SCHEDULE_KEY;
@@ -21,17 +20,11 @@ type CycleEntry = { kind: PlanKind; templateId?: WorkoutId; label: string; focus
 type Override = Partial<CycleEntry> & { cardioTemplateId?: WorkoutId };
 type ScheduledDay = CycleEntry & { date: string; dayName: string; cardioTemplateId?: WorkoutId };
 
-const cycle: CycleEntry[] = [
-  { kind: "workout", templateId: "pull1", label: "PULL 1", focus: "גב, כתף אחורית ויד קדמית" },
-  { kind: "rest", label: "חופש מוחלט", focus: "מנוחה והתאוששות מלאה" },
-  { kind: "workout", templateId: "push1", label: "PUSH 1", focus: "חזה, כתפיים, יד אחורית ובטן" },
-  { kind: "workout", templateId: "legs1", label: "LEGS 1", focus: "ארבע־ראשי ובטן" },
-  { kind: "workout", templateId: "pull2", label: "PULL 2", focus: "גב, כתף אחורית ויד קדמית" },
-  { kind: "cardio", label: "אירובי בלבד", focus: "אירובי והתאוששות פעילה" },
-  { kind: "workout", templateId: "push2", label: "PUSH 2", focus: "חזה Rest-Pause, כתפיים ויד אחורית" },
-  { kind: "workout", templateId: "legs2", label: "LEGS 2", focus: "המסטרינג, ישבן ובטן" },
-  { kind: "rest", label: "חופש מוחלט", focus: "מנוחה והתאוששות מלאה" },
-];
+const cycle: CycleEntry[] = Array.from({ length: 7 }, () => ({
+  kind: "workout" as const,
+  label: "בחר אימון",
+  focus: "בחר תוכנית מתוך התוכניות שלך ושבץ אותה ביום הזה",
+}));
 const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 
 function addDays(date: string, amount: number) {
@@ -201,12 +194,11 @@ export default function ScheduleScreen() {
           <Text style={styles.subtitle}>אפשר לתכנן ולתעד כוח ואירובי באותו יום, כשני אימונים נפרדים.</Text>
         </View>
 
-        <View style={styles.personalSchedulePanel}><View style={styles.personalScheduleHeader}><Text style={styles.personalScheduleTitle}>התוכניות שלי</Text><Text style={styles.personalScheduleCount}>{selectedProgramIds.length}/5</Text></View><Text style={styles.personalScheduleSubtitle}>בחר תוכנית אישית כדי לפתוח את האימונים שלה ולשבץ את היום המתאים ביומן.</Text>{selectedProgramIds.length ? <View style={styles.personalScheduleRows}>{selectedProgramIds.map((id) => { const template = templates.find((item) => item.id === id); const program = getWorkoutEncyclopediaProgram(id); return <Pressable key={`schedule-program-${id}`} accessibilityRole="button" accessibilityLabel={`פתח את התוכנית ${template?.name ?? program?.title ?? id} ביומן`} onPress={() => router.push({ pathname: "/(tabs)/workouts" as never, params: { category: program?.categoryId === "bodybuilding" ? "PPL" : program?.categoryId ?? "PPL" } } as never)} style={({ pressed }) => [styles.personalScheduleRow, pressed && styles.pressed]}><Text style={styles.personalScheduleRowTitle}>{template?.name ?? program?.title ?? id}</Text><Text style={styles.personalScheduleRowMeta}>{template ? `${template.exercises.length} תרגילים · פתח ובחר יום` : program?.description ?? "פתח את פרטי התוכנית ובחר אימון"}</Text></Pressable>; })}</View> : <Text style={styles.personalScheduleEmpty}>עדיין לא נבחרה תוכנית. בחר עד 5 תוכניות במסך תוכניות האימון.</Text>}</View>
 
         <View style={styles.weekHeader}>
-          <Pressable onPress={() => { const previous = addDays(weekStart, -7); setManualWeekNavigation(true); setWeekStart(previous); setSelectedDate(previous); }} style={styles.navButton}><Text style={styles.navText}>‹</Text></Pressable>
+          <Pressable onPress={() => { const previous = addDays(weekStart, -7); setManualWeekNavigation(true); setWeekStart(previous); setSelectedDate(previous); }} style={styles.navButton}><Text style={styles.navText}>›</Text></Pressable>
           <View><Text style={styles.weekTitle}>שבוע מתוכנן</Text><Text style={styles.weekRange}>{formatDate(week[0].date)} – {formatDate(week[6].date)}</Text></View>
-          <Pressable onPress={() => { const next = addDays(weekStart, 7); setManualWeekNavigation(true); setWeekStart(next); setSelectedDate(next); }} style={styles.navButton}><Text style={styles.navText}>›</Text></Pressable>
+          <Pressable onPress={() => { const next = addDays(weekStart, 7); setManualWeekNavigation(true); setWeekStart(next); setSelectedDate(next); }} style={styles.navButton}><Text style={styles.navText}>‹</Text></Pressable>
         </View>
 
         <View style={styles.days}>
@@ -224,7 +216,7 @@ export default function ScheduleScreen() {
                 {day.cardioTemplateId ? <Text style={[styles.cardioAttached, selected.date === day.date && !hasPendingWorkout && styles.cardioAttachedActive, hasPendingWorkout && styles.dayPendingText]}>+ אירובי מצורף</Text> : null}
                 {hasCompletedWorkout ? <Text style={styles.dayStatusCompleted}>✓ האימון בוצע</Text> : hasPendingWorkout ? <Text style={styles.dayStatusPending}>● טרם בוצע</Text> : null}
                 {daySessions.all.length > 0 ? <Text style={[styles.daySessions, selected.date === day.date && styles.daySessionsActive]}>נשמרו: {dayStrength ? `${dayStrength} כוח` : ""}{dayStrength && dayCardio ? " · " : ""}{dayCardio ? `${dayCardio} אירובי` : ""}</Text> : null}
-                {editedDates[day.date] ? <Pressable accessibilityRole="button" accessibilityLabel={`עריכת יום ${formatDate(day.date)}`} onPress={() => { setSelectedDate(day.date); scrollToSelectedEditor(); }} style={styles.dayEditButton}><Text style={styles.dayEditButtonText}>עריכה ↓</Text></Pressable> : null}
+                {selected.date === day.date ? <Pressable accessibilityRole="button" accessibilityLabel={`עריכת יום ${formatDate(day.date)}`} onPress={() => { setSelectedDate(day.date); scrollToSelectedEditor(); }} style={styles.dayEditButton}><Text style={styles.dayEditButtonText}>עריכה ↓</Text></Pressable> : null}
               </Pressable>
             );
           })}

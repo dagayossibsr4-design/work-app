@@ -16,7 +16,7 @@ function workout(id: string, name: string, focus: string, accent: string, exerci
 }
 
 export const workoutGuideTemplates: WorkoutTemplate[] = [
-  workout("glute-shape", "בניית ועיצוב הישבן", "מיקוד בישבן הגדול, התיכון, ירך אחורית ושליטה חד־רגלית", "#E38BFF", [
+  workout("glute-shape", "בניית ועיצוב הישבן", "מיקוד בישבן הגדול, התיכון, ירך אחורית ושליטה חד־רגלית", "#F97316", [
     exercise("glute-hip-thrust", "היפ ת׳ראסט עם מוט כבד", "Heavy Barbell Hip Thrust", "תרגיל דגל לעומס על הישבן הגדול."),
     exercise("glute-bridge", "גלוט ברידג׳", "Glute Bridge", "מיקוד בכיווץ שיא ללא עומס מיותר על הגב התחתון."),
     exercise("glute-rdl", "דדליפט רומני", "Romanian Deadlift", "מתיחה עמוקה של הישבן והירך האחורית."),
