@@ -21,6 +21,27 @@ describe("workout schedule filtering", () => {
     expect(result.map((item) => item.id)).not.toContain("crossfit-wod");
   });
 
+  it("expands the selected PPL program into all of its workout days", () => {
+    const pplTemplates = [
+      ...templates,
+      template("legs1"),
+      template("push2"),
+      template("legs2"),
+      template("arms"),
+    ];
+    const result = getAllowedScheduleTemplates(pplTemplates, ["ppl"], null, cardioIds);
+    expect(result.map((item) => item.id)).toEqual([
+      "push1",
+      "pull2",
+      "cardio",
+      "cycling",
+      "legs1",
+      "push2",
+      "legs2",
+      "arms",
+    ]);
+  });
+
   it("does not add unselected strength programs when there is no custom default", () => {
     const result = getAllowedScheduleTemplates(templates, [], null, cardioIds);
     expect(result.map((item) => item.id)).toEqual(["cardio", "cycling"]);

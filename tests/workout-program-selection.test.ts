@@ -17,6 +17,12 @@ describe("workout program selection", () => {
     expect(blocked.selectedIds).toEqual(selected);
   });
 
+  it("canonicalizes every PPL day into one saved PPL program", () => {
+    expect(normalizeSelectedProgramIds(["push1", "pull1", "legs1", "arms", "ab-upper"])).toEqual(["ppl", "ab"]);
+    expect(toggleProgramSelection(["ppl"], "legs2").selected).toBe(false);
+    expect(toggleProgramSelection(["ppl"], "legs2").selectedIds).toEqual([]);
+  });
+
   it("removes a selected program and normalizes persisted values", () => {
     const removed = toggleProgramSelection(["ppl", "ab"], "ab");
     expect(removed.selectedIds).toEqual(["ppl"]);

@@ -6,6 +6,8 @@ import type { FoodItem } from "./food-nutrition";
 import { mergeAccountNutritionProfile, mergeHydratedNutritionProfile } from "./nutrition-persistence";
 import { enqueueAsyncStorageRemove, enqueueAsyncStorageSet } from "./storage-write-queue";
 import { MAX_SELECTED_PROGRAMS, normalizeSelectedProgramIds, toggleProgramSelection } from "./workout-program-selection";
+import { muscleBuildingFolderIds } from "./muscle-building-content";
+import { workoutEncyclopediaPrograms } from "./workout-encyclopedia";
 export { MAX_SELECTED_PROGRAMS } from "./workout-program-selection";
 
 export function hydrateWorkoutTemplates(saved: WorkoutTemplate[]): WorkoutTemplate[] {
@@ -320,7 +322,12 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       if (!demoCompletedPreview) setActiveSession(restoreActiveWorkout(activeSessionValue));
       if (selectedProgramValue) {
         try {
-          const selectedIds = normalizeSelectedProgramIds(JSON.parse(selectedProgramValue)).filter((id) => hydratedTemplateIds.has(id));
+          const validProgramIds = new Set([
+            ...hydratedTemplateIds,
+            ...muscleBuildingFolderIds,
+            ...workoutEncyclopediaPrograms.map((program) => program.id),
+          ]);
+          const selectedIds = normalizeSelectedProgramIds(JSON.parse(selectedProgramValue)).filter((id) => validProgramIds.has(id));
           setSelectedProgramIds(selectedIds);
         } catch { /* נתון ישן או פגום */ }
       }

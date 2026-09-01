@@ -15,6 +15,7 @@ export default function TabLayout() {
     <Tabs.Screen name="nutrition" options={{ href: "/nutrition", title: "תזונה", tabBarAccessibilityLabel: "מסך התזונה", tabBarIcon: ({ color }) => <IconSymbol name="restaurant.fill" size={23} color={color} /> }} />
     <Tabs.Screen name="analysis" options={{ href: "/analysis", title: "מעקב וניתוח", tabBarAccessibilityLabel: "מסך מעקב וניתוח", tabBarIcon: ({ color }) => <IconSymbol name="analytics.fill" size={23} color={color} /> }} />
     <Tabs.Screen name="settings" options={{ href: "/settings", title: "הגדרות", tabBarAccessibilityLabel: "מסך ההגדרות", tabBarIcon: ({ color }) => <IconSymbol name="settings.fill" size={23} color={color} /> }} />
+    <Tabs.Screen name="workouts" options={{ href: null, title: "אימונים" }} />
     <Tabs.Screen name="profile" options={{ href: null }} />
     <Tabs.Screen name="history" options={{ href: null }} />
     <Tabs.Screen name="editor" options={{ href: null }} />
