@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
-const prolifitoLogo = require("../assets/images/prolifito-icon.png");
+const prolifitoLogo = require("../assets/images/prolifto-user-blue-logo.png");
 
 export function EntryAnimation({ onFinished }: { onFinished?: () => void }) {
   const [visible, setVisible] = useState(true);
-  const left = useRef(new Animated.Value(-72)).current;
-  const right = useRef(new Animated.Value(72)).current;
-  const opacity = useRef(new Animated.Value(1)).current;
-  const markOpacity = useRef(new Animated.Value(0)).current;
-  const captionOpacity = useRef(new Animated.Value(1)).current;
-  const scale = useRef(new Animated.Value(0.86)).current;
-  const barScale = useRef(new Animated.Value(1)).current;
-  const glowOpacity = useRef(new Animated.Value(0.2)).current;
-  const pulse = useRef(new Animated.Value(1)).current;
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.94)).current;
+  const logoRotation = useRef(new Animated.Value(0)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const glowScale = useRef(new Animated.Value(0.92)).current;
+  const captionOpacity = useRef(new Animated.Value(0)).current;
   const finished = useRef(false);
   const onFinishedRef = useRef(onFinished);
   onFinishedRef.current = onFinished;
@@ -27,44 +25,82 @@ export function EntryAnimation({ onFinished }: { onFinished?: () => void }) {
       onFinishedRef.current?.();
     };
 
-    const entrance = Animated.parallel([
-      Animated.timing(left, { toValue: 0, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(right, { toValue: 0, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(opacity, { toValue: 1, duration: 260, useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 1, duration: 560, easing: Easing.out(Easing.back(1.2)), useNativeDriver: true }),
-    ]);
-
-    entrance.start(() => {
-      if (!active) return;
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(glowOpacity, { toValue: 0.85, duration: 140, useNativeDriver: true }),
-          Animated.timing(glowOpacity, { toValue: 0.2, duration: 420, useNativeDriver: true }),
-        ]),
-        Animated.timing(markOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(captionOpacity, { toValue: 1, duration: 420, delay: 160, useNativeDriver: true }),
-      ]).start();
+    Animated.parallel([
+      Animated.timing(logoOpacity, {
+        toValue: 1,
+        duration: 520,
+        delay: 120,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(logoScale, {
+        toValue: 1,
+        duration: 680,
+        delay: 80,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(logoRotation, {
+        toValue: 1,
+        duration: 680,
+        delay: 80,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.035, duration: 180, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 220, useNativeDriver: true }),
-      ]).start();
-    });
+        Animated.delay(140),
+        Animated.parallel([
+          Animated.timing(glowOpacity, {
+            toValue: 0.34,
+            duration: 420,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(glowScale, {
+            toValue: 1,
+            duration: 620,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.timing(glowOpacity, {
+          toValue: 0.2,
+          duration: 700,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(captionOpacity, {
+        toValue: 1,
+        duration: 380,
+        delay: 560,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
 
     const timer = setTimeout(() => {
       if (!active) return;
-      Animated.timing(opacity, { toValue: 0, duration: 700, useNativeDriver: true }).start(finish);
-    }, 3600);
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 450,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }).start(finish);
+    }, 3200);
 
     return () => {
       active = false;
       clearTimeout(timer);
-      entrance.stop();
+      overlayOpacity.stopAnimation();
+      logoOpacity.stopAnimation();
+      logoScale.stopAnimation();
+      logoRotation.stopAnimation();
       glowOpacity.stopAnimation();
-      markOpacity.stopAnimation();
+      glowScale.stopAnimation();
       captionOpacity.stopAnimation();
-      pulse.stopAnimation();
     };
-  }, [captionOpacity, glowOpacity, left, markOpacity, opacity, pulse, right, scale]);
+  }, [captionOpacity, glowOpacity, glowScale, logoOpacity, logoRotation, logoScale, overlayOpacity]);
 
   const skip = () => {
     if (finished.current) return;
@@ -75,36 +111,99 @@ export function EntryAnimation({ onFinished }: { onFinished?: () => void }) {
 
   return (
     <Modal visible={visible} animationType="none" statusBarTranslucent onRequestClose={skip}>
-      <Animated.View style={[styles.overlay, { opacity }] }>
-        <Animated.View style={[styles.brand, { transform: [{ scale }, { scale: pulse }] }] }>
-          <View style={styles.dumbbell}>
-            <Animated.View style={[styles.glow, { opacity: glowOpacity }]} />
-            <Animated.View style={[styles.plate, { transform: [{ translateX: left }, { rotate: left.interpolate({ inputRange: [-72, 0], outputRange: ["-18deg", "0deg"] }) }] }]} />
-            <Animated.View style={styles.bar} />
-            <Animated.View style={[styles.plate, { transform: [{ translateX: right }, { rotate: right.interpolate({ inputRange: [0, 72], outputRange: ["0deg", "18deg"] }) }] }]} />
+      <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
+        <View style={styles.brand}>
+          <View style={styles.logoFrame}>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.logoGlow,
+                {
+                  opacity: glowOpacity,
+                  transform: [{ scale: glowScale }],
+                },
+              ]}
+            />
+            <Animated.Image
+              source={prolifitoLogo}
+              resizeMode="contain"
+              style={[
+                styles.logo,
+                {
+                  opacity: logoOpacity,
+                  transform: [
+                    { scale: logoScale },
+                    {
+                      rotate: logoRotation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["-8deg", "0deg"],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
           </View>
-          <Animated.Image source={prolifitoLogo} resizeMode="contain" style={[styles.logo, { opacity: markOpacity, transform: [{ scale: pulse }] }]} />
-          <Animated.Text style={[styles.wordmark, { opacity: markOpacity }]}>ProLifto</Animated.Text>
           <Animated.Text style={[styles.caption, { opacity: captionOpacity }]}>Created by Yossi Daga</Animated.Text>
           <Pressable accessibilityRole="button" accessibilityLabel="דלג על אנימציית הפתיחה" onPress={skip} style={styles.skip}>
             <Text style={styles.skipText}>דלג</Text>
           </Pressable>
-        </Animated.View>
+        </View>
       </Animated.View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "#0B1224", alignItems: "center", justifyContent: "center" },
-  brand: { alignItems: "center", justifyContent: "center" },
-  dumbbell: { width: 190, height: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", position: "relative" },
-  glow: { position: "absolute", width: 118, height: 118, borderRadius: 60, backgroundColor: "#F5B72C", shadowColor: "#F5B72C", shadowOpacity: 0.8, shadowRadius: 24, elevation: 10 },
-  bar: { width: 96, height: 10, borderRadius: 6, backgroundColor: "#F5B72C" },
-  plate: { width: 28, height: 48, borderRadius: 8, backgroundColor: "#F5B72C", borderWidth: 2, borderColor: "#FFE2A0", marginHorizontal: 3 },
-  logo: { width: 112, height: 112, marginTop: 18 },
-  wordmark: { color: "#F5B72C", fontSize: 25, fontWeight: "900", letterSpacing: 0.4, marginTop: 4 },
-  caption: { color: "#F7F9FC", fontSize: 11, letterSpacing: 0.8, marginTop: 10 },
-  skip: { marginTop: 28, paddingHorizontal: 18, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: "#52759C" },
-  skipText: { color: "#D9E2EF", fontSize: 11, fontWeight: "800" },
+  overlay: {
+    flex: 1,
+    backgroundColor: "#0C1325",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  brand: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoFrame: {
+    width: 350,
+    height: 285,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoGlow: {
+    position: "absolute",
+    width: 260,
+    height: 230,
+    borderRadius: 120,
+    backgroundColor: "#E8A827",
+    shadowColor: "#F5B72C",
+    shadowOpacity: 0.65,
+    shadowRadius: 34,
+    elevation: 12,
+  },
+  logo: {
+    width: 350,
+    height: 285,
+  },
+  caption: {
+    color: "#F7F9FC",
+    fontSize: 12,
+    letterSpacing: 1,
+    marginTop: 18,
+  },
+  skip: {
+    marginTop: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#52759C",
+  },
+  skipText: {
+    color: "#D9E2EF",
+    fontSize: 11,
+    fontWeight: "800",
+  },
 });
