@@ -82,10 +82,12 @@ export function WebComplianceOverlay() {
   if (!isWeb) return null;
 
   const setConsent = (value: CookieConsent) => {
-    setCookieConsent(value);
+    // Persist first, then close every privacy layer in the same interaction.
     saveStorage(COOKIE_CONSENT_KEY, value);
     saveCookieConsent(value);
+    setCookieConsent(value);
     setCookieSettingsOpen(false);
+    setAccessibilityOpen(false);
   };
 
   const updateAccessibility = (key: keyof AccessibilityPreferences, value: boolean) => {
@@ -127,19 +129,19 @@ export function WebComplianceOverlay() {
         ) : null}
 
         {cookieConsent === null || cookieSettingsOpen ? (
-          <View accessibilityViewIsModal style={styles.cookieBanner}>
+          <View accessibilityViewIsModal pointerEvents="auto" style={styles.cookieBanner}>
             <Text style={styles.cookieTitle}>פרטיות וקוקיז</Text>
             <Text style={styles.cookieText}>
               האתר משתמש בקוקיז הכרחיים להפעלה תקינה. קוקיז נוספים ישמשו רק לשיפור השירות ובכפוף לבחירתך. אפשר לאשר, לדחות או לפתוח את ההגדרות.
             </Text>
             <View style={styles.cookieActions}>
-              <Pressable accessibilityRole="button" accessibilityLabel="דחיית קוקיז נוספים" onPress={() => setConsent("rejected")} style={({ pressed }) => [styles.cookieSecondary, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" accessibilityLabel="דחיית קוקיז נוספים" onPressIn={() => setConsent("rejected")} onPress={() => setConsent("rejected")} style={({ pressed }) => [styles.cookieSecondary, pressed && styles.pressed]}>
                 <Text style={styles.cookieSecondaryText}>דחייה</Text>
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel="פתיחת הגדרות קוקיז" onPress={() => setCookieSettingsOpen(true)} style={({ pressed }) => [styles.cookieSettings, pressed && styles.pressed]}>
                 <Text style={styles.cookieSettingsText}>הגדרות</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel="אישור קוקיז נוספים" onPress={() => setConsent("accepted")} style={({ pressed }) => [styles.cookiePrimary, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" accessibilityLabel="אישור קוקיז נוספים" onPressIn={() => setConsent("accepted")} onPress={() => setConsent("accepted")} style={({ pressed }) => [styles.cookiePrimary, pressed && styles.pressed]}>
                 <Text style={styles.cookiePrimaryText}>אישור</Text>
               </Pressable>
             </View>

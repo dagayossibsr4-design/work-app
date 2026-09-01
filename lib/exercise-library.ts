@@ -1,4 +1,4 @@
-export type ExerciseCategory = "יד אחורית" | "יד קדמית" | "חזה" | "כתפיים" | "גב" | "רגליים" | "ליבה";
+export type ExerciseCategory = "יד אחורית" | "יד קדמית" | "חזה" | "כתפיים" | "גב" | "רגליים" | "ליבה" | "כללי";
 export type ExerciseLibraryItem = { id: string; name: string; englishName: string; aliases?: string[]; category: ExerciseCategory; defaultTarget: string; note?: string };
 
 export const exerciseLibrary: ExerciseLibraryItem[] = [
