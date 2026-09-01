@@ -452,8 +452,10 @@ export function dailyMealTotals(meals: Meal[]) {
 /** מחשב רק רכיבים שסומנו כנאכלו, בלי לשנות את ארוחות התכנון עצמן. */
 export function eatenMealTotals(meals: Meal[], eaten: Record<string, boolean>) {
   return meals
-    .flatMap((meal) => meal.foods)
-    .filter((food) => eaten[food.id])
+    .flatMap((meal) => meal.foods.map((food) => ({ meal, food })))
+    // תומך גם בנתונים חדשים לפי רכיב וגם בנתונים היסטוריים שסימנו ארוחה שלמה.
+    .filter(({ meal, food }) => eaten[food.id] || eaten[meal.id])
+    .map(({ food }) => food)
     .reduce(
       (sum, food) => {
         const current = mealFoodTotals(food);

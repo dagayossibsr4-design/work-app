@@ -70,6 +70,11 @@ import {
   scaleMealsToTargets,
 } from "@/lib/meal-plan-targets";
 import {
+  buildNutritionDeviationSuggestions,
+  groupDeviationSuggestions,
+  type DeviationMacro,
+} from "@/lib/nutrition-deviation-recommendations";
+import {
   completeMenuProfile,
   createMenuProfiles,
   type MenuProfile,
@@ -1268,6 +1273,8 @@ export default function MealPlanScreen() {
     carbohydrates: Number(activeProfile.carbohydrates) || 0,
     fats: Number(activeProfile.fats) || 0,
   };
+  const [deviationAnalysisOpen, setDeviationAnalysisOpen] = useState(false);
+  const [selectedDeviationMacros, setSelectedDeviationMacros] = useState<DeviationMacro[]>([]);
   const macroDeviationItems = useMemo(() => {
     const definitions = [
       { key: "protein", label: "חלבון", value: consumed.protein, target: targets.protein },
@@ -1283,6 +1290,21 @@ export default function MealPlanScreen() {
     protein: Math.max(0, targets.protein - consumed.protein),
     carbohydrates: Math.max(0, targets.carbohydrates - consumed.carbohydrates),
     fats: Math.max(0, targets.fats - consumed.fats),
+  };
+  const deviationSuggestions = useMemo(
+    () => groupDeviationSuggestions(buildNutritionDeviationSuggestions(meals, eaten, consumed, targets)),
+    [consumed, eaten, meals, targets],
+  );
+  const filteredDeviationSuggestions = useMemo(
+    () => selectedDeviationMacros.length
+      ? deviationSuggestions.filter((group) => selectedDeviationMacros.includes(group.key))
+      : deviationSuggestions,
+    [deviationSuggestions, selectedDeviationMacros],
+  );
+  const toggleDeviationMacro = (macro: DeviationMacro) => {
+    setSelectedDeviationMacros((current) => current.includes(macro)
+      ? current.filter((item) => item !== macro)
+      : [...current, macro]);
   };
   const macroDistribution = useMemo(
     () => calculateMacroDistribution(displayedTotals),
@@ -3461,18 +3483,66 @@ export default function MealPlanScreen() {
           </View>
           <View style={styles.macroDeviationCard}>
             <Text style={styles.macroDeviationTitle}>ניתוח חריגת המאקרו היומית</Text>
-            {macroDeviationItems.length ? (
+            <Pressable
+              onPress={() => setDeviationAnalysisOpen((current) => !current)}
+              style={({ pressed }) => [styles.deviationAnalyzeButton, pressed && styles.swapButtonPressed]}
+            >
+              <Text style={styles.deviationAnalyzeButtonText}>
+                {deviationAnalysisOpen ? "הסתר המלצת קיצוץ" : "נתח חריגה והמלץ לפעם הבאה"}
+              </Text>
+            </Pressable>
+            {deviationAnalysisOpen ? deviationSuggestions.length ? (
               <>
-                <Text style={styles.macroDeviationWarning}>החריגה מבוססת על מה שנאכל בפועל היום:</Text>
+                <Text style={styles.deviationMacroPrompt}>בחר ממה להפחית לפי הערכים שחרגו מהיעד:</Text>
+                <View style={styles.deviationMacroPicker}>
+                  {macroDeviationItems.map((item) => {
+                    const selected = selectedDeviationMacros.includes(item.key);
+                    return (
+                      <Pressable
+                        key={item.key}
+                        onPress={() => toggleDeviationMacro(item.key)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        style={({ pressed }) => [styles.deviationMacroChip, selected && styles.deviationMacroChipActive, pressed && styles.swapButtonPressed]}
+                      >
+                        <Text style={[styles.deviationMacroText, selected && styles.deviationMacroTextActive]}>{item.label} · +{item.excess.toFixed(1)} ג׳</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={styles.macroDeviationWarning}>ההמלצה מבוססת על מה שסומן כנאכל בפועל. היא מציעה מה להפחית בתפריט הבא או בארוחה שטרם נאכלה:</Text>
+                {filteredDeviationSuggestions.map((group) => (
+                  <View key={group.key} style={styles.deviationGroup}>
+                    <View style={styles.deviationGroupHeader}>
+                      <Text style={styles.deviationGroupTitle}>{group.label}</Text>
+                      <Text style={styles.macroDeviationAmount}>+{group.items[0].excess.toFixed(1)} {group.unit}</Text>
+                    </View>
+                    {group.items.map((item) => (
+                      <View key={`${item.macro}-${item.foodId}`} style={styles.deviationSuggestionRow}>
+                        <Text style={styles.deviationCut}>הפחת {item.reduceGrams.toFixed(1)} ג׳</Text>
+                        <View style={styles.deviationFoodInfo}>
+                          <Text style={styles.deviationFoodName}>{item.foodName}</Text>
+                          <Text style={styles.deviationFoodMeta}>{item.mealTitle} · תרם {item.contribution.toFixed(1)} {group.unit}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </>
+            ) : macroDeviationItems.length ? (
+              <>
+                <Text style={styles.macroDeviationWarning}>זוהתה חריגה, אך אין מספיק נתוני כמות תקינים כדי לשייך אותה לרכיב מסוים:</Text>
                 {macroDeviationItems.map((item) => (
                   <View key={item.key} style={styles.macroDeviationRow}>
                     <Text style={styles.macroDeviationAmount}>+{item.excess.toFixed(1)} ג׳</Text>
-                    <Text style={styles.macroDeviationText}>כדאי להפחית {item.excess.toFixed(1)} ג׳ {item.label}</Text>
+                    <Text style={styles.macroDeviationText}>בדוק הפחתה של {item.excess.toFixed(1)} ג׳ {item.label} בתפריט הבא</Text>
                   </View>
                 ))}
               </>
             ) : (
-              <Text style={styles.macroDeviationOkay}>אין כרגע חריגה מחלבון, פחמימות או שומן.</Text>
+              <Text style={styles.macroDeviationOkay}>אין כרגע חריגה מהיעדים שהוגדרו.</Text>
+            ) : (
+              <Text style={styles.macroDeviationHint}>לחץ על הכפתור כדי לנתח את מה שנאכל היום ולקבל המלצה ברורה ממה להפחית בפעם הבאה.</Text>
             )}
           </View>
         </View>
@@ -4505,8 +4575,25 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 10,
   },
+  deviationMacroPrompt: { color: "#FFE4E7", fontSize: 12, fontWeight: "900", textAlign: "right" },
+  deviationMacroPicker: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 7 },
+  deviationMacroChip: { borderWidth: 1, borderColor: "#F16B7A", borderRadius: 999, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: "#2B131B" },
+  deviationMacroChipActive: { backgroundColor: "#F16B7A" },
+  deviationMacroText: { color: "#FFD7DC", fontSize: 12, fontWeight: "900" },
+  deviationMacroTextActive: { color: "#2B131B" },
+  deviationAnalyzeButton: { backgroundColor: "#F16B7A", borderRadius: 10, paddingVertical: 11, paddingHorizontal: 12, alignItems: "center", borderWidth: 1, borderColor: "#FFD7DC" },
+  deviationAnalyzeButtonText: { color: "#2B131B", fontSize: 13, fontWeight: "900", textAlign: "center" },
+  macroDeviationHint: { color: "#FFD7DC", fontSize: 12, fontWeight: "800", textAlign: "right", lineHeight: 18 },
   macroDeviationAmount: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
   macroDeviationText: { flex: 1, color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "right" },
+  deviationGroup: { backgroundColor: "#542832", borderColor: "#C35B6B", borderWidth: 1, borderRadius: 12, padding: 10, gap: 7 },
+  deviationGroupHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", borderBottomColor: "#8D4050", borderBottomWidth: 1, paddingBottom: 7 },
+  deviationGroupTitle: { color: "#FFE4E7", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  deviationSuggestionRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, backgroundColor: "#321B24", borderRadius: 9, padding: 8 },
+  deviationFoodInfo: { flex: 1, alignItems: "flex-end" },
+  deviationFoodName: { color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "right" },
+  deviationFoodMeta: { color: "#E4B8BF", fontSize: 9, marginTop: 3, textAlign: "right" },
+  deviationCut: { color: "#FFD4A3", fontSize: 12, fontWeight: "900", textAlign: "left" },
   macroDeviationOkay: { color: "#B8F2D0", fontSize: 12, fontWeight: "800", textAlign: "right" },
   summaryTitle: {
     color: "#F7F9FC",
