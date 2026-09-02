@@ -12,30 +12,132 @@ import {
   requestGarminSync,
 } from "./integrations/garmin/routes";
 
+const numericValue = (fallback: number, positive = false) => z.preprocess(
+  (value) => typeof value === "string" ? Number(value.replace(",", ".")) : value,
+  positive ? z.number().finite().positive().default(fallback) : z.number().finite().nonnegative().default(fallback),
+);
+
+const foodLabelResultSchema = z.object({
+  name: z.string().default(""),
+  brand: z.string().default(""),
+  calories: numericValue(0),
+  protein: numericValue(0),
+  carbohydrates: numericValue(0),
+  fats: numericValue(0),
+  servingGrams: numericValue(100, true),
+  confidence: z.preprocess((value) => typeof value === "string" ? Number(value) : value, z.number().finite().min(0).max(1).default(0)),
+  note: z.string().default("יש לאמת את הערכים מול אריזת המוצר."),
+});
+
+type FoodLabelResult = z.infer<typeof foodLabelResultSchema>;
+
+const parseFoodLabelResponse = (content: unknown): FoodLabelResult => {
+  const text = typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((part) => {
+          if (typeof part === "string") return part;
+          if (part && typeof part === "object" && "text" in part && typeof part.text === "string") return part.text;
+          return "";
+        }).filter(Boolean).join("\n")
+      : content && typeof content === "object" && "text" in content && typeof content.text === "string"
+        ? content.text
+        : "";
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  if (!cleaned) throw new Error("חילוץ התווית החזיר תשובה ריקה");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start < 0 || end <= start) throw new Error("חילוץ התווית החזיר JSON לא תקין");
+    parsed = JSON.parse(cleaned.slice(start, end + 1));
+  }
+  return foodLabelResultSchema.parse(parsed);
+};
+
 export const appRouter = router({
-  // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   garmin: router({
     status: protectedProcedure.query(({ ctx }) => getGarminStatus(ctx.user.id)),
-    beginConnection: protectedProcedure.mutation(({ ctx }) =>
-      beginGarminConnection(ctx.user.id),
-    ),
+    beginConnection: protectedProcedure.mutation(({ ctx }) => beginGarminConnection(ctx.user.id)),
     syncNow: protectedProcedure.mutation(({ ctx }) => requestGarminSync(ctx.user.id)),
     disconnect: protectedProcedure.mutation(({ ctx }) => disconnectGarmin(ctx.user.id)),
   }),
-  foodLabel: publicProcedure.input(z.object({ imageDataUrl: z.string().startsWith("data:image/").max(12_000_000) })).mutation(async ({ input }) => {
-    const response = await invokeLLM({
-      model: "gemini-3-flash-preview",
-      messages: [
-        { role: "system", content: "חלץ תווית תזונתית מתמונה. החזר JSON בלבד. אין להמציא ערכים; אם ערך אינו קריא החזר 0 והוסף confidence נמוך. כל הערכים הם ל־100 גרם או למנה כפי שמופיע בתווית, והמר ל־100 גרם רק אם נתוני גודל המנה ברורים." },
-        { role: "user", content: [{ type: "text", text: "חלץ שם מוצר, מותג, קלוריות, חלבון, פחמימות ושומן. החזר גם servingGrams, confidence והערת אימות בעברית." }, { type: "image_url", image_url: { url: input.imageDataUrl, detail: "high" } }] },
-      ],
-      response_format: { type: "json_schema", json_schema: { name: "food_label", strict: true, schema: { type: "object", properties: { name: { type: "string" }, brand: { type: "string" }, calories: { type: "number" }, protein: { type: "number" }, carbohydrates: { type: "number" }, fats: { type: "number" }, servingGrams: { type: "number" }, confidence: { type: "number" }, note: { type: "string" } }, required: ["name", "brand", "calories", "protein", "carbohydrates", "fats", "servingGrams", "confidence", "note"], additionalProperties: false } } },
-    });
-    const content = response.choices[0]?.message?.content;
-    const text = typeof content === "string" ? content : Array.isArray(content) ? content.filter((part) => part.type === "text").map((part) => part.text).join("\n") : "";
-    return JSON.parse(text) as { name: string; brand: string; calories: number; protein: number; carbohydrates: number; fats: number; servingGrams: number; confidence: number; note: string };
-  }),
+  barcodeLookup: publicProcedure
+    .input(z.object({ barcode: z.string().trim().regex(/^[0-9A-Za-z-]{6,32}$/) }))
+    .mutation(async ({ input }) => {
+      const barcode = input.barcode.replace(/[-\s]/g, "");
+      const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,brands,nutriments,serving_size` , {
+        headers: { "User-Agent": "ProLifto/1.0 (nutrition barcode lookup)" },
+      });
+      if (!response.ok) throw new Error(`Open Food Facts lookup failed: ${response.status}`);
+      const payload = await response.json() as {
+        status?: number;
+        product?: {
+          product_name?: string;
+          brands?: string;
+          serving_size?: string;
+          nutriments?: Record<string, number | string | undefined>;
+        };
+      };
+      if (payload.status !== 1 || !payload.product) return { found: false as const, barcode };
+      const nutriments = payload.product.nutriments ?? {};
+      const toNumber = (value: number | string | undefined) => {
+        const parsed = typeof value === "number" ? value : Number(String(value ?? "").replace(",", "."));
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+      };
+      return {
+        found: true as const,
+        barcode,
+        name: payload.product.product_name ?? "",
+        brand: payload.product.brands ?? "",
+        servingSize: payload.product.serving_size ?? "",
+        calories: toNumber(nutriments["energy-kcal_100g"]),
+        protein: toNumber(nutriments["proteins_100g"]),
+        carbohydrates: toNumber(nutriments["carbohydrates_100g"]),
+        fats: toNumber(nutriments["fat_100g"]),
+      };
+    }),
+  foodLabel: publicProcedure
+    .input(z.object({ imageDataUrl: z.string().startsWith("data:image/").max(8_000_000) }))
+    .mutation(async ({ input }) => {
+      const response = await invokeLLM({
+        model: "gemini-3-flash-preview",
+        maxTokens: 4096,
+        messages: [
+          { role: "system", content: "חלץ תווית תזונתית מתמונה. החזר JSON בלבד. אין להמציא ערכים; אם ערך אינו קריא החזר 0 והוסף confidence נמוך. כל הערכים הם ל־100 גרם או למנה כפי שמופיע בתווית, והמר ל־100 גרם רק אם נתוני גודל המנה ברורים." },
+          { role: "user", content: [{ type: "text", text: "חלץ שם מוצר, מותג, קלוריות, חלבון, פחמימות ושומן. החזר גם servingGrams, confidence והערת אימות בעברית." }, { type: "image_url", image_url: { url: input.imageDataUrl, detail: "high" } }] },
+        ],
+          response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "food_label",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                brand: { type: "string" },
+                calories: { type: "number" },
+                protein: { type: "number" },
+                carbohydrates: { type: "number" },
+                fats: { type: "number" },
+                servingGrams: { type: "number" },
+                confidence: { type: "number" },
+                note: { type: "string" },
+              },
+              required: ["name", "brand", "calories", "protein", "carbohydrates", "fats", "servingGrams", "confidence", "note"],
+              additionalProperties: false,
+            },
+          },
+        },
+      });
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) throw new Error("חילוץ התווית לא החזיר תוכן");
+      return parseFoodLabelResponse(content);
+    }),
   appState: router({
     get: protectedProcedure.query(({ ctx }) => getUserAppState(ctx.user.id)),
     save: protectedProcedure.input(z.object({ payload: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) => saveUserAppState(ctx.user.id, input.payload)),
@@ -45,18 +147,9 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
 });
 
 export type AppRouter = typeof appRouter;
