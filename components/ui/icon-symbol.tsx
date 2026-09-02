@@ -36,9 +36,15 @@ const MAPPING = {
   "bolt.fill": "flash-on",
   "figure.elliptical": "track-changes",
   stairs: "stairs",
+  "person.fill": "person",
+  "heart.fill": "favorite",
+  timer: "timer",
   "fork.knife": "restaurant",
   "leaf.fill": "grain",
   "drop.fill": "water-drop",
+  "star.fill": "star",
+  "person.2.fill": "people",
+  "list.bullet.rectangle.portrait.fill": "view-list",
 } as IconMapping;
 
 /**

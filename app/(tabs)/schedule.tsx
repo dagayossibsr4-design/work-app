@@ -48,7 +48,7 @@ function sessionTime(session: WorkoutSession) {
 export default function ScheduleScreen() {
   const router = useRouter();
   const { demoFuture } = useLocalSearchParams<{ demoFuture?: string }>();
-  const { templates, sessions, updateTemplate, startWorkoutOnDate, selectedProgramIds } = useWorkoutStore();
+  const { templates, sessions, updateTemplate, startWorkoutOnDate, selectedProgramIds, personalPrograms } = useWorkoutStore();
   const [selectedDate, setSelectedDate] = useState(() => localDateKey(new Date()));
   const [weekStart, setWeekStart] = useState(() => sundayWeekStart(new Date()));
   const [manualWeekNavigation, setManualWeekNavigation] = useState(false);
@@ -87,7 +87,7 @@ export default function ScheduleScreen() {
   useEffect(() => { void AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(overrides)); }, [overrides]);
   useEffect(() => { void AsyncStorage.setItem(EDITED_DAYS_KEY, JSON.stringify(editedDates)); }, [editedDates]);
 
-  const scheduleTemplates = useMemo(() => getAllowedScheduleTemplates(templates, selectedProgramIds, defaultTemplateId, CARDIO_WORKOUT_TEMPLATE_IDS), [defaultTemplateId, selectedProgramIds, templates]);
+  const scheduleTemplates = useMemo(() => getAllowedScheduleTemplates(templates, selectedProgramIds, defaultTemplateId, CARDIO_WORKOUT_TEMPLATE_IDS, personalPrograms), [defaultTemplateId, personalPrograms, selectedProgramIds, templates]);
   const strengthTemplates = useMemo(() => scheduleTemplates.filter((item) => !isCardioWorkoutTemplate(item.id)), [scheduleTemplates]);
   const cardioTemplates = useMemo(() => scheduleTemplates.filter((item) => isCardioWorkoutTemplate(item.id)), [scheduleTemplates]);
   const allowedStrengthTemplates = strengthTemplates;
