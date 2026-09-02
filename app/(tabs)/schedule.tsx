@@ -9,7 +9,7 @@ import { CARDIO_WORKOUT_TEMPLATE_IDS, isCardioWorkoutTemplate, splitSessionsForW
 import { completedSessionForScheduleDay } from "@/lib/schedule-session";
 import type { WorkoutId, WorkoutTemplate } from "@/lib/workout-data";
 import { APP_TIME_ZONE, localDateKey, sundayWeekStart } from "@/lib/calendar-grid";
-import { getAllowedScheduleTemplates, readDefaultWorkoutTemplateId, WORKOUT_SCHEDULE_KEY } from "@/lib/workout-schedule";
+import { getAllowedScheduleTemplates, getScheduleProgramTitle, readDefaultWorkoutTemplateId, WORKOUT_SCHEDULE_KEY } from "@/lib/workout-schedule";
 
 const SCHEDULE_KEY = WORKOUT_SCHEDULE_KEY;
 const EDITED_DAYS_KEY = "workout-schedule-edited-days-v1";
@@ -127,6 +127,8 @@ export default function ScheduleScreen() {
   }), [allowedStrengthTemplateIds, allowedStrengthTemplates, overrides, weekStart]);
 
   const selected = week.find((day) => day.date === selectedDate) ?? week[0];
+  const selectedProgramTitle = selected.templateId ? getScheduleProgramTitle(selected.templateId, selectedProgramIds, personalPrograms) : undefined;
+  const scheduleDayLabel = (day: ScheduledDay) => day.templateId ? `${getScheduleProgramTitle(day.templateId, selectedProgramIds, personalPrograms) ? `${getScheduleProgramTitle(day.templateId, selectedProgramIds, personalPrograms)} · ` : ""}${day.label}` : day.label;
   const template = selected.templateId ? templates.find((item) => item.id === selected.templateId) : undefined;
   const plannedCardioTemplate = selected.cardioTemplateId ? templates.find((item) => item.id === selected.cardioTemplateId) : undefined;
   const selectedSessions = splitSessionsForWorkoutDate(sessions, selected.date);
@@ -209,9 +211,9 @@ export default function ScheduleScreen() {
             const hasCompletedWorkout = day.kind !== "rest" && daySessions.all.length > 0;
             const hasPendingWorkout = day.kind !== "rest" && !hasCompletedWorkout;
             return (
-              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={daySessions.all.length ? `הצג מה בוצע ב${day.label} בתאריך ${formatDate(day.date)}` : `פתח את ${day.label} בתאריך ${formatDate(day.date)}`} onPress={() => openDay(day)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio, hasCompletedWorkout && styles.dayCompleted, hasPendingWorkout && styles.dayPending]}>
+              <Pressable key={day.date} accessibilityRole="button" accessibilityLabel={daySessions.all.length ? `הצג מה בוצע ב${scheduleDayLabel(day)} בתאריך ${formatDate(day.date)}` : `פתח את ${scheduleDayLabel(day)} בתאריך ${formatDate(day.date)}`} onPress={() => openDay(day)} style={[styles.dayCard, selected.date === day.date && styles.dayCardActive, day.kind === "rest" && styles.dayRest, day.kind === "cardio" && styles.dayCardio, hasCompletedWorkout && styles.dayCompleted, hasPendingWorkout && styles.dayPending]}>
                 <View style={styles.dayCardHeading}><Text style={[styles.dayDate, selected.date === day.date && !hasPendingWorkout && styles.dayDateActive, hasPendingWorkout && styles.dayPendingText]}>{formatDate(day.date)}</Text><Text style={[styles.dayName, hasPendingWorkout && styles.dayPendingText]}>{day.dayName}</Text></View>
-                <Text style={[styles.dayLabel, selected.date === day.date && !hasPendingWorkout && styles.dayLabelActive, hasPendingWorkout && styles.dayPendingText]}>{day.label}</Text>
+                <Text style={[styles.dayLabel, selected.date === day.date && !hasPendingWorkout && styles.dayLabelActive, hasPendingWorkout && styles.dayPendingText]}>{scheduleDayLabel(day)}</Text>
                 <Text style={[styles.dayFocus, selected.date === day.date && !hasPendingWorkout && styles.dayFocusActive, hasPendingWorkout && styles.dayPendingText]} numberOfLines={2}>{day.focus}</Text>
                 {day.cardioTemplateId ? <Text style={[styles.cardioAttached, selected.date === day.date && !hasPendingWorkout && styles.cardioAttachedActive, hasPendingWorkout && styles.dayPendingText]}>+ אירובי מצורף</Text> : null}
                 {hasCompletedWorkout ? <Text style={styles.dayStatusCompleted}>✓ האימון בוצע</Text> : hasPendingWorkout ? <Text style={styles.dayStatusPending}>● טרם בוצע</Text> : null}
@@ -224,7 +226,7 @@ export default function ScheduleScreen() {
 
         <View style={styles.detailCard}>
           <View style={styles.detailHeader}>
-            <View><Text style={styles.detailLabel}>{selected.dayName} · {formatDate(selected.date)}</Text><Text style={styles.detailTitle}>{selected.label}</Text></View>
+            <View><Text style={styles.detailLabel}>{selected.dayName} · {formatDate(selected.date)}</Text><Text style={styles.detailTitle}>{selectedProgramTitle ? `${selectedProgramTitle} · ${selected.label}` : selected.label}</Text></View>
             <Text style={styles.statusBadge}>{selected.kind === "rest" ? "מנוחה" : selected.kind === "cardio" ? "אירובי" : "אימון כוח"}</Text>
           </View>
           <Text style={styles.detailFocus}>{selected.focus}</Text>
@@ -263,7 +265,7 @@ export default function ScheduleScreen() {
           <View style={styles.changeBox}>
             <Text style={styles.changeTitle}>שינוי אימון הכוח ליום זה</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.templatePills}>
-              {allowedStrengthTemplates.length ? allowedStrengthTemplates.slice(0, 8).map((item) => <Pressable key={item.id} onPress={() => chooseTemplate(item)} style={[styles.templatePill, selected.templateId === item.id && styles.templatePillActive]}><Text style={[styles.templatePillText, selected.templateId === item.id && styles.templatePillTextActive]}>{item.name}</Text></Pressable>) : <Text style={styles.emptyInline}>אין תוכניות כוח זמינות. הוסף תוכניות ל„התוכניות שלי” או הגדר תוכנית מותאמת כברירת מחדל.</Text>}
+              {allowedStrengthTemplates.length ? allowedStrengthTemplates.map((item) => <Pressable key={item.id} onPress={() => chooseTemplate(item)} style={[styles.templatePill, selected.templateId === item.id && styles.templatePillActive]}><Text style={[styles.templatePillText, selected.templateId === item.id && styles.templatePillTextActive]}>{item.name}</Text></Pressable>) : <Text style={styles.emptyInline}>אין תוכניות כוח זמינות. הוסף תוכניות ל„התוכניות שלי” או הגדר תוכנית מותאמת כברירת מחדל.</Text>}
             </ScrollView>
             <>
               <Text style={styles.changeTitle}>{selected.kind === "workout" ? "הוסף אירובי לצד אימון הכוח" : "בחר אירובי ליום הזה"}</Text>

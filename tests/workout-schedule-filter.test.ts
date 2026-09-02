@@ -1,37 +1,56 @@
 import { describe, expect, it } from "vitest";
-import { workoutAudienceSections } from "../lib/workout-audience-sections";
-import { workoutEncyclopediaCategories } from "../lib/workout-encyclopedia";
-import { workoutTemplates } from "../lib/workout-data";
 
+import { getAllowedScheduleTemplates, getScheduleProgramTitle } from "../lib/workout-schedule";
+import type { WorkoutTemplate } from "../lib/workout-data";
 
-describe("workout audience sections", () => {
-  it("keeps muscle-building outside and first, then men, women, kids and seniors", () => {
-    expect(workoutAudienceSections.map((section) => section.id)).toEqual(["men", "women", "kids", "seniors", "cardio"]);
-    expect(workoutAudienceSections.map((section) => section.title)).toEqual(["אימוני גברים", "נשים", "ילדים", "גיל שלישי", "אירובי"]);
+const template = (id: string): WorkoutTemplate => ({
+  id,
+  name: id,
+  focus: "בדיקה",
+  accent: "#F5B72C",
+  exercises: [{ id: `${id}-exercise`, name: "תרגיל", sets: [{ target: "8–12" }] }],
+});
+
+describe("workout schedule filtering", () => {
+  const templates = [template("push1"), template("pull2"), template("custom-1"), template("crossfit-wod"), template("cardio"), template("cycling")];
+  const cardioIds = new Set(["cardio", "cycling"]);
+
+  it("keeps only selected programs, the custom default, and every cardio template", () => {
+    const result = getAllowedScheduleTemplates(templates, ["push1", "pull2"], "custom-1", cardioIds);
+    expect(result.map((item) => item.id)).toEqual(["push1", "pull2", "custom-1", "cardio", "cycling"]);
+    expect(result.map((item) => item.id)).not.toContain("crossfit-wod");
   });
 
-  it("covers every non-bodybuilding encyclopedia category exactly once", () => {
-    const assignedCategoryIds = workoutAudienceSections.flatMap((section) => section.categoryIds);
-    const expectedCategoryIds = workoutEncyclopediaCategories
-      .filter((category) => category.id !== "bodybuilding")
-      .map((category) => category.id);
-
-    expect(new Set(assignedCategoryIds).size).toBe(assignedCategoryIds.length);
-    expect(new Set(assignedCategoryIds)).toEqual(new Set(expectedCategoryIds));
+  it("expands the selected PPL program into all of its workout days", () => {
+    const pplTemplates = [
+      ...templates,
+      template("legs1"),
+      template("push2"),
+      template("legs2"),
+      template("arms"),
+    ];
+    const result = getAllowedScheduleTemplates(pplTemplates, ["ppl"], null, cardioIds);
+    expect(result.map((item) => item.id)).toEqual([
+      "push1",
+      "pull2",
+      "cardio",
+      "cycling",
+      "legs1",
+      "push2",
+      "legs2",
+      "arms",
+    ]);
   });
 
-  it("places pilates and yoga under women rather than men", () => {
-    const men = workoutAudienceSections.find((section) => section.id === "men");
-    const women = workoutAudienceSections.find((section) => section.id === "women");
-    expect(men?.categoryIds).not.toContain("pilates-barre");
-    expect(men?.categoryIds).not.toContain("yoga-mobility");
-    expect(women?.categoryIds).toEqual(["women-lower-body", "pilates-barre", "yoga-mobility"]);
+  it("does not add unselected strength programs when there is no custom default", () => {
+    const result = getAllowedScheduleTemplates(templates, [], null, cardioIds);
+    expect(result.map((item) => item.id)).toEqual(["cardio", "cycling"]);
   });
 
-  it("keeps the women and cardio sections connected to full existing templates", () => {
-    const directTemplateIds = workoutAudienceSections.flatMap((section) => section.templateIds ?? []);
-    expect(directTemplateIds.length).toBe(10);
-    expect(new Set(directTemplateIds).size).toBe(directTemplateIds.length);
-    expect(directTemplateIds.every((id) => workoutTemplates.some((template) => template.id === id))).toBe(true);
+  it("maps every split workout to its full parent program title", () => {
+    expect(getScheduleProgramTitle("push1", ["ppl"])).toBe("PPL");
+    expect(getScheduleProgramTitle("ab-lower", ["ab"])).toBe("AB");
+    expect(getScheduleProgramTitle("abc-c", ["abc"])).toBe("ABC");
+    expect(getScheduleProgramTitle("abcd-d", ["abcd"])).toBe("ABCD");
   });
 });

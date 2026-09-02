@@ -195,7 +195,7 @@ export default function SettingsScreen() {
   return (
     <ScreenContainer className="px-5 pt-5">
       <ScrollView contentContainerStyle={styles.content}>
-        <BrandMark onPress={requestSignOut} />
+        <BrandMark variant="original" onPress={requestSignOut} />
         <Text style={styles.eyebrow}>ניהול אישי</Text>
         <Text style={styles.title}>הגדרות</Text>
         <Text style={styles.subtitle}>כל הכלים המתקדמים במקום אחד</Text>
