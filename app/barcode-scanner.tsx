@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
@@ -10,7 +10,9 @@ import { trpc } from "@/lib/trpc";
 const barcodeTypes = ["ean13", "ean8", "upc_a", "code128"] as const;
 
 export default function BarcodeScannerScreen() {
-  const [permission, requestPermission] = useCameraPermissions();
+  const isWeb = Platform.OS === "web";
+  const [nativePermission, requestNativePermission] = useCameraPermissions();
+  const [webHasPermission, setWebHasPermission] = useState<boolean | null>(isWeb ? null : true);
   const [scanned, setScanned] = useState(false);
   const [barcode, setBarcode] = useState("");
   const [message, setMessage] = useState("");
@@ -24,6 +26,10 @@ export default function BarcodeScannerScreen() {
     carbohydrates: number | null;
     fats: number | null;
   } | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const { updateNutritionProfile } = useWorkoutStore();
   const lookup = trpc.barcodeLookup.useMutation({
     onSuccess: (result) => {
@@ -31,27 +37,106 @@ export default function BarcodeScannerScreen() {
         setMessage("המוצר לא נמצא במאגר. אפשר לנסות צילום תווית או להזין מוצר ידנית.");
         return;
       }
-      setFoundProduct({ barcode: result.barcode, name: result.name || "מוצר ללא שם", brand: result.brand || "", servingSize: result.servingSize || "", calories: result.calories, protein: result.protein, carbohydrates: result.carbohydrates, fats: result.fats });
-      const macroMessage = result.calories !== null || result.protein !== null || result.carbohydrates !== null || result.fats !== null
-        ? `קלוריות: ${result.calories ?? "—"} · חלבון: ${result.protein ?? "—"} ג׳ · פחמימות: ${result.carbohydrates ?? "—"} ג׳ · שומן: ${result.fats ?? "—"} ג׳ ל־100 ג׳`
-        : "נמצא מוצר, אך חסרים בו ערכי תזונה מלאים.";
+      setFoundProduct({
+        barcode: result.barcode,
+        name: result.name || "מוצר ללא שם",
+        brand: result.brand || "",
+        servingSize: result.servingSize || "",
+        calories: result.calories,
+        protein: result.protein,
+        carbohydrates: result.carbohydrates,
+        fats: result.fats,
+      });
+      const macroMessage =
+        result.calories !== null || result.protein !== null || result.carbohydrates !== null || result.fats !== null
+          ? `קלוריות: ${result.calories ?? "—"} · חלבון: ${result.protein ?? "—"} ג׳ · פחמימות: ${result.carbohydrates ?? "—"} ג׳ · שומן: ${result.fats ?? "—"} ג׳ ל־100 ג׳`
+          : "נמצא מוצר, אך חסרים בו ערכי תזונה מלאים.";
       setMessage(`${result.name || "מוצר ללא שם"}${result.brand ? ` · ${result.brand}` : ""}\n${macroMessage}`);
     },
     onError: () => setMessage("לא ניתן להשלים את חיפוש הברקוד כרגע. בדוק חיבור לאינטרנט או נסה שוב."),
   });
 
-  const handleBarcodeScanned = ({ data }: BarcodeScanningResult) => {
+  const processBarcode = (code: string) => {
     if (scanned || lookup.isPending) return;
-    const normalized = data.replace(/[-\s]/g, "");
-    if (!/^[0-9]{6,32}$/.test(normalized)) {
-      setMessage("הברקוד זוהה אך אינו בפורמט מוצר נתמך.");
-      return;
-    }
+    const normalized = code.replace(/[-\s]/g, "");
+    if (!/^[0-9]{6,32}$/.test(normalized)) return;
+
     setScanned(true);
     setBarcode(normalized);
     setMessage("הברקוד נקלט. מחפש את המוצר…");
     lookup.mutate({ barcode: normalized });
   };
+
+  const handleNativeBarcodeScanned = ({ data }: BarcodeScanningResult) => {
+    processBarcode(data);
+  };
+
+  // מנגנון מצלמה ייעודי ל-Web
+  useEffect(() => {
+    if (!isWeb) return;
+
+    let active = true;
+    let detector: any = null;
+    let animationFrameId: number;
+
+    if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+      try {
+        detector = new (window as any).BarcodeDetector({
+          formats: ["ean_13", "ean_8", "upc_a", "code_128"],
+        });
+      } catch {
+        detector = null;
+      }
+    }
+
+    navigator.mediaDevices
+      ?.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+      })
+      .then((stream) => {
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        setWebHasPermission(true);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+
+        const scanLoop = async () => {
+          if (!active) return;
+          if (detector && videoRef.current && videoRef.current.readyState >= 2 && !scanned) {
+            try {
+              const barcodes = await detector.detect(videoRef.current);
+              if (barcodes.length > 0 && barcodes[0]?.rawValue) {
+                processBarcode(barcodes[0].rawValue);
+              }
+            } catch {
+              // התעלמות משגיאות סריקה בודדות
+            }
+          }
+          if (active && !scanned) {
+            animationFrameId = requestAnimationFrame(scanLoop);
+          }
+        };
+
+        animationFrameId = requestAnimationFrame(scanLoop);
+      })
+      .catch(() => {
+        if (active) setWebHasPermission(false);
+      });
+
+    return () => {
+      active = false;
+      cancelAnimationFrame(animationFrameId);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [isWeb, scanned]);
 
   const saveFoundProduct = () => {
     if (!foundProduct) return;
@@ -79,7 +164,7 @@ export default function BarcodeScannerScreen() {
     updateNutritionProfile((current) => {
       const foods = current.customFoods ?? [];
       const existingIndex = foods.findIndex((item) => item.barcode === product.barcode);
-      const nextFoods = existingIndex >= 0 ? foods.map((item, index) => index === existingIndex ? { ...item, ...product } : item) : [product, ...foods];
+      const nextFoods = existingIndex >= 0 ? foods.map((item, index) => (index === existingIndex ? { ...item, ...product } : item)) : [product, ...foods];
       return { ...current, customFoods: nextFoods, customFoodsUpdatedAt: Date.now() };
     });
     setMessage(`המוצר ${product.name} נשמר במאגר האישי ויופיע בחיפוש ובארוחות.`);
@@ -96,52 +181,113 @@ export default function BarcodeScannerScreen() {
     lookup.mutate({ barcode: normalized });
   };
 
-  if (!permission) return <ScreenContainer className="items-center justify-center"><ActivityIndicator color="#F5B72C" /></ScreenContainer>;
+  const hasPermission = isWeb ? webHasPermission : nativePermission?.granted;
 
   return (
     <ScreenContainer className="px-5 pt-5">
       <View style={styles.content}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" onPress={() => router.back()} style={({ pressed }) => [styles.back, pressed && styles.pressed]}><Text style={styles.backText}>‹ חזרה לתזונה</Text></Pressable>
+          <Pressable accessibilityRole="button" onPress={() => router.back()} style={({ pressed }) => [styles.back, pressed && styles.pressed]}>
+            <Text style={styles.backText}>‹ חזרה לתזונה</Text>
+          </Pressable>
           <Text style={styles.eyebrow}>סריקה מהירה</Text>
           <Text style={styles.title}>סריקת ברקוד</Text>
           <Text style={styles.subtitle}>כוון את המצלמה לברקוד שעל מוצר ארוז. לאחר הזיהוי נחפש את המוצר ונציג את הערכים הזמינים.</Text>
         </View>
 
-        {!permission.granted ? (
+        {hasPermission === false ? (
           <View style={styles.permissionBox}>
             <Text style={styles.permissionTitle}>נדרשת גישה למצלמה</Text>
-            <Text style={styles.permissionText}>אשר גישה כדי לסרוק ברקודים דרך המכשיר או דרך Preview בדפדפן.</Text>
-            <Pressable accessibilityRole="button" onPress={() => void requestPermission()} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}><Text style={styles.primaryText}>אישור גישה למצלמה</Text></Pressable>
+            <Text style={styles.permissionText}>אשר גישה בדפדפן או במכשיר כדי לסרוק ברקודים.</Text>
+            {!isWeb && (
+              <Pressable accessibilityRole="button" onPress={() => void requestNativePermission()} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
+                <Text style={styles.primaryText}>אישור גישה למצלמה</Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           <View style={styles.cameraWrap}>
-            <CameraView
-              style={styles.camera}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: [...barcodeTypes] }}
-              onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
-            />
-            <View pointerEvents="none" style={styles.scanFrame}><View style={styles.cornerTopRight} /><View style={styles.cornerTopLeft} /><View style={styles.cornerBottomRight} /><View style={styles.cornerBottomLeft} /></View>
+            {isWeb ? (
+              // @ts-ignore
+              <video
+                ref={(el) => {
+                  videoRef.current = el;
+                  if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                    el.srcObject = streamRef.current;
+                    el.play().catch(() => {});
+                  }
+                }}
+                playsInline
+                muted
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            ) : (
+              <CameraView
+                style={styles.camera}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: [...barcodeTypes] }}
+                onBarcodeScanned={scanned ? undefined : handleNativeBarcodeScanned}
+              />
+            )}
+            <View pointerEvents="none" style={styles.scanFrame}>
+              <View style={styles.cornerTopRight} />
+              <View style={styles.cornerTopLeft} />
+              <View style={styles.cornerBottomRight} />
+              <View style={styles.cornerBottomLeft} />
+            </View>
             <Text style={styles.cameraHint}>{scanned ? "הברקוד נקלט" : "מקם את הברקוד בתוך המסגרת"}</Text>
           </View>
         )}
 
         <View style={styles.manualBox}>
           <Text style={styles.manualTitle}>או הזן ברקוד ידנית</Text>
-          <TextInput value={barcode} onChangeText={setBarcode} placeholder="למשל 7290012345678" placeholderTextColor="#7E8DA4" keyboardType="number-pad" style={styles.input} textAlign="right" />
-          <Pressable accessibilityRole="button" onPress={searchTypedBarcode} disabled={lookup.isPending} style={({ pressed }) => [styles.secondary, lookup.isPending && styles.disabled, pressed && styles.pressed]}><Text style={styles.secondaryText}>{lookup.isPending ? "מחפש…" : "חפש מוצר לפי ברקוד"}</Text></Pressable>
+          <TextInput
+            value={barcode}
+            onChangeText={setBarcode}
+            placeholder="למשל 7290012345678"
+            placeholderTextColor="#7E8DA4"
+            keyboardType="number-pad"
+            style={styles.input}
+            textAlign="right"
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={searchTypedBarcode}
+            disabled={lookup.isPending}
+            style={({ pressed }) => [styles.secondary, lookup.isPending && styles.disabled, pressed && styles.pressed]}
+          >
+            <Text style={styles.secondaryText}>{lookup.isPending ? "מחפש…" : "חפש מוצר לפי ברקוד"}</Text>
+          </Pressable>
         </View>
 
-        {lookup.isPending ? <View style={styles.statusBox}><ActivityIndicator color="#F5B72C" /><Text style={styles.statusText}>מחפש מוצר במאגר…</Text></View> : null}
-        {message ? <View style={styles.resultBox}><Text style={styles.resultText}>{message}</Text>{foundProduct ? <Pressable accessibilityRole="button" onPress={saveFoundProduct} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}><Text style={styles.saveButtonText}>שמור במאגר האישי</Text></Pressable> : null}</View> : null}
+        {lookup.isPending && (
+          <View style={styles.statusBox}>
+            <ActivityIndicator color="#F5B72C" />
+            <Text style={styles.statusText}>מחפש מוצר במאגר…</Text>
+          </View>
+        )}
+
+        {message ? (
+          <View style={styles.resultBox}>
+            <Text style={styles.resultText}>{message}</Text>
+            {foundProduct && (
+              <Pressable accessibilityRole="button" onPress={saveFoundProduct} style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
+                <Text style={styles.saveButtonText}>שמור במאגר האישי</Text>
+              </Pressable>
+            )}
+          </View>
+        ) : null}
 
         <View style={styles.fallbackBox}>
           <Text style={styles.fallbackTitle}>לא נמצא מוצר?</Text>
           <Text style={styles.fallbackText}>אפשר להמשיך לצילום תווית הערכים או להזנה ידנית, בלי לאבד את הסריקה.</Text>
           <View style={styles.fallbackActions}>
-            <Pressable accessibilityRole="button" onPress={() => router.push("/food-label" as never)} style={({ pressed }) => [styles.fallbackButton, pressed && styles.pressed]}><Text style={styles.fallbackButtonText}>צילום תווית</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => setScanned(false)} style={({ pressed }) => [styles.fallbackButton, pressed && styles.pressed]}><Text style={styles.fallbackButtonText}>סריקה חדשה</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => router.push("/food-label" as never)} style={({ pressed }) => [styles.fallbackButton, pressed && styles.pressed]}>
+              <Text style={styles.fallbackButtonText}>צילום תווית</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => setScanned(false)} style={({ pressed }) => [styles.fallbackButton, pressed && styles.pressed]}>
+              <Text style={styles.fallbackButtonText}>סריקה חדשה</Text>
+            </Pressable>
           </View>
         </View>
       </View>
