@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { getUserAppState, saveUserAppState } from "./db";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { activeSubscriptionProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { z } from "zod";
 import {
@@ -59,12 +59,16 @@ const parseFoodLabelResponse = (content: unknown): FoodLabelResult => {
 
 export const appRouter = router({
   system: systemRouter,
+  
+  // נתיבי גרמין
   garmin: router({
     status: protectedProcedure.query(({ ctx }) => getGarminStatus(ctx.user.id)),
     beginConnection: protectedProcedure.mutation(({ ctx }) => beginGarminConnection(ctx.user.id)),
-    syncNow: protectedProcedure.mutation(({ ctx }) => requestGarminSync(ctx.user.id)),
+    syncNow: activeSubscriptionProcedure.mutation(({ ctx }) => requestGarminSync(ctx.user.id)),
     disconnect: protectedProcedure.mutation(({ ctx }) => disconnectGarmin(ctx.user.id)),
   }),
+
+  // חיפוש ברקוד (נשאר ציבורי/פתוח כדי לאפשר בדיקת זמינות מוצרים)
   barcodeLookup: publicProcedure
     .input(z.object({ barcode: z.string().trim().regex(/^[0-9A-Za-z-]{6,32}$/) }))
     .mutation(async ({ input }) => {
@@ -100,7 +104,9 @@ export const appRouter = router({
         fats: toNumber(nutriments["fat_100g"]),
       };
     }),
-  foodLabel: publicProcedure
+
+  // חילוץ תווית AI - נעול לחלוטין לבעלי מנוי/תקופת ניסיון בתוקף בלבד!
+  foodLabel: activeSubscriptionProcedure
     .input(z.object({ imageDataUrl: z.string().startsWith("data:image/").max(8_000_000) }))
     .mutation(async ({ input }) => {
       const response = await invokeLLM({
@@ -147,10 +153,14 @@ export const appRouter = router({
       if (!content) throw new Error("חילוץ התווית לא החזיר תוכן");
       return parseFoodLabelResponse(content);
     }),
+
+  // ניהול מצב האפליקציה (שמירה נעולה למנויים, קריאה נשארת פתוחה לצפייה בהיסטוריה)
   appState: router({
     get: protectedProcedure.query(({ ctx }) => getUserAppState(ctx.user.id)),
-    save: protectedProcedure.input(z.object({ payload: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) => saveUserAppState(ctx.user.id, input.payload)),
+    save: activeSubscriptionProcedure.input(z.object({ payload: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) => saveUserAppState(ctx.user.id, input.payload)),
   }),
+
+  // ניהול הזדהות
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
