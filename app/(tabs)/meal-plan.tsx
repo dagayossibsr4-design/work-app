@@ -256,6 +256,9 @@ export default function MealPlanScreen() {
   const [reminderHistory, setReminderHistory] = useState<SupplementReminderEvent[]>([]);
   const [reminderStatus, setReminderStatus] = useState<string>("");
   const [reminderBusy, setReminderBusy] = useState(false);
+  const [remindersExpanded, setRemindersExpanded] = useState(false);
+  const [profileExpanded, setProfileExpanded] = useState(false);
+  const [waterExpanded, setWaterExpanded] = useState(false);
   const [nutritionStorageRevision, setNutritionStorageRevision] = useState(0);
   const [nutritionRestoreReady, setNutritionRestoreReady] = useState(isNutritionStorageRestoreReady);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
@@ -1971,10 +1974,6 @@ export default function MealPlanScreen() {
           </View>
           <View style={styles.supplementReminderCard}>
             <View style={styles.supplementReminderHeader}>
-              <View style={styles.supplementReminderHeaderText}>
-                <Text style={styles.supplementReminderTitle}>תזכורות לתוספי תזונה</Text>
-                <Text style={styles.supplementReminderHint}>התראה יומית בבוקר, בצהריים ובערב — כולל GH אם הוא מסומן אצלך.</Text>
-              </View>
               <Pressable
                 accessibilityRole="switch"
                 accessibilityState={{ checked: reminderSettings.enabled }}
@@ -1984,7 +1983,29 @@ export default function MealPlanScreen() {
               >
                 <Text style={styles.supplementReminderToggleText}>{reminderSettings.enabled ? "פעיל" : "כבוי"}</Text>
               </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: remindersExpanded }}
+                accessibilityLabel="פתח או סגור את הגדרות התזכורות"
+                onPress={() => setRemindersExpanded((current) => !current)}
+                style={styles.collapsibleArrowButton}
+              >
+                <Text style={styles.collapsibleChevron}>{remindersExpanded ? "⌃" : "⌄"}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: remindersExpanded }}
+                accessibilityLabel="פתיחה או סגירה של הגדרות תזכורות"
+                onPress={() => setRemindersExpanded((current) => !current)}
+                style={styles.supplementReminderHeaderText}
+              >
+                <Text style={styles.supplementReminderTitle}>תזכורות לתוספי תזונה</Text>
+                <Text style={styles.supplementReminderHint}>התראה יומית בבוקר, בצהריים ובערב — כולל GH אם הוא מסומן אצלך.</Text>
+                <Text style={styles.collapsibleHint}>{remindersExpanded ? "לחץ לסגירה" : "לחץ לפתיחה ולהגדרת שעות"}</Text>
+              </Pressable>
             </View>
+            {remindersExpanded ? (
+              <>
             {(["בוקר", "צהריים", "ערב"] as ReminderSlot[]).map((slot) => (
               <View key={slot} style={styles.supplementReminderTimeRow}>
                 <Text style={styles.supplementReminderSlot}>{slot}</Text>
@@ -2029,6 +2050,8 @@ export default function MealPlanScreen() {
                 </Text>
               )) : <Text style={styles.reminderHistoryEmpty}>עדיין לא התקבלה תזכורת במכשיר.</Text>}
             </View>
+              </>
+            ) : null}
           </View>
         </View>
         <Modal
@@ -2127,7 +2150,21 @@ export default function MealPlanScreen() {
           </View>
         </Modal>
         <View style={styles.profileEditor}>
-          <Text style={styles.profileTitle}>הגדרת יעד בתוך התפריט</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: profileExpanded }}
+            accessibilityLabel="פתיחה או סגירה של הגדרת היעד"
+            onPress={() => setProfileExpanded((current) => !current)}
+            style={styles.collapsibleSectionHeader}
+          >
+            <View style={styles.collapsibleSectionHeaderText}>
+              <Text style={styles.profileTitle}>הגדרת יעד בתוך התפריט</Text>
+              <Text style={styles.collapsibleSummary}>{profileExpanded ? "עריכת קלוריות ומאקרו" : `יעד ${mealPlanGoalLabel(activeGoal)} · ${targetCalories || "לא הוגדר"} קק״ל`}</Text>
+            </View>
+            <Text style={styles.collapsibleChevron}>{profileExpanded ? "⌃" : "⌄"}</Text>
+          </Pressable>
+          {profileExpanded ? (
+            <View style={styles.collapsibleBody}>
           <Text style={styles.profileHint}>
             בחר מצב, ערוך את הכמויות ושמור כל מצב בנפרד.
           </Text>
@@ -2310,17 +2347,27 @@ export default function MealPlanScreen() {
               אין עדיין גרסאות שמורות למצב הזה.
             </Text>
           )}
+          </View>
+          ) : null}
         </View>
         <View style={styles.waterCard}>
-          <View style={styles.waterHeader}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: waterExpanded }}
+            accessibilityLabel="פתיחה או סגירה של מעקב שתיית מים"
+            onPress={() => setWaterExpanded((current) => !current)}
+            style={styles.waterHeader}
+          >
             <View style={styles.waterHeaderCopy}>
               <Text style={styles.waterTitle}>מעקב שתיית מים</Text>
               <Text style={styles.waterSubtitle}>
                 {selectedDate === todayKey() ? "היום" : formatDateLabel(selectedDate)} · שמירה לפי תאריך
               </Text>
             </View>
-            <Text style={styles.waterIcon}>◉</Text>
-          </View>
+            <Text style={styles.collapsibleChevron}>{waterExpanded ? "⌃" : "⌄"}</Text>
+          </Pressable>
+          {waterExpanded ? (
+            <View style={styles.collapsibleBody}>
           <View style={styles.waterStatsRow}>
             <View style={styles.waterStat}>
               <Text style={styles.waterStatValue}>{Math.round(activeWater.consumed)} מ״ל</Text>
@@ -2407,8 +2454,10 @@ export default function MealPlanScreen() {
               <Text style={styles.waterGoalLabel}>יעד מים במ״ל</Text>
             </View>
           </View>
+            </View>
+          ) : null}
         </View>
-        <View style={styles.waterHistoryCard}>
+        {waterExpanded ? <View style={styles.waterHistoryCard}>
           <View style={styles.waterHistoryHeader}>
             <Text style={styles.waterHistoryTitle}>היסטוריית שתייה יומית</Text>
             <Text style={styles.waterHistoryCount}>{activeWaterEvents.length} הוספות</Text>
@@ -2444,7 +2493,7 @@ export default function MealPlanScreen() {
               })}
             </View>
           )}
-        </View>
+        </View> : null}
         <MacroDistributionCard distribution={macroDistribution} />
         {favoriteNotice ? (
           <Animated.View style={styles.conversionNotice}>
@@ -3546,136 +3595,6 @@ export default function MealPlanScreen() {
             )}
           </View>
         </View>
-        <View style={styles.summaryActions}>
-            <Pressable
-              disabled={pdfBusy || shareBusy || Boolean(favoriteBusy)}
-              onPress={exportPdf}
-              style={({ pressed }) => [
-                styles.pdfButton,
-                (pdfBusy || shareBusy || favoriteBusy) && styles.busyButton,
-                pressed && styles.swapButtonPressed,
-              ]}
-            >
-              {pdfBusy ? (
-                <ActivityIndicator color="#0B1224" size="small" />
-              ) : (
-                <Text style={styles.pdfText}>ייצא ושתף PDF</Text>
-              )}
-            </Pressable>
-            <Pressable
-              disabled={shareBusy || Boolean(favoriteBusy)}
-              onPress={shareMealPlan}
-              style={({ pressed }) => [
-                styles.shareButton,
-                (shareBusy || favoriteBusy) && styles.busyButton,
-                pressed && styles.swapButtonPressed,
-              ]}
-            >
-              {shareBusy ? (
-                <ActivityIndicator color="#0B1224" size="small" />
-              ) : (
-                <Text style={styles.shareText}>שתף תפריט</Text>
-              )}
-            </Pressable>
-            <Pressable
-              disabled={Boolean(favoriteBusy)}
-              onPress={saveFavorite}
-              style={({ pressed }) => [
-                styles.favoriteButton,
-                favoriteBusy && styles.busyButton,
-                pressed && styles.swapButtonPressed,
-              ]}
-            >
-              {favoriteBusy === "save" ? (
-                <ActivityIndicator color="#0B1224" size="small" />
-              ) : (
-                <Text style={styles.favoriteText}>שמור כתפריט מועדף</Text>
-              )}
-            </Pressable>
-            {hasFavorite && (
-              <Pressable
-                disabled={Boolean(favoriteBusy)}
-                onPress={loadFavorite}
-                style={({ pressed }) => [
-                  styles.loadFavoriteButton,
-                  favoriteBusy && styles.busyButton,
-                  pressed && styles.swapButtonPressed,
-                ]}
-              >
-                {favoriteBusy === "load" ? (
-                  <ActivityIndicator color="#B8CBE0" size="small" />
-                ) : (
-                  <Text style={styles.loadFavoriteText}>טען תפריט מועדף</Text>
-                )}
-              </Pressable>
-            )}
-            <Pressable
-              onPress={rebalanceToTarget}
-              style={({ pressed }) => [
-                styles.rebalanceButton,
-                pressed && styles.swapButtonPressed,
-              ]}
-            >
-              <Text style={styles.rebalanceText}>התאם מחדש ליעד</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="נקה את כל הכמויות היומיות"
-              onPress={() => setClearDailyQuantitiesOpen(true)}
-              style={({ pressed }) => [
-                styles.clearDailyButton,
-                pressed && styles.swapButtonPressed,
-              ]}
-            >
-              <Text style={styles.clearDailyButtonText}>נקה הכול · כמויות היום</Text>
-            </Pressable>
-            <Pressable
-              onPress={resetToOriginal}
-              style={({ pressed }) => [
-                styles.resetButton,
-                pressed && styles.swapButtonPressed,
-              ]}
-            >
-              <Text style={styles.resetText}>איפוס לתפריט המקורי</Text>
-            </Pressable>
-          </View>
-          {favoriteStatus ? (
-            <View
-              style={[
-                styles.favoriteStatus,
-                favoriteStatus.type === "error" && styles.favoriteStatusError,
-              ]}
-            >
-              <Text style={styles.favoriteStatusIcon}>
-                {favoriteStatus.type === "success" ? "✓" : "!"}
-              </Text>
-              <Text style={styles.favoriteStatusText}>
-                {favoriteStatus.message}
-              </Text>
-            </View>
-          ) : null}
-          {shareStatus ? (
-            <View
-              style={[
-                styles.shareStatus,
-                shareStatus.type === "error" && styles.favoriteStatusError,
-              ]}
-            >
-              <Text style={styles.favoriteStatusIcon}>
-                {shareStatus.type === "success" ? "✓" : "!"}
-              </Text>
-              <Text style={styles.favoriteStatusText}>
-                {shareStatus.message}
-              </Text>
-            </View>
-          ) : null}
-          {rebalanceMessage ? (
-            <Text style={styles.rebalanceMessage}>{rebalanceMessage}</Text>
-          ) : null}
-          <View style={styles.endOfMenuCard}>
-            <Text style={styles.endOfMenuTitle}>סוף תפריט היום</Text>
-            <Text style={styles.endOfMenuText}>הסיכום, החריגות והכמויות נשמרו. אפשר לחזור למעלה לשינוי נוסף.</Text>
-          </View>
         <View style={styles.chart}>
           <Text style={styles.chartTitle}>צריכה יומית מול יעד</Text>
           <ProgressBar
@@ -3924,6 +3843,136 @@ export default function MealPlanScreen() {
             </View>
           </View>
         </Modal>
+        <View style={styles.summaryActions}>
+            <Pressable
+              disabled={pdfBusy || shareBusy || Boolean(favoriteBusy)}
+              onPress={exportPdf}
+              style={({ pressed }) => [
+                styles.pdfButton,
+                (pdfBusy || shareBusy || favoriteBusy) && styles.busyButton,
+                pressed && styles.swapButtonPressed,
+              ]}
+            >
+              {pdfBusy ? (
+                <ActivityIndicator color="#0B1224" size="small" />
+              ) : (
+                <Text style={styles.pdfText}>ייצא ושתף PDF</Text>
+              )}
+            </Pressable>
+            <Pressable
+              disabled={shareBusy || Boolean(favoriteBusy)}
+              onPress={shareMealPlan}
+              style={({ pressed }) => [
+                styles.shareButton,
+                (shareBusy || favoriteBusy) && styles.busyButton,
+                pressed && styles.swapButtonPressed,
+              ]}
+            >
+              {shareBusy ? (
+                <ActivityIndicator color="#0B1224" size="small" />
+              ) : (
+                <Text style={styles.shareText}>שתף תפריט</Text>
+              )}
+            </Pressable>
+            <Pressable
+              disabled={Boolean(favoriteBusy)}
+              onPress={saveFavorite}
+              style={({ pressed }) => [
+                styles.favoriteButton,
+                favoriteBusy && styles.busyButton,
+                pressed && styles.swapButtonPressed,
+              ]}
+            >
+              {favoriteBusy === "save" ? (
+                <ActivityIndicator color="#0B1224" size="small" />
+              ) : (
+                <Text style={styles.favoriteText}>שמור כתפריט מועדף</Text>
+              )}
+            </Pressable>
+            {hasFavorite && (
+              <Pressable
+                disabled={Boolean(favoriteBusy)}
+                onPress={loadFavorite}
+                style={({ pressed }) => [
+                  styles.loadFavoriteButton,
+                  favoriteBusy && styles.busyButton,
+                  pressed && styles.swapButtonPressed,
+                ]}
+              >
+                {favoriteBusy === "load" ? (
+                  <ActivityIndicator color="#B8CBE0" size="small" />
+                ) : (
+                  <Text style={styles.loadFavoriteText}>טען תפריט מועדף</Text>
+                )}
+              </Pressable>
+            )}
+            <Pressable
+              onPress={rebalanceToTarget}
+              style={({ pressed }) => [
+                styles.rebalanceButton,
+                pressed && styles.swapButtonPressed,
+              ]}
+            >
+              <Text style={styles.rebalanceText}>התאם מחדש ליעד</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="נקה את כל הכמויות היומיות"
+              onPress={() => setClearDailyQuantitiesOpen(true)}
+              style={({ pressed }) => [
+                styles.clearDailyButton,
+                pressed && styles.swapButtonPressed,
+              ]}
+            >
+              <Text style={styles.clearDailyButtonText}>נקה הכול · כמויות היום</Text>
+            </Pressable>
+            <Pressable
+              onPress={resetToOriginal}
+              style={({ pressed }) => [
+                styles.resetButton,
+                pressed && styles.swapButtonPressed,
+              ]}
+            >
+              <Text style={styles.resetText}>איפוס לתפריט המקורי</Text>
+            </Pressable>
+          </View>
+          {favoriteStatus ? (
+            <View
+              style={[
+                styles.favoriteStatus,
+                favoriteStatus.type === "error" && styles.favoriteStatusError,
+              ]}
+            >
+              <Text style={styles.favoriteStatusIcon}>
+                {favoriteStatus.type === "success" ? "✓" : "!"}
+              </Text>
+              <Text style={styles.favoriteStatusText}>
+                {favoriteStatus.message}
+              </Text>
+            </View>
+          ) : null}
+          {shareStatus ? (
+            <View
+              style={[
+                styles.shareStatus,
+                shareStatus.type === "error" && styles.favoriteStatusError,
+              ]}
+            >
+              <Text style={styles.favoriteStatusIcon}>
+                {shareStatus.type === "success" ? "✓" : "!"}
+              </Text>
+              <Text style={styles.favoriteStatusText}>
+                {shareStatus.message}
+              </Text>
+            </View>
+          ) : null}
+          {rebalanceMessage ? (
+            <Text style={styles.rebalanceMessage}>{rebalanceMessage}</Text>
+          ) : null}
+          <View style={styles.endOfMenuCard}>
+            <Text style={styles.endOfMenuTitle}>סוף תפריט היום</Text>
+            <Text style={styles.endOfMenuText}>הסיכום, החריגות והכמויות נשמרו. אפשר לחזור למעלה לשינוי נוסף.</Text>
+          </View>
         </ScrollView>
 
         {pending ? (
@@ -4329,7 +4378,7 @@ const styles = StyleSheet.create({
   },
   dateLabel: { color: "#F7F9FC", fontSize: 13, fontWeight: "900" },
   dateHint: { color: "#AAB7C8", fontSize: 9 },
-  profileEditor: {
+  profileEditor: { width: "100%",
     backgroundColor: "#16233A",
     borderColor: "#8A6B20",
     borderWidth: 1,
@@ -4339,11 +4388,13 @@ const styles = StyleSheet.create({
   },
   profileTitle: {
     color: "#F7F9FC",
-    fontSize: 16,
+    fontSize: 17,
+    lineHeight: 23,
     fontWeight: "900",
     textAlign: "right",
+    writingDirection: "rtl",
   },
-  profileHint: { color: "#B8CBE0", fontSize: 10, textAlign: "right" },
+  profileHint: { color: "#B8CBE0", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" },
   goalRow: { flexDirection: "row-reverse", gap: 7 },
   goalButton: {
     flex: 1,
@@ -4844,6 +4895,7 @@ const styles = StyleSheet.create({
   waterHistoryRemovePressed: { opacity: 0.68, transform: [{ scale: 0.97 }] },
   waterHistoryRemoveText: { color: "#FB7185", fontSize: 10, fontWeight: "900", writingDirection: "rtl" },
   waterCard: {
+    width: "100%",
     backgroundColor: "#16233A",
     borderColor: "#8A6B20",
     borderWidth: 1,
@@ -5400,9 +5452,16 @@ const styles = StyleSheet.create({
   mealSupplementPurpose: { color: "#D9E2EF", fontSize: 10, textAlign: "right", writingDirection: "rtl", lineHeight: 15 },
   mealSupplementCaution: { color: "#FFCC9A", fontSize: 9, textAlign: "right", writingDirection: "rtl", lineHeight: 14 },
   mealSupplementSource: { color: "#AAB7C8", fontSize: 8, textAlign: "right", writingDirection: "rtl" },
-  supplementReminderCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 14, padding: 12, gap: 8, marginTop: 10 },
-  supplementReminderHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10 },
-  supplementReminderHeaderText: { flex: 1, gap: 3 },
+  supplementReminderCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 14, padding: 12, gap: 8, marginTop: 10, width: "100%" },
+  collapsibleSectionHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 48 },
+  collapsibleSectionHeaderText: { flex: 1, alignItems: "stretch", gap: 3 },
+  collapsibleBody: { gap: 8 },
+  collapsibleSummary: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl", width: "100%" },
+  collapsibleHint: { color: "#5B9FE3", fontSize: 9, fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
+  collapsibleChevron: { color: "#F5B72C", fontSize: 24, fontWeight: "900", width: 30, textAlign: "center" },
+  collapsibleArrowButton: { width: 34, minHeight: 40, alignItems: "center", justifyContent: "center" },
+  supplementReminderHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  supplementReminderHeaderText: { flex: 1, alignItems: "stretch", gap: 3 },
   supplementReminderTitle: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
   supplementReminderHint: { color: "#AAB7C8", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" },
   supplementReminderToggle: { minWidth: 54, minHeight: 32, borderColor: "#52759C", borderWidth: 1, borderRadius: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
