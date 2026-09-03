@@ -194,7 +194,7 @@ export default function BarcodeScannerScreen() {
     const product: FoodItem = {
       id: `barcode-${foundProduct.barcode}`,
       name: foundProduct.name,
-      group: "שונות",
+      group: "מוצרים שסרקתי",
       subgroup: "מוצרים שסרקתי",
       reference: `Open Food Facts · ${foundProduct.servingSize || "ערכים ל־100 ג׳"}`,
       servingGrams: 100,
