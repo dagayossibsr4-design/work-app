@@ -127,6 +127,7 @@ import {
   normalizeCustomSupplementNames,
   normalizeMealSupplementSelections,
   normalizePinnedSupplementNames,
+  removeSupplementFromMealSelections,
   supplementUnits,
   type MealSupplementSelections,
   type SupplementUnit,
@@ -1244,6 +1245,24 @@ export default function MealPlanScreen() {
   });
   const removePinnedSupplement = (name: string) => {
     setPinnedSupplementNames((current) => current.filter((item) => item !== name));
+    setSelectedSupplements((current) => removeSupplementFromMealSelections(current, name));
+    setSupplementHistoryByDate((current) => ({
+      ...current,
+      [selectedDate]: removeSupplementFromMealSelections(
+        current[selectedDate] ?? {},
+        name,
+      ),
+    }));
+    setSupplementTargets((current) => {
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+    setSupplementDailyIntake((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([key]) => key !== `${selectedDate}|${name}`),
+      ),
+    );
   };
   const updatePinnedSupplementScrollHint = () => {
     const viewportHeight = pinnedSupplementViewportHeightRef.current;

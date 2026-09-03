@@ -183,6 +183,22 @@ export function mergePinnedSupplementNames(
   return normalizePinnedSupplementNames([...currentNames, ...namesToAdd]);
 }
 
+/** מסיר תוסף מכל ארוחות היום, בלי לשנות תיעוד של תאריכים אחרים. */
+export function removeSupplementFromMealSelections(
+  selections: MealSupplementSelections,
+  supplementName: string,
+): MealSupplementSelections {
+  const targetName = supplementName.trim();
+  if (!targetName) return selections;
+
+  return Object.fromEntries(
+    Object.entries(selections).map(([mealId, entries]) => [
+      mealId,
+      entries.filter((entry) => entry.name !== targetName),
+    ]),
+  );
+}
+
 /** ייצוג תיעודי בלבד לשם אישי; אין כאן מינון, ערכי מאקרו או המלצת שימוש. */
 export function createCustomSupplementDefinition(name: string): MealMenuSupplement {
   return {
