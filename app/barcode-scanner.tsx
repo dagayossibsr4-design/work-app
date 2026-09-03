@@ -195,7 +195,7 @@ export default function BarcodeScannerScreen() {
       id: `barcode-${foundProduct.barcode}`,
       name: foundProduct.name,
       group: "שונות",
-      subgroup: "שונות",
+      subgroup: "מוצרים שסרקתי",
       reference: `Open Food Facts · ${foundProduct.servingSize || "ערכים ל־100 ג׳"}`,
       servingGrams: 100,
       calories,
