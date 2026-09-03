@@ -5,7 +5,6 @@ import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -62,6 +61,15 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
     if (!values.lastSignedIn) {
       values.lastSignedIn = new Date();
+    }
+
+    // הגדרת 14 ימי ניסיון בחינם למשתמש חדש
+    if (!values.trialEndsAt) {
+      const trialDays = 14;
+      const trialEnd = new Date();
+      trialEnd.setDate(trialEnd.getDate() + trialDays);
+      values.trialEndsAt = trialEnd;
+      values.subscriptionStatus = "trialing";
     }
 
     if (Object.keys(updateSet).length === 0) {

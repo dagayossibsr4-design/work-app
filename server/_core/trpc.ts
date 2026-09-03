@@ -27,6 +27,30 @@ const requireUser = t.middleware(async (opts) => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
+export const activeSubscriptionProcedure = protectedProcedure.use(
+  t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    const user = ctx.user;
+
+    // אדמין פטור מבדיקת תקופת ניסיון או מנוי
+    if (user.role === "admin") {
+      return next({ ctx });
+    }
+
+    const isPaidActive = user.subscriptionStatus === "active";
+    const isTrialValid = user.trialEndsAt && new Date(user.trialEndsAt).getTime() > Date.now();
+
+    if (!isPaidActive && !isTrialValid) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "תקופת הניסיון ל-14 ימים הסתיימה. יש להסדיר מנוי להמשך שימוש.",
+      });
+    }
+
+    return next({ ctx });
+  }),
+);
+
 export const adminProcedure = t.procedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
