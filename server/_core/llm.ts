@@ -117,19 +117,9 @@ const normalizeContentPart = (part: MessageContent): TextContent | ImageContent 
   if (typeof part === "string") {
     return { type: "text", text: part };
   }
-
-  if (part.type === "text") {
+  if (part.type === "text" || part.type === "image_url" || part.type === "file_url") {
     return part;
   }
-
-  if (part.type === "image_url") {
-    return part;
-  }
-
-  if (part.type === "file_url") {
-    return part;
-  }
-
   throw new Error("Unsupported message content part");
 };
 
@@ -151,7 +141,6 @@ const normalizeMessage = (message: Message) => {
 
   const contentParts = ensureArray(message.content).map(normalizeContentPart);
 
-  // If there's only text content, collapse to a single string for compatibility
   if (contentParts.length === 1 && contentParts[0].type === "text") {
     return {
       role,
@@ -207,7 +196,7 @@ const normalizeToolChoice = (
 const resolveApiUrl = () =>
   ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+    : "https://api.openai.com/v1/chat/completions";
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
@@ -271,17 +260,12 @@ const parseRetryAfter = (value: string | null): number | undefined => {
   return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
 };
 
-// Equal-jitter exponential backoff. The cap/2 floor guarantees a minimum delay so a
-// misbehaving caller loop slows down instead of hammering the upstream while it keeps
-// returning errors.
 const computeBackoffDelay = (attempt: number, retryAfterMs?: number): number => {
   const cap = Math.min(RETRY_BASE_DELAY_MS * 2 ** attempt, RETRY_MAX_DELAY_MS);
   const jittered = cap / 2 + Math.random() * (cap / 2);
   return Math.min(Math.max(jittered, retryAfterMs ?? 0), RETRY_MAX_DELAY_MS);
 };
 
-// Retries non-2xx responses and network errors with exponential backoff, then returns
-// the final Response so callers keep their existing error handling.
 const fetchWithBackoff = async (url: string, init: FetchInit): Promise<Response> => {
   let lastError: unknown;
 
@@ -295,9 +279,7 @@ const fetchWithBackoff = async (url: string, init: FetchInit): Promise<Response>
       const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
       try {
         await response.body?.cancel();
-      } catch {
-        // Body already settled; nothing to clean up.
-      }
+      } catch {}
       console.warn(
         `LLM request retry ${attempt + 1}/${RETRY_MAX_RETRIES} after status ${response.status}`,
       );
@@ -411,7 +393,7 @@ export async function listLLMModels(): Promise<ModelsResponse> {
   const url =
     ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
       ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/models`
-      : "https://forge.manus.im/v1/models";
+      : "https://api.openai.com/v1/models";
 
   const response = await fetchWithBackoff(url, {
     headers: { authorization: `Bearer ${ENV.forgeApiKey}` },

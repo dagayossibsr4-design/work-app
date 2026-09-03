@@ -69,7 +69,7 @@ export const appRouter = router({
     .input(z.object({ barcode: z.string().trim().regex(/^[0-9A-Za-z-]{6,32}$/) }))
     .mutation(async ({ input }) => {
       const barcode = input.barcode.replace(/[-\s]/g, "");
-      const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,brands,nutriments,serving_size` , {
+      const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,brands,nutriments,serving_size`, {
         headers: { "User-Agent": "ProLifto/1.0 (nutrition barcode lookup)" },
       });
       if (!response.ok) throw new Error(`Open Food Facts lookup failed: ${response.status}`);
@@ -104,13 +104,22 @@ export const appRouter = router({
     .input(z.object({ imageDataUrl: z.string().startsWith("data:image/").max(8_000_000) }))
     .mutation(async ({ input }) => {
       const response = await invokeLLM({
-        model: "gemini-3-flash-preview",
+        model: "gpt-4o-mini",
         maxTokens: 4096,
         messages: [
-          { role: "system", content: "חלץ תווית תזונתית מתמונה. החזר JSON בלבד. אין להמציא ערכים; אם ערך אינו קריא החזר 0 והוסף confidence נמוך. כל הערכים הם ל־100 גרם או למנה כפי שמופיע בתווית, והמר ל־100 גרם רק אם נתוני גודל המנה ברורים." },
-          { role: "user", content: [{ type: "text", text: "חלץ שם מוצר, מותג, קלוריות, חלבון, פחמימות ושומן. החזר גם servingGrams, confidence והערת אימות בעברית." }, { type: "image_url", image_url: { url: input.imageDataUrl, detail: "high" } }] },
+          {
+            role: "system",
+            content: "חלץ תווית תזונתית מתמונה. החזר JSON בלבד. חובה לחלץ תמיד את הערכים מטור ה־100 גרם (או 100 מ\"ל). אם בתווית יש רק ערכים למנה, בצע המרה מתמטית מדויקת ל־100 גרם לפי משקל המנה. כל הערכים המספריים חייבים לייצג בדיוק 100 גרם מוצר. אין להמציא נתונים; אם ערך אינו קריא החזר 0."
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "חלץ שם מוצר, מותג, קלוריות, חלבון, פחמימות ושומן ל־100 גרם. קבע servingGrams כ-100, הוסף confidence והערת אימות קצרה בעברית." },
+              { type: "image_url", image_url: { url: input.imageDataUrl, detail: "high" } }
+            ]
+          },
         ],
-          response_format: {
+        response_format: {
           type: "json_schema",
           json_schema: {
             name: "food_label",
