@@ -1,4 +1,4 @@
-import { foodItems, macrosForGrams, type FoodItem } from "./food-nutrition";
+import { foodItems, macrosForGrams, type FoodGroup, type FoodItem } from "./food-nutrition";
 import type { WeightMode } from "./cooking-weight";
 
 export type MealFood = {
@@ -6,6 +6,8 @@ export type MealFood = {
   name: string;
   quantity: string;
   reference: string;
+  /** קבוצת המזון המקורית, כדי שכלי התאמת מאקרו יוכל להבחין בין ירק לבין מקור פחמימה. */
+  foodGroup?: FoodGroup;
   calories: number;
   protein: number;
   carbohydrates: number;
@@ -20,7 +22,12 @@ export type MealFood = {
   /** מסמן שהכמות נוקתה באיפוס היומי, כדי שאפס יישמר גם לאחר הידרציה. */
   dailyQuantityCleared?: boolean;
 };
-export type Meal = { id: string; title: string; foods: MealFood[] };
+export type MealMacroTargets = Partial<{
+  protein: number;
+  carbohydrates: number;
+  fats: number;
+}>;
+export type Meal = { id: string; title: string; foods: MealFood[]; targetMacros?: MealMacroTargets };
 
 /** מחלץ את מספר הגרמים מתווית כמות ומחזיר fallback בטוח רק כשהתווית אינה תקינה. */
 export function gramsFromMealQuantity(quantity: string, fallback = 100): number {
@@ -292,6 +299,11 @@ function sourceForMealFood(food: MealFood) {
   return byId;
 }
 
+/** מחזיר את קבוצת המזון המקורית של רכיב בארוחה, גם עבור ארוחות ישנות שלא שמרו אותה במפורש. */
+export function foodGroupForMealFood(food: MealFood): FoodGroup | undefined {
+  return food.foodGroup ?? sourceForMealFood(food)?.group;
+}
+
 function explicitGramsFromQuantity(quantity: string): number | undefined {
   const match = quantity.match(/^\s*([0-9]+(?:[.,][0-9]+)?)\s*גרם/);
   if (!match) return undefined;
@@ -334,6 +346,7 @@ export function normalizeMealsTo100Grams(meals: Meal[]): Meal[] {
           name: source.name,
           quantity: `${portionGrams} גרם`,
           reference: source.reference,
+          foodGroup: food.foodGroup ?? source.group,
           weightMode: food.weightMode ?? "cooked",
           servingGrams: portionGrams,
           quantityGrams: portionGrams,

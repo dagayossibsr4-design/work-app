@@ -66,8 +66,14 @@ import {
   type EquivalentSwap,
 } from "@/lib/meal-conversion-engine";
 import {
+  buildMealMacroAllocations,
+  buildMealMacroAlignment,
+  clearMealMacroTargets,
   mealPlanGoalLabel,
+  rebalanceMealMacroTargets,
   scaleMealsToTargets,
+  type MealMacroKey,
+  type MealMacroAlignmentPlan,
 } from "@/lib/meal-plan-targets";
 import {
   applyProportionalMacroReduction,
@@ -152,6 +158,7 @@ type NutritionDraft = {
   carbohydrates: string;
   fats: string;
 };
+type MealTargetDraft = Record<MealMacroKey, string>;
 const mealFoodSubgroupOrder: FoodSubgroup[] = ["עופות", "בשר", "דגים", "גבינות ומוצרי חלב", "ביצים", "קטניות ותחליפים", "משקאות חלבון", "אבקות חלבון", "חטיפי חלבון", "חטיפי בריאות ודגנים", "לחמים ומאפים", "פסטות ודגנים", "סלטים קנויים", "ממרחים ורטבים", "שמנים, אגוזים וזרעים", "חטיפים ומוצרים מוכנים", "פחמימות", "פירות וירקות", "שונות"];
 const mealFoodFatOrder = { "דל שומן": 0, "בינוני": 1, "שומני": 2 } as const;
 type DailyMealSnapshot = {
@@ -267,6 +274,9 @@ export default function MealPlanScreen() {
   const [nutritionStorageRevision, setNutritionStorageRevision] = useState(0);
   const [nutritionRestoreReady, setNutritionRestoreReady] = useState(isNutritionStorageRestoreReady);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
+  const [editingMealTargetId, setEditingMealTargetId] = useState<string | null>(null);
+  const [mealTargetDraft, setMealTargetDraft] = useState<MealTargetDraft>({ protein: "", carbohydrates: "", fats: "" });
+  const [pendingMealMacroAlignment, setPendingMealMacroAlignment] = useState<MealMacroAlignmentPlan | null>(null);
   const [mealFoodPickerId, setMealFoodPickerId] = useState<string | null>(null);
   const [mealEditBackup, setMealEditBackup] = useState<Meal | null>(null);
   const [clearDailyQuantitiesOpen, setClearDailyQuantitiesOpen] = useState(false);
@@ -646,6 +656,62 @@ export default function MealPlanScreen() {
   };
   const activeProfile = menuProfiles[activeGoal];
   const targetCalories = Number(activeProfile.calories) || 0;
+  const activeMacroTargets = useMemo(() => ({
+    protein: Math.max(0, Number(activeProfile.protein) || 0),
+    carbohydrates: Math.max(0, Number(activeProfile.carbohydrates) || 0),
+    fats: Math.max(0, Number(activeProfile.fats) || 0),
+  }), [activeProfile.protein, activeProfile.carbohydrates, activeProfile.fats]);
+  const mealMacroAllocations = useMemo(
+    () => buildMealMacroAllocations(meals, activeMacroTargets),
+    [meals, activeMacroTargets],
+  );
+  const mealMacroAllocationById = useMemo(
+    () => new Map(mealMacroAllocations.map((allocation) => [allocation.mealId, allocation.targets])),
+    [mealMacroAllocations],
+  );
+  const openMealTargetEditor = (mealId: string) => {
+    const allocation = mealMacroAllocationById.get(mealId);
+    if (!allocation) return;
+    setMealTargetDraft({
+      protein: String(allocation.protein),
+      carbohydrates: String(allocation.carbohydrates),
+      fats: String(allocation.fats),
+    });
+    setEditingMealTargetId(mealId);
+  };
+  const saveMealTargetEditor = (meal: Meal) => {
+    const currentTarget = mealMacroAllocationById.get(meal.id);
+    if (!currentTarget) return;
+    const valueFor = (macro: MealMacroKey) => {
+      const parsed = Number(mealTargetDraft[macro].trim().replace(",", "."));
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : currentTarget[macro];
+    };
+    setMeals((current) => rebalanceMealMacroTargets(current, activeMacroTargets, meal.id, {
+      protein: valueFor("protein"),
+      carbohydrates: valueFor("carbohydrates"),
+      fats: valueFor("fats"),
+    }));
+    setEditingMealTargetId(null);
+    setRebalanceMessage(`${meal.title}: היעד נשמר והיתרה חולקה מחדש בין הארוחות הבאות.`);
+  };
+  const resetMealTargetAllocations = () => {
+    setMeals((current) => clearMealMacroTargets(current));
+    setEditingMealTargetId(null);
+    setPendingMealMacroAlignment(null);
+    setRebalanceMessage("היעדים חולקו מחדש באופן שווה בין כל הארוחות.");
+  };
+  const previewMealMacroAlignment = (meal: Meal) => {
+    const target = mealMacroAllocationById.get(meal.id);
+    if (!target) return;
+    setPendingMealMacroAlignment(buildMealMacroAlignment(meal, target));
+  };
+  const applyMealMacroAlignment = () => {
+    if (!pendingMealMacroAlignment) return;
+    const plan = pendingMealMacroAlignment;
+    setMeals((current) => current.map((meal) => meal.id === plan.mealId ? plan.alignedMeal : meal));
+    setPendingMealMacroAlignment(null);
+    setRebalanceMessage(`${plan.mealTitle}: כמויות המזון עודכנו לפי היעד. ירקות ופירות לא שונו.`);
+  };
   const commitProfile = (next: MenuProfile) => {
     setMenuProfiles((current) => ({ ...current, [next.goal]: next }));
     updateNutritionProfile({
@@ -1786,6 +1852,7 @@ export default function MealPlanScreen() {
                   name: item.name,
                   quantity: `${grams} גרם`,
                   reference: `${item.reference} · מנה/יחידה ${grams} ג׳`,
+                  foodGroup: item.group,
                   weightMode: "cooked",
                   ...macros,
                   servingGrams: grams,
@@ -2574,6 +2641,9 @@ export default function MealPlanScreen() {
             const roundedProtein = Math.round(total.protein * 10) / 10;
             const roundedCarbohydrates = Math.round(total.carbohydrates * 10) / 10;
             const roundedFats = Math.round(total.fats * 10) / 10;
+            const mealTarget = mealMacroAllocationById.get(meal.id) ?? { protein: 0, carbohydrates: 0, fats: 0 };
+            const isMealTargetEditing = editingMealTargetId === meal.id;
+            const hasCustomMealTarget = Object.keys(meal.targetMacros ?? {}).length > 0;
             const eatenFoodsCount = meal.foods.filter((food) => eaten[food.id]).length;
             const hasEatenFoods = eatenFoodsCount > 0;
             const isMealFullyEaten = meal.foods.length > 0 && eatenFoodsCount === meal.foods.length;
@@ -2631,6 +2701,68 @@ export default function MealPlanScreen() {
                     {isMealExpanded ? "סגור ▲" : "פתח ▼"}
                   </Text>
                 </Pressable>
+                <View style={styles.mealTargetCard}>
+                  <View style={styles.mealTargetTopRow}>
+                    <View style={styles.mealTargetHeading}>
+                      <Text style={styles.mealTargetTitle}>יעד הארוחה</Text>
+                      <Text style={styles.mealTargetHint}>{hasCustomMealTarget ? "מותאם אישית · היתרה מתאזנת בארוחות הבאות" : "חלוקה שווה לפי היעד היומי"}</Text>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={isMealTargetEditing ? `סגור התאמת יעד עבור ${meal.title}` : `התאם ערכים בהתאם ליעד עבור ${meal.title}`}
+                      onPress={() => isMealTargetEditing ? setEditingMealTargetId(null) : openMealTargetEditor(meal.id)}
+                      style={({ pressed }) => [styles.mealTargetEditButton, isMealTargetEditing && styles.mealTargetEditButtonActive, pressed && styles.swapButtonPressed]}
+                    >
+                      <Text style={[styles.mealTargetEditText, isMealTargetEditing && styles.mealTargetEditTextActive]}>{isMealTargetEditing ? "סגור" : "התאם ערכים"}</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.mealTargetGrid}>
+                    <View style={styles.mealTargetMetric}><Text style={styles.mealTargetMetricLabel}>חלבון</Text><Text style={styles.mealTargetProtein}>יעד {mealTarget.protein.toFixed(1)} ג׳</Text><Text style={styles.mealTargetActual}>בפועל {roundedProtein.toFixed(1)} ג׳</Text></View>
+                    <View style={styles.mealTargetMetric}><Text style={styles.mealTargetMetricLabel}>פחמימות</Text><Text style={styles.mealTargetCarbohydrates}>יעד {mealTarget.carbohydrates.toFixed(1)} ג׳</Text><Text style={styles.mealTargetActual}>בפועל {roundedCarbohydrates.toFixed(1)} ג׳</Text></View>
+                    <View style={styles.mealTargetMetric}><Text style={styles.mealTargetMetricLabel}>שומן</Text><Text style={styles.mealTargetFats}>יעד {mealTarget.fats.toFixed(1)} ג׳</Text><Text style={styles.mealTargetActual}>בפועל {roundedFats.toFixed(1)} ג׳</Text></View>
+                  </View>
+                  {isMealTargetEditing ? (
+                    <View style={styles.mealTargetEditor}>
+                      <Text style={styles.mealTargetEditorCopy}>ערוך את יעד הארוחה. היתרה תתחלק אוטומטית בין הארוחות שאחריה.</Text>
+                      <View style={styles.mealTargetEditorFields}>
+                        <View style={styles.mealTargetField}><Text style={styles.mealTargetFieldLabel}>חלבון</Text><TextInput value={mealTargetDraft.protein} onChangeText={(value) => setMealTargetDraft((current) => ({ ...current, protein: value }))} keyboardType="decimal-pad" style={styles.mealTargetInput} /></View>
+                        <View style={styles.mealTargetField}><Text style={styles.mealTargetFieldLabel}>פחמימות</Text><TextInput value={mealTargetDraft.carbohydrates} onChangeText={(value) => setMealTargetDraft((current) => ({ ...current, carbohydrates: value }))} keyboardType="decimal-pad" style={styles.mealTargetInput} /></View>
+                        <View style={styles.mealTargetField}><Text style={styles.mealTargetFieldLabel}>שומן</Text><TextInput value={mealTargetDraft.fats} onChangeText={(value) => setMealTargetDraft((current) => ({ ...current, fats: value }))} keyboardType="decimal-pad" style={styles.mealTargetInput} /></View>
+                      </View>
+                      <View style={styles.mealTargetEditorActions}>
+                        <Pressable accessibilityRole="button" onPress={resetMealTargetAllocations} style={({ pressed }) => [styles.mealTargetResetButton, pressed && styles.swapButtonPressed]}><Text style={styles.mealTargetResetText}>פצל מחדש את כל הארוחות</Text></Pressable>
+                        <Pressable accessibilityRole="button" onPress={() => saveMealTargetEditor(meal)} style={({ pressed }) => [styles.mealTargetSaveButton, pressed && styles.swapButtonPressed]}><Text style={styles.mealTargetSaveText}>שמור ואזן קדימה</Text></Pressable>
+                      </View>
+                    </View>
+                  ) : null}
+                  {!isMealTargetEditing ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`התאם את ${meal.title} ליעד המאקרו שלה`}
+                      onPress={() => previewMealMacroAlignment(meal)}
+                      style={({ pressed }) => [styles.mealTargetApplyButton, pressed && styles.swapButtonPressed]}
+                    >
+                      <Text style={styles.mealTargetApplyText}>התאם את המזון ליעד</Text>
+                      <Text style={styles.mealTargetApplyHint}>מעדכן רק חלבון, פחמימה ושומן · ירקות ופירות נשארים ללא שינוי</Text>
+                    </Pressable>
+                  ) : null}
+                  {pendingMealMacroAlignment?.mealId === meal.id ? (
+                    <View style={styles.mealTargetPreview}>
+                      <Text style={styles.mealTargetPreviewTitle}>בדוק לפני החלה</Text>
+                      {pendingMealMacroAlignment.items.length > 0 ? pendingMealMacroAlignment.items.map((item) => (
+                        <View key={item.foodId} style={styles.mealTargetPreviewRow}>
+                          <Text style={styles.mealTargetPreviewName}>{item.foodName}</Text>
+                          <Text style={styles.mealTargetPreviewValue}>{item.currentGrams} ג׳ ← {item.nextGrams} ג׳</Text>
+                        </View>
+                      )) : <Text style={styles.mealTargetPreviewEmpty}>אין שינוי נדרש בכמויות המזון בארוחה זו.</Text>}
+                      <Text style={styles.mealTargetPreviewTotals}>לאחר התאמה: חלבון {pendingMealMacroAlignment.projected.protein.toFixed(1)} ג׳ · פחמימות {pendingMealMacroAlignment.projected.carbohydrates.toFixed(1)} ג׳ · שומן {pendingMealMacroAlignment.projected.fats.toFixed(1)} ג׳</Text>
+                      <View style={styles.mealTargetEditorActions}>
+                        <Pressable accessibilityRole="button" onPress={() => setPendingMealMacroAlignment(null)} style={({ pressed }) => [styles.mealTargetResetButton, pressed && styles.swapButtonPressed]}><Text style={styles.mealTargetResetText}>ביטול</Text></Pressable>
+                        <Pressable accessibilityRole="button" disabled={pendingMealMacroAlignment.items.length === 0} onPress={applyMealMacroAlignment} style={({ pressed }) => [styles.mealTargetSaveButton, pendingMealMacroAlignment.items.length === 0 && styles.mealTargetApplyDisabled, pressed && styles.swapButtonPressed]}><Text style={styles.mealTargetSaveText}>החל התאמה</Text></Pressable>
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
                 {isAdvancedMealOpen ? <View style={styles.mealQuickActions}>
                   <Pressable
                     onPress={() => moveMeal(meal.id, 1)}
@@ -5487,6 +5619,44 @@ const styles = StyleSheet.create({
   mealHeaderPressed: { backgroundColor: "#F5B72C", opacity: 0.92, transform: [{ scale: 0.99 }] },
   mealToggle: { color: "#8FD3F4", fontSize: 12, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
   mealToggleActive: { color: "#0B1224" },
+  mealTargetCard: { backgroundColor: "#102039", borderColor: "#2C547B", borderWidth: 1, borderRadius: 13, padding: 11, gap: 10 },
+  mealTargetTopRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  mealTargetHeading: { flex: 1, alignItems: "flex-start", gap: 2 },
+  mealTargetTitle: { color: "#F5D27A", fontSize: 13, fontWeight: "900", writingDirection: "rtl", textAlign: "right", alignSelf: "stretch" },
+  mealTargetHint: { color: "#9EB2CC", fontSize: 10, fontWeight: "700", writingDirection: "rtl", textAlign: "right", alignSelf: "stretch" },
+  mealTargetEditButton: { borderColor: "#4F86B9", borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: "#18334F" },
+  mealTargetEditButtonActive: { borderColor: "#F5B72C", backgroundColor: "#F5B72C" },
+  mealTargetEditText: { color: "#A8D7FF", fontSize: 11, fontWeight: "900", writingDirection: "rtl" },
+  mealTargetEditTextActive: { color: "#0B1224" },
+  mealTargetGrid: { flexDirection: "row-reverse", gap: 7 },
+  mealTargetMetric: { flex: 1, minWidth: 0, backgroundColor: "#0B162A", borderColor: "#294865", borderWidth: 1, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 7, gap: 2 },
+  mealTargetMetricLabel: { color: "#A6B4C8", fontSize: 9, fontWeight: "800", writingDirection: "rtl", textAlign: "right" },
+  mealTargetProtein: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
+  mealTargetCarbohydrates: { color: "#C99A68", fontSize: 13, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
+  mealTargetFats: { color: "#F5D27A", fontSize: 13, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
+  mealTargetActual: { color: "#8FA2BA", fontSize: 9, fontWeight: "800", writingDirection: "rtl", textAlign: "right" },
+  mealTargetEditor: { borderTopColor: "#294865", borderTopWidth: 1, paddingTop: 10, gap: 9 },
+  mealTargetEditorCopy: { color: "#C6D4E6", fontSize: 10, lineHeight: 16, fontWeight: "700", writingDirection: "rtl", textAlign: "right" },
+  mealTargetEditorFields: { flexDirection: "row-reverse", gap: 7 },
+  mealTargetField: { flex: 1, minWidth: 0, gap: 4 },
+  mealTargetFieldLabel: { color: "#B8C8DD", fontSize: 10, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
+  mealTargetInput: { backgroundColor: "#081426", borderColor: "#3A638A", borderWidth: 1, borderRadius: 8, color: "#F7F9FC", minHeight: 40, paddingHorizontal: 8, fontSize: 14, fontWeight: "900", textAlign: "center" },
+  mealTargetEditorActions: { flexDirection: "row-reverse", gap: 8 },
+  mealTargetResetButton: { flex: 1, minHeight: 40, borderColor: "#5D7F9F", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  mealTargetResetText: { color: "#B7D9F7", fontSize: 10, fontWeight: "900", writingDirection: "rtl", textAlign: "center" },
+  mealTargetSaveButton: { flex: 1, minHeight: 40, backgroundColor: "#F5B72C", borderColor: "#FFE49B", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  mealTargetSaveText: { color: "#0B1224", fontSize: 11, fontWeight: "900", writingDirection: "rtl", textAlign: "center" },
+  mealTargetApplyButton: { backgroundColor: "#1C4965", borderColor: "#65BDEB", borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, gap: 2, alignItems: "flex-end" },
+  mealTargetApplyText: { color: "#E7F6FF", fontSize: 12, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
+  mealTargetApplyHint: { color: "#A9CCE2", fontSize: 9, fontWeight: "700", writingDirection: "rtl", textAlign: "right" },
+  mealTargetPreview: { backgroundColor: "#0B182B", borderColor: "#497392", borderWidth: 1, borderRadius: 10, padding: 10, gap: 7 },
+  mealTargetPreviewTitle: { color: "#8FD3F4", fontSize: 11, fontWeight: "900", writingDirection: "rtl", textAlign: "right" },
+  mealTargetPreviewRow: { flexDirection: "row-reverse", justifyContent: "space-between", gap: 8, borderTopColor: "#28445F", borderTopWidth: 1, paddingTop: 6 },
+  mealTargetPreviewName: { flex: 1, color: "#F7F9FC", fontSize: 10, fontWeight: "800", writingDirection: "rtl", textAlign: "right" },
+  mealTargetPreviewValue: { color: "#F5D27A", fontSize: 10, fontWeight: "900", writingDirection: "rtl", textAlign: "left" },
+  mealTargetPreviewEmpty: { color: "#A6B4C8", fontSize: 10, fontWeight: "800", writingDirection: "rtl", textAlign: "right" },
+  mealTargetPreviewTotals: { color: "#C6D7E8", fontSize: 10, fontWeight: "800", lineHeight: 16, writingDirection: "rtl", textAlign: "right" },
+  mealTargetApplyDisabled: { backgroundColor: "#31455B", borderColor: "#58718B", opacity: 0.7 },
   mealFoodEditor: { gap: 12, paddingTop: 4 },
   mealFoodListHeader: {
     width: "100%",

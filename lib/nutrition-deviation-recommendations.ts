@@ -1,4 +1,4 @@
-import { gramsFromMealQuantity, mealFoodTotals, type Meal } from "./meal-plan";
+import { foodGroupForMealFood, gramsFromMealQuantity, mealFoodTotals, type Meal } from "./meal-plan";
 
 export type DeviationMacro = "calories" | "protein" | "carbohydrates" | "fats";
 
@@ -85,7 +85,7 @@ export function buildProportionalMacroReduction(
 
   const candidates = meals.flatMap((meal) =>
     meal.foods
-      .filter((food) => !eaten[meal.id] && !eaten[food.id])
+      .filter((food) => !eaten[meal.id] && !eaten[food.id] && foodGroupForMealFood(food) !== "ירק ופרי")
       .map((food) => {
         const grams = foodGrams(food);
         const macroAmount = mealFoodTotals(food)[macro];
@@ -179,7 +179,11 @@ export function buildNutritionDeviationSuggestions(
         const grams = foodGrams(food);
         return { meal, food, totals, grams };
       })
-      .filter((item) => (eaten[item.food.id] || eaten[item.meal.id]) && item.grams > 0),
+      .filter((item) => (
+        (eaten[item.food.id] || eaten[item.meal.id])
+        && item.grams > 0
+        && foodGroupForMealFood(item.food) !== "ירק ופרי"
+      )),
   );
 
   return definitions.flatMap(({ key, label, unit }) => {
