@@ -56,9 +56,19 @@ export default function NutritionScreen() {
   const deleteCustomFood = (id: string) => {
     const food = customFoods.find((item) => item.id === id);
     if (!food) return;
+    const removeFood = () => {
+      updateNutritionProfile((current) => ({ ...current, customFoods: removeCustomFood(current.customFoods ?? [], id), customFoodsUpdatedAt: Date.now() }));
+      if (editingFoodId === id) cancelCustomFoodEdit();
+      setMessage(`המוצר ${food.name} נמחק.`);
+    };
+    if (Platform.OS === "web") {
+      const confirmed = typeof window !== "undefined" && window.confirm(`למחוק את ${food.name}?`);
+      if (confirmed) removeFood();
+      return;
+    }
     Alert.alert("מחיקת מוצר אישי", `למחוק את ${food.name}?`, [
       { text: "ביטול", style: "cancel" },
-      { text: "מחק", style: "destructive", onPress: () => { updateNutritionProfile((current) => ({ ...current, customFoods: removeCustomFood(current.customFoods ?? [], id), customFoodsUpdatedAt: Date.now() })); if (editingFoodId === id) cancelCustomFoodEdit(); setMessage(`המוצר ${food.name} נמחק.`); } },
+      { text: "מחק", style: "destructive", onPress: removeFood },
     ]);
   };
   const duplicateCustomFood = (food: FoodItem) => {
