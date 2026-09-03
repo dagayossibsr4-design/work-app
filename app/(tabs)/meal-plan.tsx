@@ -70,9 +70,13 @@ import {
   scaleMealsToTargets,
 } from "@/lib/meal-plan-targets";
 import {
+  applyProportionalMacroReduction,
   buildNutritionDeviationSuggestions,
+  buildProportionalMacroReduction,
   groupDeviationSuggestions,
+  type AdjustableMacro,
   type DeviationMacro,
+  type ProportionalMacroReductionPlan,
 } from "@/lib/nutrition-deviation-recommendations";
 import {
   completeMenuProfile,
@@ -1297,6 +1301,8 @@ export default function MealPlanScreen() {
   };
   const [deviationAnalysisOpen, setDeviationAnalysisOpen] = useState(false);
   const [selectedDeviationMacros, setSelectedDeviationMacros] = useState<DeviationMacro[]>([]);
+  const [macroReductionConfirm, setMacroReductionConfirm] = useState<AdjustableMacro | null>(null);
+  const [macroReductionMessage, setMacroReductionMessage] = useState("");
   const macroDeviationItems = useMemo(() => {
     const definitions = [
       { key: "protein", label: "חלבון", value: consumed.protein, target: targets.protein },
@@ -1327,6 +1333,24 @@ export default function MealPlanScreen() {
     setSelectedDeviationMacros((current) => current.includes(macro)
       ? current.filter((item) => item !== macro)
       : [...current, macro]);
+  };
+  const proportionalMacroReductionPlans = useMemo(() => macroDeviationItems.reduce<ProportionalMacroReductionPlan[]>((plans, item) => {
+    if (item.key !== "protein" && item.key !== "carbohydrates" && item.key !== "fats") return plans;
+    const plan = buildProportionalMacroReduction(meals, eaten, item.key, item.excess);
+    return plan && plan.items.length ? [...plans, plan] : plans;
+  }, []), [eaten, macroDeviationItems, meals]);
+  const activeMacroReductionPlan = macroReductionConfirm
+    ? proportionalMacroReductionPlans.find((plan) => plan.macro === macroReductionConfirm) ?? null
+    : null;
+  const applyMacroReduction = () => {
+    if (!activeMacroReductionPlan) return;
+    setMeals((current) => {
+      const next = applyProportionalMacroReduction(current, activeMacroReductionPlan);
+      mealsRef.current = next;
+      return next;
+    });
+    setMacroReductionMessage(`עודכנו ${activeMacroReductionPlan.items.length} מקורות ${activeMacroReductionPlan.label}. הופחתו ${activeMacroReductionPlan.plannedAmount.toFixed(1)} ג׳ בארוחות שטרם נאכלו.`);
+    setMacroReductionConfirm(null);
   };
   const macroDistribution = useMemo(
     () => calculateMacroDistribution(displayedTotals),
@@ -3360,7 +3384,7 @@ export default function MealPlanScreen() {
                         onSelectFood={(item) => addFoodToMeal(meal.id, item)}
                         productSearch={mealFoodSearch}
                         onProductSearchChange={setMealFoodSearch}
-                        groups={["חלבון", "פחמימה", "שומן", "ירק ופרי", "שונות"]}
+                        groups={["חלבון", "פחמימה", "שומן", "ירק ופרי", "שונות", "מוצרים שנסרקו"]}
                         productActionText="＋ הוסף לארוחה"
                         productSearchPlaceholder="חפש מוצר בתוך תת־הקטגוריה"
                         allowGroupCollapse
@@ -3565,37 +3589,75 @@ export default function MealPlanScreen() {
                 <View style={styles.deviationMacroPicker}>
                   {macroDeviationItems.map((item) => {
                     const selected = selectedDeviationMacros.includes(item.key);
+                    const tone = deviationTone(item.key);
                     return (
                       <Pressable
                         key={item.key}
                         onPress={() => toggleDeviationMacro(item.key)}
                         accessibilityRole="button"
                         accessibilityState={{ selected }}
-                        style={({ pressed }) => [styles.deviationMacroChip, selected && styles.deviationMacroChipActive, pressed && styles.swapButtonPressed]}
+                        style={({ pressed }) => [styles.deviationMacroChip, tone.chip, selected && tone.chipActive, pressed && styles.swapButtonPressed]}
                       >
-                        <Text style={[styles.deviationMacroText, selected && styles.deviationMacroTextActive]}>{item.label} · +{item.excess.toFixed(1)} ג׳</Text>
+                        <Text style={[styles.deviationMacroText, tone.text, selected && tone.textActive]}>{item.label} · +{item.excess.toFixed(1)} ג׳</Text>
                       </Pressable>
                     );
                   })}
                 </View>
                 <Text style={styles.macroDeviationWarning}>ההמלצה מבוססת על מה שסומן כנאכל בפועל. היא מציעה מה להפחית בתפריט הבא או בארוחה שטרם נאכלה:</Text>
                 {filteredDeviationSuggestions.map((group) => (
-                  <View key={group.key} style={styles.deviationGroup}>
-                    <View style={styles.deviationGroupHeader}>
-                      <Text style={styles.deviationGroupTitle}>{group.label}</Text>
-                      <Text style={styles.macroDeviationAmount}>+{group.items[0].excess.toFixed(1)} {group.unit}</Text>
+                  <View key={group.key} style={[styles.deviationGroup, deviationTone(group.key).group]}>
+                    <View style={[styles.deviationGroupHeader, deviationTone(group.key).header]}>
+                      <Text style={[styles.deviationGroupTitle, deviationTone(group.key).title]}>{group.label}</Text>
+                      <Text style={[styles.macroDeviationAmount, deviationTone(group.key).amount]}>+{group.items[0].excess.toFixed(1)} {group.unit}</Text>
                     </View>
                     {group.items.map((item) => (
-                      <View key={`${item.macro}-${item.foodId}`} style={styles.deviationSuggestionRow}>
-                        <Text style={styles.deviationCut}>הפחת {item.reduceGrams.toFixed(1)} ג׳</Text>
+                      <View key={`${item.macro}-${item.foodId}`} style={[styles.deviationSuggestionRow, deviationTone(group.key).row]}>
+                        <Text style={[styles.deviationCut, deviationTone(group.key).amount]}>הפחת {item.reduceGrams.toFixed(1)} ג׳</Text>
                         <View style={styles.deviationFoodInfo}>
-                          <Text style={styles.deviationFoodName}>{item.foodName}</Text>
-                          <Text style={styles.deviationFoodMeta}>{item.mealTitle} · תרם {item.contribution.toFixed(1)} {group.unit}</Text>
+                          <Text style={[styles.deviationFoodName, deviationTone(group.key).title]}>{item.foodName}</Text>
+                          <Text style={[styles.deviationFoodMeta, deviationTone(group.key).meta]}>{item.mealTitle} · תרם {item.contribution.toFixed(1)} {group.unit}</Text>
                         </View>
                       </View>
                     ))}
+                    {(() => {
+                      const plan = proportionalMacroReductionPlans.find((item) => item.macro === group.key);
+                      if (!plan) return <Text style={styles.deviationNoBulkAction}>אין כרגע מקורות {group.label} בארוחות שטרם נאכלו להפחתה אוטומטית.</Text>;
+                      return (
+                        <>
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => setMacroReductionConfirm(plan.macro)}
+                            style={({ pressed }) => [styles.deviationBulkReduceButton, deviationTone(group.key).bulkButton, pressed && styles.swapButtonPressed]}
+                          >
+                            <Text style={[styles.deviationBulkReduceButtonText, deviationTone(group.key).bulkButtonText]}>הפחת מכל מקורות ה{group.label}</Text>
+                            <Text style={[styles.deviationBulkReduceButtonMeta, deviationTone(group.key).bulkButtonMeta]}>חלוקה יחסית בין {plan.items.length} פריטים · {plan.plannedAmount.toFixed(1)} ג׳</Text>
+                          </Pressable>
+                          {activeMacroReductionPlan?.macro === plan.macro ? (
+                            <View style={[styles.deviationBulkConfirm, deviationTone(group.key).confirm]}>
+                              <Text style={[styles.deviationBulkConfirmTitle, deviationTone(group.key).title]}>אישור הפחתה יחסית · {activeMacroReductionPlan.label}</Text>
+                              <Text style={styles.deviationBulkConfirmCopy}>הכמויות יופחתו מארוחות שטרם סומנו כנאכלו. ההיסטוריה של מה שכבר נאכל לא תשתנה.</Text>
+                              {activeMacroReductionPlan.items.map((item) => (
+                                <View key={`${item.mealId}:${item.foodId}`} style={[styles.deviationBulkItem, deviationTone(group.key).row]}>
+                                  <Text style={[styles.deviationBulkItemAmount, deviationTone(group.key).amount]}>{item.currentGrams.toFixed(1)} → {item.nextGrams.toFixed(1)} ג׳</Text>
+                                  <View style={styles.deviationBulkItemCopy}>
+                                    <Text style={[styles.deviationBulkItemName, deviationTone(group.key).title]}>{item.foodName}</Text>
+                                    <Text style={[styles.deviationBulkItemMeta, deviationTone(group.key).meta]}>{item.mealTitle} · הפחתת {item.macroToReduce.toFixed(1)} ג׳ {activeMacroReductionPlan.label}</Text>
+                                  </View>
+                                </View>
+                              ))}
+                              {activeMacroReductionPlan.remainingAmount > 0 ? <Text style={[styles.deviationBulkRemaining, deviationTone(group.key).amount]}>נותרו {activeMacroReductionPlan.remainingAmount.toFixed(1)} ג׳ ללא מקור זמין להפחתה.</Text> : null}
+                              <View style={styles.deviationBulkActions}>
+                                <Pressable accessibilityRole="button" onPress={() => setMacroReductionConfirm(null)} style={({ pressed }) => [styles.deviationBulkCancel, pressed && styles.swapButtonPressed]}><Text style={styles.deviationBulkCancelText}>ביטול</Text></Pressable>
+                                <Pressable accessibilityRole="button" onPress={applyMacroReduction} style={({ pressed }) => [styles.deviationBulkApply, pressed && styles.swapButtonPressed]}><Text style={styles.deviationBulkApplyText}>אשר והפחת</Text></Pressable>
+                              </View>
+                            </View>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </View>
                 ))}
+                {macroReductionMessage ? <Text accessibilityLiveRegion="polite" style={styles.deviationBulkSuccess}>{macroReductionMessage}</Text> : null}
               </>
             ) : macroDeviationItems.length ? (
               <>
@@ -4256,6 +4318,27 @@ const nutritionEditStyles = StyleSheet.create({
   restoreText: { color: "#D9EEFF", fontSize: 11, fontWeight: "900", writingDirection: "rtl" },
   pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
 });
+function deviationTone(macro: DeviationMacro) {
+  if (macro === "protein") return {
+    chip: styles.deviationProteinChip, chipActive: styles.deviationProteinChipActive, text: styles.deviationProteinText, textActive: styles.deviationProteinTextActive,
+    group: styles.deviationProteinGroup, header: styles.deviationProteinHeader, title: styles.deviationProteinText, amount: styles.deviationProteinText,
+    row: styles.deviationProteinRow, meta: styles.deviationProteinMeta, bulkButton: styles.deviationProteinBulkButton,
+    bulkButtonText: styles.deviationProteinBulkText, bulkButtonMeta: styles.deviationProteinBulkMeta, confirm: styles.deviationProteinConfirm,
+  };
+  if (macro === "fats") return {
+    chip: styles.deviationFatChip, chipActive: styles.deviationFatChipActive, text: styles.deviationFatText, textActive: styles.deviationFatTextActive,
+    group: styles.deviationFatGroup, header: styles.deviationFatHeader, title: styles.deviationFatText, amount: styles.deviationFatText,
+    row: styles.deviationFatRow, meta: styles.deviationFatMeta, bulkButton: styles.deviationFatBulkButton,
+    bulkButtonText: styles.deviationFatBulkText, bulkButtonMeta: styles.deviationFatBulkMeta, confirm: styles.deviationFatConfirm,
+  };
+  return {
+    chip: styles.deviationCarbChip, chipActive: styles.deviationCarbChipActive, text: styles.deviationCarbText, textActive: styles.deviationCarbTextActive,
+    group: styles.deviationCarbGroup, header: styles.deviationCarbHeader, title: styles.deviationCarbText, amount: styles.deviationCarbText,
+    row: styles.deviationCarbRow, meta: styles.deviationCarbMeta, bulkButton: styles.deviationCarbBulkButton,
+    bulkButtonText: styles.deviationCarbBulkText, bulkButtonMeta: styles.deviationCarbBulkMeta, confirm: styles.deviationCarbConfirm,
+  };
+}
+
 const styles = StyleSheet.create({
   mealPlanScroll: { flex: 1, minHeight: 0 },
   content: {
@@ -4660,6 +4743,61 @@ const styles = StyleSheet.create({
   deviationGroupHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", borderBottomColor: "#8D4050", borderBottomWidth: 1, paddingBottom: 7 },
   deviationGroupTitle: { color: "#FFE4E7", fontSize: 13, fontWeight: "900", textAlign: "right" },
   deviationSuggestionRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, backgroundColor: "#321B24", borderRadius: 9, padding: 8 },
+  deviationNoBulkAction: { color: "#FFD2D8", fontSize: 10, lineHeight: 15, textAlign: "right", paddingTop: 2 },
+  deviationBulkReduceButton: { backgroundColor: "#F5B72C", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, alignItems: "flex-end", gap: 2, marginTop: 2 },
+  deviationBulkReduceButtonText: { color: "#281A08", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  deviationBulkReduceButtonMeta: { color: "#66470C", fontSize: 10, fontWeight: "800", textAlign: "right" },
+  deviationBulkConfirm: { backgroundColor: "#2C1A22", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 10, padding: 10, gap: 8 },
+  deviationBulkConfirmTitle: { color: "#FFE7A3", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  deviationBulkConfirmCopy: { color: "#F8DDE1", fontSize: 10, lineHeight: 15, textAlign: "right" },
+  deviationBulkItem: { flexDirection: "row-reverse", alignItems: "center", gap: 8, backgroundColor: "#3A202A", borderRadius: 8, padding: 8 },
+  deviationBulkItemCopy: { flex: 1, gap: 2, alignItems: "flex-end" },
+  deviationBulkItemName: { color: "#FFF5F6", fontSize: 12, fontWeight: "900", textAlign: "right" },
+  deviationBulkItemMeta: { color: "#DFAFB9", fontSize: 9, textAlign: "right" },
+  deviationBulkItemAmount: { color: "#FFE7A3", fontSize: 11, fontWeight: "900" },
+  deviationBulkRemaining: { color: "#FFD2D8", fontSize: 10, fontWeight: "800", textAlign: "right" },
+  deviationBulkActions: { flexDirection: "row-reverse", gap: 8 },
+  deviationBulkCancel: { flex: 1, borderColor: "#D58A96", borderWidth: 1, borderRadius: 9, paddingVertical: 10, alignItems: "center" },
+  deviationBulkCancelText: { color: "#FFE4E7", fontSize: 12, fontWeight: "900" },
+  deviationBulkApply: { flex: 1, backgroundColor: "#42D392", borderRadius: 9, paddingVertical: 10, alignItems: "center" },
+  deviationBulkApplyText: { color: "#0D261E", fontSize: 12, fontWeight: "900" },
+  deviationBulkSuccess: { color: "#C9F6DC", backgroundColor: "#214A3D", borderColor: "#42D392", borderWidth: 1, borderRadius: 9, padding: 10, fontSize: 11, lineHeight: 16, textAlign: "right" },
+  deviationProteinChip: { borderColor: "#F6F8FF", backgroundColor: "#313746" },
+  deviationProteinChipActive: { backgroundColor: "#F6F8FF" },
+  deviationProteinText: { color: "#FFFFFF" },
+  deviationProteinTextActive: { color: "#263143" },
+  deviationProteinGroup: { backgroundColor: "#3B414F", borderColor: "#F6F8FF" },
+  deviationProteinHeader: { borderBottomColor: "#8B96AB" },
+  deviationProteinRow: { backgroundColor: "#2A2F3B" },
+  deviationProteinMeta: { color: "#D4DBEA" },
+  deviationProteinBulkButton: { backgroundColor: "#F6F8FF" },
+  deviationProteinBulkText: { color: "#263143" },
+  deviationProteinBulkMeta: { color: "#566276" },
+  deviationProteinConfirm: { backgroundColor: "#29303C", borderColor: "#F6F8FF" },
+  deviationFatChip: { borderColor: "#F5B72C", backgroundColor: "#4D3B12" },
+  deviationFatChipActive: { backgroundColor: "#F5B72C" },
+  deviationFatText: { color: "#FFD866" },
+  deviationFatTextActive: { color: "#2C2209" },
+  deviationFatGroup: { backgroundColor: "#4A3A14", borderColor: "#F5B72C" },
+  deviationFatHeader: { borderBottomColor: "#9B761B" },
+  deviationFatRow: { backgroundColor: "#372A10" },
+  deviationFatMeta: { color: "#E9D18A" },
+  deviationFatBulkButton: { backgroundColor: "#F5B72C" },
+  deviationFatBulkText: { color: "#2C2209" },
+  deviationFatBulkMeta: { color: "#66470C" },
+  deviationFatConfirm: { backgroundColor: "#382D12", borderColor: "#F5B72C" },
+  deviationCarbChip: { borderColor: "#C58A61", backgroundColor: "#5E3C2B" },
+  deviationCarbChipActive: { backgroundColor: "#9A633E" },
+  deviationCarbText: { color: "#FFE2C5" },
+  deviationCarbTextActive: { color: "#FFF6EE" },
+  deviationCarbGroup: { backgroundColor: "#603D2C", borderColor: "#C58A61" },
+  deviationCarbHeader: { borderBottomColor: "#9D6548" },
+  deviationCarbRow: { backgroundColor: "#442C21" },
+  deviationCarbMeta: { color: "#E5B99B" },
+  deviationCarbBulkButton: { backgroundColor: "#9A633E" },
+  deviationCarbBulkText: { color: "#FFF6EE" },
+  deviationCarbBulkMeta: { color: "#F2C6A4" },
+  deviationCarbConfirm: { backgroundColor: "#482E22", borderColor: "#C58A61" },
   deviationFoodInfo: { flex: 1, alignItems: "flex-end" },
   deviationFoodName: { color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "right" },
   deviationFoodMeta: { color: "#E4B8BF", fontSize: 9, marginTop: 3, textAlign: "right" },
