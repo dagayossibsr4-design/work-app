@@ -21,13 +21,59 @@ const foodSubgroups: FoodSubgroup[] = [
 
 const errorCopy = (error: unknown) => {
   const raw = error instanceof Error ? error.message.toLowerCase() : "";
-  if (raw.includes("network") || raw.includes("fetch") || raw.includes("timeout") || raw.includes("502") || raw.includes("503")) return "לא הצלחנו להתחבר לשירות החילוץ. בדוק את החיבור לאינטרנט ונסה שוב.";
-  if (raw.includes("413") || raw.includes("size") || raw.includes("payload") || raw.includes("image") || raw.includes("base64") || raw.includes("format")) return "התמונה גדולה מדי או לא נקראה כראוי. נסה לצלם את טבלת הערכים מקרוב.";
-  if (raw.includes("429") || raw.includes("limit")) return "השירות עמוס כרגע. המתן כמה שניות ונסה שוב.";
-  return "לא הצלחנו לחלץ את הערכים מהתווית. ודא שטבלת הערכים גלויה וברורה ונסה שוב.";
+  if (raw.includes("network") || raw.includes("fetch") || raw.includes("timeout") || raw.includes("502") || raw.includes("503")) {
+    return "לא הצלחנו להתחבר לשירות החילוץ. בדוק את החיבור לרשת ונסה שוב.";
+  }
+  if (raw.includes("413") || raw.includes("size") || raw.includes("payload") || raw.includes("too large")) {
+    return "התמונה גדולה מדי עבור השרת. נסה שוב מצילום קרוב וממוקד.";
+  }
+  if (raw.includes("429") || raw.includes("limit")) {
+    return "השירות עמוס כרגע. המתן מספר שניות ונסה שוב.";
+  }
+  return error instanceof Error && error.message ? error.message : "לא הצלחנו לחלץ את הערכים מהתווית. ודא שטבלת הערכים גלויה וברורה ונסה שוב.";
 };
 
-const FOOD_LABEL_DRAFT_KEY = "food-label-draft-v5";
+const FOOD_LABEL_DRAFT_KEY = "food-label-draft-v6";
+
+// כיווץ תמונה בדפדפן למניעת חריגת Payload מול השרת
+const compressImageFile = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = document.createElement("img");
+      img.onload = () => {
+        const maxDimension = 1200;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height && width > maxDimension) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else if (height > maxDimension) {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+
+        if (!ctx) {
+          resolve(String(event.target?.result || ""));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.onerror = () => reject(new Error("טעינת קובץ התמונה נכשלה."));
+      img.src = String(event.target?.result || "");
+    };
+    reader.onerror = () => reject(new Error("קריאת קובץ התמונה נכשלה."));
+    reader.readAsDataURL(file);
+  });
+};
 
 export default function FoodLabelScreen() {
   const { updateNutritionProfile } = useWorkoutStore();
@@ -54,62 +100,85 @@ export default function FoodLabelScreen() {
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(FOOD_LABEL_DRAFT_KEY).then((raw) => {
-      if (!raw) return;
-      try {
-        const draft = JSON.parse(raw);
-        if (draft.name) setName(draft.name);
-        if (draft.brand) setBrand(draft.brand);
-        if (draft.calories) setCalories(draft.calories);
-        if (draft.protein) setProtein(draft.protein);
-        if (draft.carbohydrates) setCarbohydrates(draft.carbohydrates);
-        if (draft.fats) setFats(draft.fats);
-        if (draft.group) setGroup(draft.group);
-        if (draft.subgroup) setSubgroup(draft.subgroup);
-      } catch {}
-    }).catch(() => undefined);
+    AsyncStorage.getItem(FOOD_LABEL_DRAFT_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          const draft = JSON.parse(raw);
+          if (draft.name) setName(draft.name);
+          if (draft.brand) setBrand(draft.brand);
+          if (draft.calories) setCalories(draft.calories);
+          if (draft.protein) setProtein(draft.protein);
+          if (draft.carbohydrates) setCarbohydrates(draft.carbohydrates);
+          if (draft.fats) setFats(draft.fats);
+          if (draft.group) setGroup(draft.group);
+          if (draft.subgroup) setSubgroup(draft.subgroup);
+        } catch {}
+      })
+      .catch(() => undefined);
   }, []);
 
   const isBusy = phase === "uploading" || phase === "extracting" || extract.isPending;
   const selectedSubgroupLabel = subgroup === "ללא" ? "לא נבחרה תת־קטגוריה" : subgroup;
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     setErrorMessage("");
     setMessage("");
     setPhase("uploading");
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const fullDataUrl = String(e.target?.result || "");
-        setImageUri(fullDataUrl);
-        setLastBase64(fullDataUrl);
-        setPhase("extracting");
+    try {
+      // 1. כיווץ התמונה לגודל קל
+      const compressedDataUrl = await compressImageFile(file);
+      setImageUri(compressedDataUrl);
+      setLastBase64(compressedDataUrl);
 
-        const res = await extract.mutateAsync({ imageDataUrl: fullDataUrl });
+      // 2. שליחה לשרת ה-tRPC
+      setPhase("extracting");
+      const res = await extract.mutateAsync({ imageDataUrl: compressedDataUrl });
 
-        setName(res.name || "");
-        setBrand(res.brand || "");
-        setCalories(res.calories ? String(Math.round(res.calories * 10) / 10) : "");
-        setProtein(res.protein ? String(Math.round(res.protein * 10) / 10) : "");
-        setCarbohydrates(res.carbohydrates ? String(Math.round(res.carbohydrates * 10) / 10) : "");
-        setFats(res.fats ? String(Math.round(res.fats * 10) / 10) : "");
-        setConfidence(res.confidence);
-        setNote(res.note || "");
-        setMessage("החילוץ הושלם בהצלחה. בדוק את הערכים מול האריזה לפני שמירה.");
-        setPhase("success");
-      } catch (err) {
-        setPhase("error");
-        setErrorMessage(errorCopy(err));
-      }
-    };
-    reader.readAsDataURL(file);
+      // 3. מילוי השדות
+      setName(res.name || "");
+      setBrand(res.brand || "");
+      setCalories(res.calories ? String(Math.round(res.calories * 10) / 10) : "");
+      setProtein(res.protein ? String(Math.round(res.protein * 10) / 10) : "");
+      setCarbohydrates(res.carbohydrates ? String(Math.round(res.carbohydrates * 10) / 10) : "");
+      setFats(res.fats ? String(Math.round(res.fats * 10) / 10) : "");
+      setConfidence(res.confidence);
+      setNote(res.note || "");
+      setMessage("החילוץ הושלם בהצלחה. בדוק את הערכים לפני שמירה.");
+      setPhase("success");
+    } catch (err) {
+      setPhase("error");
+      setErrorMessage(errorCopy(err));
+    }
   };
 
   const handleInputChange = (e: any) => {
     const file = e.target.files?.[0];
-    if (file) processFile(file);
+    if (file) void processFile(file);
     e.target.value = "";
+  };
+
+  const retryExtraction = async () => {
+    if (!lastBase64 || isBusy) return;
+    setErrorMessage("");
+    setPhase("extracting");
+    try {
+      const res = await extract.mutateAsync({ imageDataUrl: lastBase64 });
+      setName(res.name || "");
+      setBrand(res.brand || "");
+      setCalories(res.calories ? String(Math.round(res.calories * 10) / 10) : "");
+      setProtein(res.protein ? String(Math.round(res.protein * 10) / 10) : "");
+      setCarbohydrates(res.carbohydrates ? String(Math.round(res.carbohydrates * 10) / 10) : "");
+      setFats(res.fats ? String(Math.round(res.fats * 10) / 10) : "");
+      setConfidence(res.confidence);
+      setNote(res.note || "");
+      setMessage("החילוץ הושלם בהצלחה.");
+      setPhase("success");
+    } catch (err) {
+      setPhase("error");
+      setErrorMessage(errorCopy(err));
+    }
   };
 
   const saveFood = () => {
@@ -151,7 +220,6 @@ export default function FoodLabelScreen() {
           <Text style={styles.subtitle}>צילום או העלאה של טבלת ערכים, אימות קצר ושמירה ישירה למאגר האישי.</Text>
         </View>
 
-        {/* Inputs מובנים ללא תלויות צד שלישי */}
         {Platform.OS === "web" ? (
           <>
             <input
@@ -196,17 +264,31 @@ export default function FoodLabelScreen() {
               <Text style={styles.primaryHint}>{isBusy ? "המתן לסיום" : "מהגלריה או קובץ"}</Text>
             </Pressable>
           </View>
-          <Text style={styles.captureFootnote}>להצלחה מרבית: מלא את רוב המסך בטבלת הערכים, ללא סנוור וללא טשטוש.</Text>
+          <Text style={styles.captureFootnote}>להצלחה מרבית: מקד את המצלמה על טבלת הערכים בלבד, מול אור מלא.</Text>
         </View>
 
         {isBusy ? (
-          <StatusPanel tone="loading" title="מנתח את טבלת הערכים בענן..." copy="התמונה מעובדת. השאר את המסך פתוח עד לסיום החילוץ." />
+          <StatusPanel
+            tone="loading"
+            title={phase === "uploading" ? "מבצע כיווץ ואופטימיזציה..." : "מנתח את טבלת הערכים בענן..."}
+            copy="התמונה מעובדת. השאר את המסך פתוח עד לסיום החילוץ."
+          />
         ) : null}
 
         {phase === "error" ? (
           <View style={styles.errorBox}>
             <Text style={styles.errorTitle}>החילוץ לא הושלם</Text>
             <Text style={styles.errorText}>{errorMessage}</Text>
+            <View style={styles.errorActions}>
+              {lastBase64 ? (
+                <Pressable onPress={() => void retryExtraction()} style={styles.retryButton}>
+                  <Text style={styles.retryText}>נסה שוב</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={() => cameraInputRef.current?.click()} style={styles.secondaryButton}>
+                <Text style={styles.secondaryText}>צלם מחדש</Text>
+              </Pressable>
+            </View>
           </View>
         ) : null}
 
@@ -228,8 +310,8 @@ export default function FoodLabelScreen() {
         <View style={styles.card}>
           <SectionHeader number="02" title="פרטי המוצר" subtitle="אמת את הזיהוי לפני שמירה" />
           <View style={styles.fieldStack}>
-            <Field label="שם המוצר" value={name} onChangeText={setName} placeholder="לדוגמה: קוטג׳ 5%" />
-            <Field label="מותג או מקור" value={brand} onChangeText={setBrand} placeholder="לדוגמה: תנובה" />
+            <Field label="שם המוצר" value={name} onChangeText={setName} placeholder="לדוגמה: ממרח אגוזים וקקאו" />
+            <Field label="מותג או מקור" value={brand} onChangeText={setBrand} placeholder="לדוגמה: נוטלה" />
           </View>
         </View>
 
@@ -400,8 +482,13 @@ const styles = StyleSheet.create({
   errorBox: { backgroundColor: "#3A1E2B", borderColor: "#F16B7A", borderWidth: 1, borderRadius: 15, padding: 14, gap: 8 },
   errorTitle: { color: "#FF9AAA", fontWeight: "900", fontSize: 15, textAlign: "right" },
   errorText: { color: "#FFE2E6", fontSize: 11, lineHeight: 17, textAlign: "right" },
-  previewSection: { backgroundColor: "#101B2F", borderColor: "#324763", borderWidth: 1, borderRadius: 17, padding: 11, gap: 8 },
-  previewHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
+  errorActions: { flexDirection: "row-reverse", gap: 8, justifyContent: "flex-start" },
+  retryButton: { backgroundColor: "#F5B72C", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
+  retryText: { color: "#0B1224", fontWeight: "900" },
+  secondaryButton: { borderColor: "#FF9AAA", borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  secondaryText: { color: "#FFE2E6", fontWeight: "800" },
+  previewSection: { backgroundColor: "#101B2F", borderColor: "#324763", borderWidth: 1, borderRadius: 17, padding: 11 },
+  previewHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   previewLabel: { color: "#F7F9FC", fontWeight: "900", textAlign: "right" },
   previewBadge: { color: "#65E5AA", fontSize: 10, fontWeight: "800" },
   preview: { width: "100%", height: 200, borderRadius: 10, backgroundColor: "#0B1224" },
