@@ -1,11 +1,10 @@
 import "../global.css";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Stack, usePathname, useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { I18nManager, Platform } from "react-native";
 import { ThemeProvider } from "../lib/theme-provider";
 import { EntryAnimation } from "../components/entry-animation";
@@ -24,103 +23,15 @@ function reminderSlotFromNotification(notification: Notifications.Notification):
   return slot === "בוקר" || slot === "צהריים" || slot === "ערב" ? slot : null;
 }
 
-const LAST_ROUTE_KEY = "prolifto-last-route-v1";
-
-const canResumeRoute = (route: string) =>
-  route.length > 1 &&
-  !route.startsWith("/oauth") &&
-  !route.startsWith("/register") &&
-    !route.startsWith("/legal") &&
-  !route.startsWith("/barcode-scanner");
-
-function readLastRoute(): Promise<string | null> {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    try {
-      return Promise.resolve(window.localStorage.getItem(LAST_ROUTE_KEY));
-    } catch {
-      return Promise.resolve(null);
-    }
-  }
-  return AsyncStorage.getItem(LAST_ROUTE_KEY);
-}
-
-function saveLastRoute(route: string) {
-  if (!canResumeRoute(route)) return;
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    try {
-      window.localStorage.setItem(LAST_ROUTE_KEY, route);
-    } catch {
-      // Some privacy modes disable localStorage; the app remains usable.
-    }
-    return;
-  }
-  void AsyncStorage.setItem(LAST_ROUTE_KEY, route).catch(() => undefined);
-}
-
 if (Platform.OS !== "web") {
   I18nManager.allowRTL(true);
 }
 
 export default function RootLayout() {
   const router = useRouter();
-  const pathname = usePathname();
-  const previewMode =
-    Platform.OS === "web" &&
-    typeof window !== "undefined" &&
-    (window.location.hostname.endsWith(".manus.computer") || new URLSearchParams(window.location.search).get("preview") === "1");
   const [queryClient] = useState(() => new QueryClient());
   const [trpcClient] = useState(() => createTRPCClient());
-  // The web Preview must remain interactive immediately; native keeps the branded intro animation.
-  const [booted, setBooted] = useState(Platform.OS === "web");
-  const [resumeLoaded, setResumeLoaded] = useState(false);
-  const resumeTargetRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    if (previewMode) {
-      resumeTargetRef.current = null;
-      setResumeLoaded(true);
-      return () => {
-        active = false;
-      };
-    }
-    void readLastRoute()
-      .then((savedRoute) => {
-        if (!active) return;
-        const target = savedRoute && canResumeRoute(savedRoute) ? savedRoute : null;
-        resumeTargetRef.current = target;
-        if (target && pathname !== target) {
-          router.replace(target as never);
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (active) setResumeLoaded(true);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [pathname, previewMode, router]);
-
-  useEffect(() => {
-    if (previewMode || !resumeLoaded || !canResumeRoute(pathname)) return;
-    const target = resumeTargetRef.current;
-    if (target && pathname !== target) return;
-    resumeTargetRef.current = null;
-    saveLastRoute(pathname);
-  }, [pathname, previewMode, resumeLoaded]);
-
-  useEffect(() => {
-    if (previewMode || Platform.OS !== "web" || typeof window === "undefined") return;
-    const persistCurrentRoute = () => saveLastRoute(pathname);
-    window.addEventListener("pagehide", persistCurrentRoute);
-    window.addEventListener("beforeunload", persistCurrentRoute);
-    return () => {
-      window.removeEventListener("pagehide", persistCurrentRoute);
-      window.removeEventListener("beforeunload", persistCurrentRoute);
-    };
-  }, [pathname, previewMode]);
+  const [booted, setBooted] = useState(false);
 
   useEffect(() => {
     void initializeSupplementReminders();
@@ -158,8 +69,8 @@ export default function RootLayout() {
               <AccountSync />
               <StatusBar style="light" />
               <Stack screenOptions={{ headerShown: false }} />
-              {Platform.OS !== "web" && !booted ? <EntryAnimation onFinished={() => setBooted(true)} /> : null}
-              {Platform.OS !== "web" && booted ? <WebComplianceOverlay /> : null}
+              {!booted ? <EntryAnimation onFinished={() => setBooted(true)} /> : null}
+              <WebComplianceOverlay />
             </WorkoutProvider>
           </ThemeProvider>
         </QueryClientProvider>
