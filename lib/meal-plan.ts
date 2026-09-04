@@ -299,9 +299,14 @@ function sourceForMealFood(food: MealFood) {
   return byId;
 }
 
+const legacyProducePattern = /ירקות?|סלט\s*ירקות|עגבנ|מלפפון|חסה|גזר|ברוקולי|כרוב|קישוא|פלפל|בצל|פטרי|תרד|אספרגוס|קולורבי|סלק|סלרי|צנון|בננה|תפוח(?:\s*עץ)?|פירות|תות|אוכמנ|ענב|מנגו|קיווי|אבטיח|מלון|אננס|אפרסק|אגס|תפוז|קלמנטינה|אשכולית|שזיף|נקטרינה|vegetable|tomato|cucumber|lettuce|broccoli|zucchini|cabbage|carrot|spinach|banana|apple|berries|fruit|grape|mango|kiwi|watermelon|pineapple|orange|pear|peach/i;
+
 /** מחזיר את קבוצת המזון המקורית של רכיב בארוחה, גם עבור ארוחות ישנות שלא שמרו אותה במפורש. */
 export function foodGroupForMealFood(food: MealFood): FoodGroup | undefined {
-  return food.foodGroup ?? sourceForMealFood(food)?.group;
+  const savedOrCatalogGroup = food.foodGroup ?? sourceForMealFood(food)?.group;
+  if (savedOrCatalogGroup) return savedOrCatalogGroup;
+  const legacyText = `${food.id} ${food.name} ${food.reference}`;
+  return legacyProducePattern.test(legacyText) ? "ירק ופרי" : undefined;
 }
 
 function explicitGramsFromQuantity(quantity: string): number | undefined {
