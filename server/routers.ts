@@ -1,8 +1,8 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { getUserAppState, saveUserAppState } from "./db";
+import { getUserAppState, saveUserAppState, listUsersForAdmin } from "./db";
 import { systemRouter } from "./_core/systemRouter";
-import { activeSubscriptionProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { activeSubscriptionProcedure, adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { createMorningPaymentForm } from "./morning";
 import { getSubscriptionPlan } from "../lib/subscription-plans";
@@ -62,7 +62,12 @@ const parseFoodLabelResponse = (content: unknown): FoodLabelResult => {
 
 export const appRouter = router({
   system: systemRouter,
-  
+
+  // לוח הבקרה של בעל המערכת בלבד: כל המשתמשים, סטטוס המנוי שלהם ומועד הכניסה האחרון.
+  admin: router({
+    listUsers: adminProcedure.query(() => listUsersForAdmin()),
+  }),
+
   // נתיבי מנויים וסליקה מול מורנינג
   subscription: router({
     // נבדק ע"י כל מסכי האפליקציה כדי לנעול גישה ברגע שתקופת הניסיון/המנוי הסתיימה.

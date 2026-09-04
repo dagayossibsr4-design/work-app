@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, userAppState, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -107,6 +107,32 @@ export async function getUserById(id: number) {
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Every account for the owner's admin dashboard: who registered, their
+ * trial/subscription state, and when they were last seen. Reads only
+ * existing columns (no login/logout event log exists), ordered by most
+ * recent activity so the newest sign-ins surface first.
+ */
+export async function listUsersForAdmin() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      role: users.role,
+      subscriptionStatus: users.subscriptionStatus,
+      trialEndsAt: users.trialEndsAt,
+      createdAt: users.createdAt,
+      lastSignedIn: users.lastSignedIn,
+      loginMethod: users.loginMethod,
+    })
+    .from(users)
+    .orderBy(desc(users.lastSignedIn));
 }
 
 const SUPABASE_OPEN_ID_PREFIX = "supabase:";
