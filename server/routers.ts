@@ -5,6 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { activeSubscriptionProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { createMorningPaymentForm } from "./morning";
+import { getSubscriptionPlan } from "../lib/subscription-plans";
 import { z } from "zod";
 import {
   beginGarminConnection,
@@ -64,17 +65,20 @@ export const appRouter = router({
   // נתיבי מנויים וסליקה מול מורנינג
   subscription: router({
     createCheckoutLink: protectedProcedure
-      .input(z.object({ planType: z.enum(["monthly", "yearly"]) }))
+      .input(z.object({ planType: z.enum(["monthly", "annual"]) }))
       .mutation(async ({ ctx, input }) => {
-        const amount = input.planType === "monthly" ? 89 : 780;
-        const description = input.planType === "monthly" ? "מנוי חודשי ProLifto" : "מנוי שנתי ProLifto";
-        
+        // Amount and description come from the single shared plan catalog so the
+        // checkout can never charge a different price than what the app displays.
+        const plan = getSubscriptionPlan(input.planType);
+        const description = plan.id === "monthly" ? "מנוי חודשי ProLifto" : "מנוי שנתי ProLifto";
+
         const checkoutUrl = await createMorningPaymentForm({
           email: ctx.user.email ?? "user@prolifto.co.il",
           name: ctx.user.name ?? "משתמש ProLifto",
-          amount,
+          amount: plan.priceIls,
           description,
           userId: ctx.user.id,
+          planType: plan.id,
         });
 
         return { url: checkoutUrl };

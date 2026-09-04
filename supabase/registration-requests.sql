@@ -1,5 +1,6 @@
 -- בקשות הרשמה לפני יצירת משתמש ב־Supabase.
--- להריץ ב־Supabase SQL Editor בלבד.
+-- להריץ ב־Supabase SQL Editor בלבד, אחרי supabase/production-hardening.sql
+-- (הקובץ הזה מסתמך על הפונקציה public.is_admin() המוגדרת שם).
 
 create table if not exists public.registration_requests (
   id uuid primary key default gen_random_uuid(),
@@ -113,3 +114,5 @@ drop trigger if exists registration_requests_updated_at on public.registration_r
 create trigger registration_requests_updated_at
 before update on public.registration_requests
 for each row execute function public.set_registration_requests_updated_at();
+
+alter function public.set_registration_requests_updated_at() set search_path = public, pg_temp;

@@ -9,6 +9,7 @@ export const ENV = {
   forgeApiKey: process.env.OPENAI_API_KEY ?? process.env.BUILT_IN_FORGE_API_KEY ?? "",
   morningApiKey: process.env.MORNING_API_KEY ?? "",
   morningApiSecret: process.env.MORNING_API_SECRET ?? "",
+  morningWebhookSecret: process.env.MORNING_WEBHOOK_SECRET ?? process.env.MORNING_API_SECRET ?? "",
   garminEnabled: process.env.GARMIN_ENABLED === "true",
   garminClientId: process.env.GARMIN_CLIENT_ID ?? "",
   garminClientSecret: process.env.GARMIN_CLIENT_SECRET ?? "",

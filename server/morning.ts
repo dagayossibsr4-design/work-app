@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import { ENV } from "./_core/env";
 
 export async function createMorningPaymentForm(params: {
@@ -6,6 +7,7 @@ export async function createMorningPaymentForm(params: {
   amount: number;
   description: string;
   userId: number;
+  planType: "monthly" | "annual";
 }) {
   if (!ENV.morningApiKey || !ENV.morningApiSecret) {
     throw new Error("Morning API keys are not configured in environment variables");
@@ -48,6 +50,7 @@ export async function createMorningPaymentForm(params: {
       failureUrl: "https://prolifto.co.il/subscription",
       customFields: {
         userId: params.userId,
+        planType: params.planType,
       },
     }),
   });
@@ -59,4 +62,71 @@ export async function createMorningPaymentForm(params: {
 
   const formData = (await formResponse.json()) as { url: string };
   return formData.url;
+}
+
+/**
+ * Verifies the `X-Data-Signature` header Morning/Green Invoice sends with
+ * webhook calls: HMAC-SHA256 of the raw request body, keyed with the account
+ * secret. A webhook must never be trusted before this check passes.
+ */
+export function verifyMorningWebhookSignature(
+  rawBody: Buffer,
+  signatureHeader: string | string[] | undefined,
+): boolean {
+  if (!ENV.morningWebhookSecret || !signatureHeader || Array.isArray(signatureHeader)) return false;
+
+  const expectedHex = createHmac("sha256", ENV.morningWebhookSecret).update(rawBody).digest("hex");
+  const expected = Buffer.from(expectedHex, "utf8");
+  const provided = Buffer.from(signatureHeader.trim(), "utf8");
+  if (expected.length !== provided.length) return false;
+
+  return timingSafeEqual(expected, provided);
+}
+
+export type MorningWebhookOutcome = {
+  recognized: boolean;
+  paid: boolean;
+  userId: number | null;
+  planType: "monthly" | "annual" | null;
+  eventId: string | null;
+};
+
+const PAID_STATUSES = new Set(["paid", "success", "succeeded", "completed", "approved"]);
+const FAILED_STATUSES = new Set(["failed", "declined", "cancelled", "canceled", "refunded", "chargeback"]);
+
+/**
+ * Morning does not publish a fixed webhook payload schema, so this reads
+ * defensively across the field names seen in their docs/support answers
+ * (top-level or nested under "data"; "status" or "type"/"event") rather than
+ * assuming one exact shape. An unrecognized payload is never treated as paid.
+ */
+export function parseMorningWebhookPayload(body: unknown): MorningWebhookOutcome {
+  const record = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const data = (record.data && typeof record.data === "object" ? record.data : record) as Record<string, unknown>;
+  const customFields = (data.customFields && typeof data.customFields === "object"
+    ? data.customFields
+    : {}) as Record<string, unknown>;
+
+  const rawStatus = String(data.status ?? data.event ?? data.type ?? "").toLowerCase();
+  const explicitlyPaid = data.paid === true;
+  const explicitlyFailed = data.paid === false;
+
+  const paid = explicitlyPaid || (!explicitlyFailed && PAID_STATUSES.has(rawStatus));
+  const recognized = paid || explicitlyFailed || FAILED_STATUSES.has(rawStatus);
+
+  const userIdRaw = customFields.userId;
+  const userId =
+    typeof userIdRaw === "number"
+      ? userIdRaw
+      : typeof userIdRaw === "string" && /^\d+$/.test(userIdRaw)
+        ? Number(userIdRaw)
+        : null;
+
+  const planTypeRaw = customFields.planType;
+  const planType = planTypeRaw === "monthly" || planTypeRaw === "annual" ? planTypeRaw : null;
+
+  const eventIdRaw = data.id ?? data.transactionId ?? data.paymentId ?? record.id;
+  const eventId = typeof eventIdRaw === "string" || typeof eventIdRaw === "number" ? String(eventIdRaw) : null;
+
+  return { recognized, paid, userId, planType, eventId };
 }

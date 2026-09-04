@@ -97,6 +97,42 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Marks a user's subscription active for `extendByDays` from whichever is
+ * later: now, or their current trial/subscription end. Only ever called after
+ * a Morning webhook signature has been verified - never from a client-trusted
+ * redirect - so a paid subscription always reflects a server-confirmed charge.
+ */
+export async function activateUserSubscription(userId: number, extendByDays: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const user = await getUserById(userId);
+  if (!user) throw new Error(`Cannot activate subscription: user ${userId} not found`);
+
+  const now = Date.now();
+  const currentEnd = user.trialEndsAt ? new Date(user.trialEndsAt).getTime() : now;
+  const base = Number.isFinite(currentEnd) ? Math.max(currentEnd, now) : now;
+  const newEnd = new Date(base + extendByDays * 24 * 60 * 60 * 1000);
+
+  await db
+    .update(users)
+    .set({ subscriptionStatus: "active", trialEndsAt: newEnd })
+    .where(eq(users.id, userId));
+}
+
 export async function getUserAppState(userId: number): Promise<Record<string, unknown> | null> {
   const db = await getDb();
   if (!db) return null;

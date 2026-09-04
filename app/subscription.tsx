@@ -24,8 +24,7 @@ export default function SubscriptionScreen() {
       setIsLoading(true);
       setRequestError("");
 
-      const planType = String(selectedPlan.id).includes("year") ? "yearly" : "monthly";
-      const result = await createCheckoutLinkMutation.mutateAsync({ planType });
+      const result = await createCheckoutLinkMutation.mutateAsync({ planType: selectedPlan.id });
 
       if (result?.url) {
         await Linking.openURL(result.url);

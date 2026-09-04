@@ -9,6 +9,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { registerGarminRoutes } from "../integrations/garmin/routes";
+import { registerMorningWebhookRoutes } from "../morningWebhook";
 
 async function startServer() {
   const app = express();
@@ -35,12 +36,21 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: "50mb" }));
+  app.use(
+    express.json({
+      limit: "50mb",
+      // Keeps the exact bytes Morning signed, needed to verify webhook signatures.
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+      },
+    }),
+  );
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerGarminRoutes(app);
+  registerMorningWebhookRoutes(app);
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
