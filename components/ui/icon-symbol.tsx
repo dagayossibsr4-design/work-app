@@ -45,6 +45,7 @@ const MAPPING = {
   "star.fill": "star",
   "person.2.fill": "people",
   "list.bullet.rectangle.portrait.fill": "view-list",
+  pencil: "edit",
 } as IconMapping;
 
 /**
