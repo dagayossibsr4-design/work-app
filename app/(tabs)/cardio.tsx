@@ -5,11 +5,152 @@ import { useWorkoutStore } from "@/lib/workout-store";
 
 const cardioTypes = ["הליכה", "ריצה", "אופניים", "אליפטיקל", "חתירה", "מדרגות", "אחר"];
 const intensities = ["קלילה", "בינונית", "גבוהה"];
+
+const todayKey = () => new Date().toISOString().slice(0, 10);
+const yesterdayKey = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return date.toISOString().slice(0, 10);
+};
+const formatLogDate = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const dateKey = date.toISOString().slice(0, 10);
+  if (dateKey === todayKey()) return "היום";
+  if (dateKey === yesterdayKey()) return "אתמול";
+  return new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit" }).format(date);
+};
+
 export default function CardioScreen() {
   const { cardioLogs, saveCardioLog } = useWorkoutStore();
-  const [type, setType] = useState("הליכה"); const [durationMinutes, setDuration] = useState(""); const [distanceKm, setDistance] = useState(""); const [caloriesBurned, setCalories] = useState(""); const [intensity, setIntensity] = useState("בינונית"); const [note, setNote] = useState(""); const [saved, setSaved] = useState(false);
-  const save = () => { if (!durationMinutes) return; saveCardioLog({ date: new Date().toISOString(), type, durationMinutes, distanceKm, caloriesBurned, intensity, note }); setSaved(true); setDuration(""); setDistance(""); setCalories(""); setNote(""); };
-  return <ScreenContainer className="px-5 pt-5" containerClassName="bg-background"><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}><View style={styles.header}><Text style={styles.eyebrow}>מעקב עומס</Text><Text style={styles.title}>אירובי</Text><Text style={styles.subtitle}>תעד פעילות אירובית לצד אימוני הכוח</Text></View><View style={styles.card}><Text style={styles.sectionTitle}>סוג פעילות</Text><View style={styles.chips}>{cardioTypes.map((item) => <Pressable key={item} onPress={() => setType(item)} style={[styles.chip, type === item && styles.chipActive]}><Text style={styles.chipText}>{item}</Text></Pressable>)}</View><View style={styles.fields}><Field label="משך (דקות)" value={durationMinutes} onChange={setDuration} /><Field label="מרחק (ק״מ, אופציונלי)" value={distanceKm} onChange={setDistance} /></View><Field label="קלוריות שנשרפו (אופציונלי)" value={caloriesBurned} onChange={setCalories} placeholder="לפי השעון או המכשיר" /><Text style={styles.fieldLabel}>עצימות</Text><View style={styles.chips}>{intensities.map((item) => <Pressable key={item} onPress={() => setIntensity(item)} style={[styles.chip, intensity === item && styles.chipActive]}><Text style={styles.chipText}>{item}</Text></Pressable>)}</View><Field label="הערה" value={note} onChange={setNote} placeholder="איך הרגשת?" /><Pressable onPress={save} style={({ pressed }) => [styles.save, pressed && styles.pressed]}><Text style={styles.saveText}>שמירת אירובי</Text></Pressable>{saved && <Text style={styles.success}>האירובי נשמר בהצלחה.</Text>}</View><View style={styles.card}><Text style={styles.sectionTitle}>היסטוריית אירובי</Text>{cardioLogs.length === 0 ? <Text style={styles.empty}>עדיין אין רישומי אירובי.</Text> : cardioLogs.slice(0, 10).map((log) => <View key={log.id} style={styles.log}><Text style={styles.logMeta}>{log.intensity} · {log.durationMinutes} דקות{log.distanceKm ? ` · ${log.distanceKm} ק״מ` : ""}{log.caloriesBurned ? ` · ${log.caloriesBurned} קל׳` : ""}</Text><Text style={styles.logTitle}>{log.type}</Text></View>)}</View></ScrollView></ScreenContainer>;
+  const [type, setType] = useState("הליכה");
+  const [dateKey, setDateKey] = useState(todayKey());
+  const [durationMinutes, setDuration] = useState("");
+  const [distanceKm, setDistance] = useState("");
+  const [caloriesBurned, setCalories] = useState("");
+  const [intensity, setIntensity] = useState("בינונית");
+  const [note, setNote] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    if (!durationMinutes) return;
+    saveCardioLog({ date: `${dateKey}T12:00:00.000Z`, type, durationMinutes, distanceKm, caloriesBurned, intensity, note });
+    setSaved(true);
+    setDuration("");
+    setDistance("");
+    setCalories("");
+    setNote("");
+  };
+
+  return (
+    <ScreenContainer className="px-5 pt-5" containerClassName="bg-background">
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <Text style={styles.eyebrow}>מעקב עומס</Text>
+          <Text style={styles.title}>אירובי</Text>
+          <Text style={styles.subtitle}>תעד פעילות אירובית לצד אימוני הכוח</Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>תאריך</Text>
+          <View style={styles.chips}>
+            <Pressable onPress={() => setDateKey(todayKey())} style={[styles.chip, dateKey === todayKey() && styles.chipActive]}>
+              <Text style={styles.chipText}>היום</Text>
+            </Pressable>
+            <Pressable onPress={() => setDateKey(yesterdayKey())} style={[styles.chip, dateKey === yesterdayKey() && styles.chipActive]}>
+              <Text style={styles.chipText}>אתמול</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.sectionTitle}>סוג פעילות</Text>
+          <View style={styles.chips}>
+            {cardioTypes.map((item) => (
+              <Pressable key={item} onPress={() => setType(item)} style={[styles.chip, type === item && styles.chipActive]}>
+                <Text style={styles.chipText}>{item}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.fields}>
+            <Field label="משך (דקות)" value={durationMinutes} onChange={setDuration} />
+            <Field label="מרחק (ק״מ, אופציונלי)" value={distanceKm} onChange={setDistance} />
+          </View>
+          <Field label="קלוריות שנשרפו (אופציונלי)" value={caloriesBurned} onChange={setCalories} placeholder="לפי השעון או המכשיר" />
+
+          <Text style={styles.fieldLabel}>עצימות</Text>
+          <View style={styles.chips}>
+            {intensities.map((item) => (
+              <Pressable key={item} onPress={() => setIntensity(item)} style={[styles.chip, intensity === item && styles.chipActive]}>
+                <Text style={styles.chipText}>{item}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Field label="הערה" value={note} onChange={setNote} placeholder="איך הרגשת?" />
+          <Pressable onPress={save} style={({ pressed }) => [styles.save, pressed && styles.pressed]}>
+            <Text style={styles.saveText}>שמירת אירובי</Text>
+          </Pressable>
+          {saved ? <Text style={styles.success}>האירובי נשמר בהצלחה.</Text> : null}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>היסטוריית אירובי</Text>
+          {cardioLogs.length === 0 ? (
+            <Text style={styles.empty}>עדיין אין רישומי אירובי.</Text>
+          ) : (
+            cardioLogs.slice(0, 10).map((log) => (
+              <View key={log.id} style={styles.log}>
+                <View style={styles.logHeader}>
+                  <Text style={styles.logTitle}>{log.type}</Text>
+                  <Text style={styles.logDate}>{formatLogDate(log.date)}</Text>
+                </View>
+                <Text style={styles.logMeta}>
+                  {log.intensity} · {log.durationMinutes} דקות
+                  {log.distanceKm ? ` · ${log.distanceKm} ק״מ` : ""}
+                  {log.caloriesBurned ? ` · ${log.caloriesBurned} קל׳` : ""}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
+    </ScreenContainer>
+  );
 }
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) { return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor="#7E8DA4" keyboardType="numeric" style={styles.input} /></View>; }
-const styles = StyleSheet.create({ content: { gap: 14, paddingBottom: 35 }, header: { alignItems: "flex-end" }, eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "800" }, title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900" }, subtitle: { color: "#AAB7C8", fontSize: 13, marginTop: 5 }, card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 15, gap: 11 }, sectionTitle: { color: "#F7F9FC", fontSize: 17, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, chips: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 7 }, chip: { borderColor: "#2C3B55", borderWidth: 1, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 8 }, chipActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" }, chipText: { color: "#D9E2EF", fontSize: 11, fontWeight: "800" }, fields: { flexDirection: "row-reverse", gap: 8 }, field: { flex: 1, gap: 5 }, fieldLabel: { color: "#AAB7C8", fontSize: 10, textAlign: "right", writingDirection: "rtl" }, input: { backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 10, color: "#F7F9FC", minHeight: 40, paddingHorizontal: 10, textAlign: "right", writingDirection: "rtl" }, save: { minHeight: 52, backgroundColor: "#F5B72C", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingVertical: 14, shadowColor: "#F5B72C", shadowOpacity: 0.24, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 4 }, saveText: { color: "#0B1224", fontWeight: "900", fontSize: 13, writingDirection: "rtl" }, pressed: { opacity: 0.75, transform: [{ scale: 0.98 }] }, success: { color: "#F5D27A", fontSize: 11, textAlign: "right", fontWeight: "800" }, empty: { color: "#AAB7C8", fontSize: 12, textAlign: "right" }, log: { borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, gap: 3 }, logTitle: { color: "#F7F9FC", fontWeight: "800", textAlign: "right", writingDirection: "rtl" }, logMeta: { color: "#AAB7C8", fontSize: 10, textAlign: "right", writingDirection: "rtl" } });
+
+function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor="#7E8DA4" keyboardType="numeric" style={styles.input} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  content: { gap: 14, paddingBottom: 35 },
+  header: { alignItems: "flex-end" },
+  eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "800" },
+  title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900" },
+  subtitle: { color: "#AAB7C8", fontSize: 13, marginTop: 5 },
+  card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 15, gap: 11 },
+  sectionTitle: { color: "#F7F9FC", fontSize: 17, fontWeight: "900", textAlign: "right", writingDirection: "rtl" },
+  chips: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 7 },
+  chip: { borderColor: "#2C3B55", borderWidth: 1, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 8 },
+  chipActive: { backgroundColor: "#F5B72C", borderColor: "#F5B72C" },
+  chipText: { color: "#D9E2EF", fontSize: 11, fontWeight: "800" },
+  fields: { flexDirection: "row-reverse", gap: 8 },
+  field: { flex: 1, gap: 5 },
+  fieldLabel: { color: "#AAB7C8", fontSize: 10, textAlign: "right", writingDirection: "rtl" },
+  input: { backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 10, color: "#F7F9FC", minHeight: 40, paddingHorizontal: 10, textAlign: "right", writingDirection: "rtl" },
+  save: { minHeight: 52, backgroundColor: "#F5B72C", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingVertical: 14, shadowColor: "#F5B72C", shadowOpacity: 0.24, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  saveText: { color: "#0B1224", fontWeight: "900", fontSize: 13, writingDirection: "rtl" },
+  pressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
+  success: { color: "#F5D27A", fontSize: 11, textAlign: "right", fontWeight: "800" },
+  empty: { color: "#AAB7C8", fontSize: 12, textAlign: "right" },
+  log: { borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, gap: 3 },
+  logHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" },
+  logTitle: { color: "#F7F9FC", fontWeight: "800", textAlign: "right", writingDirection: "rtl" },
+  logDate: { color: "#F5B72C", fontSize: 10, fontWeight: "900" },
+  logMeta: { color: "#AAB7C8", fontSize: 10, textAlign: "right", writingDirection: "rtl" },
+});
