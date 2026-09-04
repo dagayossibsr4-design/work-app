@@ -8,12 +8,12 @@ import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { supabase } from "@/lib/supabase";
 import { getCurrentAppRole } from "@/lib/admin-role";
-import { NEW_USER_ACCESS_MESSAGE, validateExistingUserLogin } from "@/lib/access-policy";
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -62,10 +62,10 @@ export default function RegisterScreen() {
     if (typeof code !== "string") return;
     void client.auth.exchangeCodeForSession(code).then(({ error: authError }) => {
       if (authError) {
-        setError("לא ניתן להשלים את הכניסה מהקישור. נסה לשלוח קישור חדש.");
+        setError("לא ניתן להשלים את הכניסה מהקישור.");
         return;
       }
-      setMessage("החשבון התחבר ונשמר בדפדפן זה.");
+      setMessage("החשבון התחבר בהצלחה.");
       void client.auth.getSession().then(({ data }) => {
         setIsSignedIn(Boolean(data.session));
         if (data.session) goHome();
@@ -73,30 +73,65 @@ export default function RegisterScreen() {
     });
   }, [incomingUrl]);
 
-  const continueWithAccount = async () => {
+  const handleAuthAction = async () => {
     const normalizedEmail = email.trim().toLowerCase();
-    const validationError = validateExistingUserLogin(normalizedEmail, password);
-    if (validationError) {
-      setError(validationError);
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      setError("נא להזין כתובת אימייל תקינה.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("הסיסמה חייבת להכיל לפחות 6 תווים.");
       return;
     }
     if (!supabase) {
       setError("מערכת ההתחברות אינה מוגדרת כרגע.");
       return;
     }
+
     setBusy(true);
     setError("");
     setMessage("");
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-    setBusy(false);
-    if (authError) {
-      setError(`פרטי ההתחברות אינם תקינים או שהחשבון עדיין לא אושר. ${NEW_USER_ACCESS_MESSAGE}`);
-      return;
+
+    if (isRegisterMode) {
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: {
+            subscription_status: "trialing",
+            trial_ends_at: trialEndsAt,
+          },
+        },
+      });
+
+      setBusy(false);
+      if (signUpError) {
+        setError(signUpError.message || "אירעה שגיאה בעת ההרשמה.");
+        return;
+      }
+
+      if (data.session) {
+        setMessage("נרשמת בהצלחה! תקופת הניסיון ל-14 ימים החלה.");
+        goHome();
+      } else {
+        setMessage("ההרשמה נקלטה! אם מופעל אימות מייל, בדוק את תיבת הדואר והתחבר.");
+      }
+    } else {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      setBusy(false);
+      if (signInError) {
+        setError("פרטי ההתחברות אינם תקינים. נסה שוב.");
+        return;
+      }
+
+      setMessage("ההתחברות הצליחה.");
+      goHome();
     }
-    setMessage("ההתחברות הצליחה. החשבון המאושר נטען.");
   };
 
   return (
@@ -104,8 +139,14 @@ export default function RegisterScreen() {
       <View style={styles.content}>
         <BrandMark />
         <Text style={styles.eyebrow}>חשבון אישי</Text>
-        <Text style={styles.title}>{isSignedIn ? "החשבון מחובר" : "כניסת משתמש מאושר"}</Text>
-        <Text style={styles.subtitle}>רק משתמשים שנוצרו ואושרו מראש יכולים להתחבר. משתמש חדש מתחיל קודם במסלול ובתשלום, ורק לאחר מכן החשבון מופעל על ידי מנהל.</Text>
+        <Text style={styles.title}>
+          {isSignedIn ? "החשבון מחובר" : isRegisterMode ? "הרשמה ל-14 ימי ניסיון" : "כניסת משתמש"}
+        </Text>
+        <Text style={styles.subtitle}>
+          {isRegisterMode
+            ? "הירשם עכשיו וקבל 14 ימי ניסיון מלאים ללא תשלום."
+            : "משתמש קיים? הזן את פרטי ההתחברות כדי להיכנס לחשבונך."}
+        </Text>
 
         {isSignedIn ? (
           <View style={styles.card}>
@@ -114,15 +155,26 @@ export default function RegisterScreen() {
             <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הבית" onPress={goHome} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
               <Text style={styles.primaryText}>חזרה למסך הבית</Text>
             </Pressable>
-            {isAdmin ? <Pressable accessibilityRole="button" accessibilityLabel="פתיחת לוח אדמין" onPress={() => router.push("/admin" as never)} style={({ pressed }) => [styles.adminButton, pressed && styles.pressed]}><Text style={styles.adminButtonText}>פתיחת לוח אדמין</Text></Pressable> : null}
+            {isAdmin ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="פתיחת לוח אדמין" onPress={() => router.push("/admin" as never)} style={({ pressed }) => [styles.adminButton, pressed && styles.pressed]}>
+                <Text style={styles.adminButtonText}>פתיחת לוח אדמין</Text>
+              </Pressable>
+            ) : null}
             <Pressable accessibilityRole="button" accessibilityLabel="התנתקות מהחשבון" onPress={() => void signOut()} disabled={busy} style={({ pressed }) => [styles.secondary, pressed && styles.pressed, busy && styles.disabled]}>
               <Text style={styles.secondaryText}>התנתקות</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>כניסה למשתמש קיים</Text>
-            <Text style={styles.note}>התחברות זמינה רק למשתמשים שהמנהל יצר ואישר לאחר התשלום. הזן אימייל וסיסמה.</Text>
+            <View style={styles.tabContainer}>
+              <Pressable onPress={() => { setIsRegisterMode(true); setError(""); }} style={[styles.tab, isRegisterMode && styles.tabActive]}>
+                <Text style={[styles.tabText, isRegisterMode && styles.tabTextActive]}>הרשמה חדשה (ניסיון חינם)</Text>
+              </Pressable>
+              <Pressable onPress={() => { setIsRegisterMode(false); setError(""); }} style={[styles.tab, !isRegisterMode && styles.tabActive]}>
+                <Text style={[styles.tabText, !isRegisterMode && styles.tabTextActive]}>התחברות</Text>
+              </Pressable>
+            </View>
+
             <TextInput
               accessibilityLabel="כתובת דוא״ל"
               autoCapitalize="none"
@@ -136,13 +188,14 @@ export default function RegisterScreen() {
               textAlign="right"
               value={email}
             />
+
             <View style={styles.passwordRow}>
               <TextInput
                 accessibilityLabel="סיסמה"
                 autoCapitalize="none"
                 autoCorrect={false}
                 onChangeText={setPassword}
-                placeholder="סיסמה"
+                placeholder="סיסמה (לפחות 6 תווים)"
                 placeholderTextColor="#7E8DA4"
                 secureTextEntry={!showPassword}
                 style={styles.passwordInput}
@@ -153,18 +206,19 @@ export default function RegisterScreen() {
                 <Text style={styles.passwordToggleText}>{showPassword ? "הסתר" : "הצג"}</Text>
               </Pressable>
             </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="התחברות עם אימייל וסיסמה" onPress={() => void continueWithAccount()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
-              {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>התחבר עם אימייל וסיסמה</Text>}
+
+            <Pressable accessibilityRole="button" accessibilityLabel={isRegisterMode ? "הרשמה" : "התחברות"} onPress={() => void handleAuthAction()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
+              {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>{isRegisterMode ? "התחל 14 ימי ניסיון חינם" : "התחבר לחשבון"}</Text>}
             </Pressable>
+
             {message ? <Text accessibilityLiveRegion="polite" style={styles.success}>{message}</Text> : null}
             {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
           </View>
         )}
 
-        <Pressable accessibilityRole="button" accessibilityLabel="הרשמה ובחירת מסלול" onPress={() => router.push("/subscription" as never)} style={({ pressed }) => [styles.subscriptionButton, pressed && styles.pressed]}>
-          <Text style={styles.subscriptionButtonText}>הרשמה ובחירת מסלול</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="מסלולי מנוי" onPress={() => router.push("/subscription" as never)} style={({ pressed }) => [styles.subscriptionButton, pressed && styles.pressed]}>
+          <Text style={styles.subscriptionButtonText}>צפייה במסלולי מנוי וסליקה</Text>
         </Pressable>
-        <Text style={styles.privacy}>משתמש חדש: בחר מסלול, בצע תשלום, וקבל אישור מנהל לפני יצירת החשבון. משתמשים קיימים יכולים להתחבר כאן.</Text>
       </View>
     </ScreenContainer>
   );
@@ -173,11 +227,16 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   content: { gap: 14, paddingBottom: 35 },
   eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" },
-  title: { color: "#F7F9FC", fontSize: 32, fontWeight: "900", textAlign: "right" },
+  title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900", textAlign: "right" },
   subtitle: { color: "#AAB7C8", fontSize: 14, lineHeight: 21, textAlign: "right" },
   card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 16, gap: 12 },
   cardTitle: { color: "#F7F9FC", fontSize: 18, fontWeight: "900", textAlign: "right" },
   note: { color: "#AAB7C8", fontSize: 12, lineHeight: 19, textAlign: "right" },
+  tabContainer: { flexDirection: "row-reverse", backgroundColor: "#0F1B31", borderRadius: 10, padding: 4, gap: 4 },
+  tab: { flex: 1, paddingVertical: 8, alignItems: "center", borderRadius: 8 },
+  tabActive: { backgroundColor: "#2C3B55" },
+  tabText: { color: "#7E8DA4", fontSize: 12, fontWeight: "800" },
+  tabTextActive: { color: "#F7F9FC" },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
   passwordRow: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
   passwordInput: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
@@ -191,9 +250,8 @@ const styles = StyleSheet.create({
   adminButtonText: { color: "#F4D9FF", fontWeight: "900" },
   subscriptionButton: { minHeight: 48, backgroundColor: "#2A6F8F", borderColor: "#72C7E7", borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   subscriptionButtonText: { color: "#E6F8FF", fontWeight: "900" },
-  success: { color: "#81D7B5", fontSize: 11, lineHeight: 17, textAlign: "right" },
-  error: { color: "#FF879A", fontSize: 11, lineHeight: 17, textAlign: "right" },
-  privacy: { color: "#7E8DA4", fontSize: 10, lineHeight: 16, textAlign: "right" },
+  success: { color: "#81D7B5", fontSize: 12, lineHeight: 18, textAlign: "right" },
+  error: { color: "#FF879A", fontSize: 12, lineHeight: 18, textAlign: "right" },
   disabled: { opacity: 0.65 },
   pressed: { opacity: 0.74, transform: [{ scale: 0.98 }] },
 });
