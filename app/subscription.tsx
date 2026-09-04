@@ -6,7 +6,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { SUBSCRIPTION_PLANS, SUBSCRIPTION_START_DATE, type SubscriptionPlanId } from "@/lib/subscription-plans";
 import { trpc } from "@/lib/trpc";
-import { supabase } from "@/lib/supabase";
+import { useSupabaseSession } from "@/lib/use-supabase-session";
 
 const SIGN_IN_REQUIRED_MESSAGE = "כדי לעבור לתשלום יש קודם להירשם או להתחבר לחשבון. 14 הימים הראשונים חינם, ללא צורך בכרטיס אשראי.";
 
@@ -14,27 +14,10 @@ export default function SubscriptionScreen() {
   const [selectedPlanId, setSelectedPlanId] = useState<SubscriptionPlanId>("monthly");
   const [isLoading, setIsLoading] = useState(false);
   const [requestError, setRequestError] = useState("");
-  const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
+  const session = useSupabaseSession();
+  const isSignedIn = session === undefined ? null : Boolean(session);
 
   const createCheckoutLinkMutation = trpc.subscription.createCheckoutLink.useMutation();
-
-  useEffect(() => {
-    if (!supabase) {
-      setIsSignedIn(false);
-      return;
-    }
-    let active = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (active) setIsSignedIn(Boolean(data.session));
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) setIsSignedIn(Boolean(session));
-    });
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
-    };
-  }, []);
 
   const selectedPlan = useMemo(
     () => SUBSCRIPTION_PLANS.find((plan) => plan.id === selectedPlanId) ?? SUBSCRIPTION_PLANS[0],

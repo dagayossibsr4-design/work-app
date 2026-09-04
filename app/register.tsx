@@ -138,7 +138,7 @@ export default function RegisterScreen() {
   return (
     <ScreenContainer className="px-5 pt-5">
       <View style={styles.content}>
-        <BrandMark />
+        <BrandMark variant="original" />
         <Text style={styles.eyebrow}>חשבון אישי</Text>
         <Text style={styles.title}>
           {isSignedIn ? "החשבון מחובר" : isRegisterMode ? "הרשמה ל-14 ימי ניסיון" : "כניסת משתמש"}

@@ -13,6 +13,7 @@ export const ENV = {
   morningWebhookSecret: process.env.MORNING_WEBHOOK_SECRET ?? process.env.MORNING_API_SECRET ?? "",
   supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? "",
   supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "",
+  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? "",
   garminEnabled: process.env.GARMIN_ENABLED === "true",
   garminClientId: process.env.GARMIN_CLIENT_ID ?? "",
   garminClientSecret: process.env.GARMIN_CLIENT_SECRET ?? "",

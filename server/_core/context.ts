@@ -7,7 +7,14 @@ import { resolveUserFromSupabaseIdentity } from "../db";
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
-  user: User | null;
+  /**
+   * Resolves and memoizes the caller's identity on first access. Auth is
+   * lazy on purpose: a fully public procedure (e.g. the barcode lookup)
+   * never touches this, so it never pays for a Manus session check or a
+   * Supabase token verification - only procedures that actually call this
+   * (via protectedProcedure/activeSubscriptionProcedure/adminProcedure) do.
+   */
+  getUser: () => Promise<User | null>;
 };
 
 function bearerToken(req: CreateExpressContextOptions["req"]): string | null {
@@ -15,33 +22,36 @@ function bearerToken(req: CreateExpressContextOptions["req"]): string | null {
   return typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7).trim() : null;
 }
 
-export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
-  let user: User | null = null;
+async function resolveUser(req: CreateExpressContextOptions["req"]): Promise<User | null> {
+  try {
+    return await sdk.authenticateRequest(req);
+  } catch {
+    // The legacy OAuth cookie/token session is absent or invalid - this may
+    // be a user who signed in through the app's real, live Supabase auth
+    // flow instead, so fall through to checking that.
+  }
+
+  const token = bearerToken(req);
+  if (!token) return null;
 
   try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
-    user = null;
+    const identity = await getSupabaseIdentityFromToken(token);
+    if (!identity) return null;
+    return (await resolveUserFromSupabaseIdentity(identity)) ?? null;
+  } catch {
+    return null;
   }
+}
 
-  if (!user) {
-    // The legacy OAuth cookie/token session is absent - this may be a user
-    // who signed in through the app's real, live Supabase auth flow instead.
-    const token = bearerToken(opts.req);
-    if (token) {
-      try {
-        const identity = await getSupabaseIdentityFromToken(token);
-        if (identity) user = (await resolveUserFromSupabaseIdentity(identity)) ?? null;
-      } catch (error) {
-        user = null;
-      }
-    }
-  }
+export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
+  let cached: Promise<User | null> | null = null;
 
   return {
     req: opts.req,
     res: opts.res,
-    user,
+    getUser: () => {
+      if (!cached) cached = resolveUser(opts.req);
+      return cached;
+    },
   };
 }

@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { router, usePathname } from "expo-router";
 import { trpc } from "@/lib/trpc";
-import { supabase } from "@/lib/supabase";
+import { useSupabaseSession } from "@/lib/use-supabase-session";
 
 // Pages that must stay reachable even for a locked-out account: the payment
 // page itself, sign-in/sign-up (to pay with a different account or sign
@@ -23,28 +23,10 @@ function isExemptPath(pathname: string): boolean {
 export function SubscriptionGate() {
   const pathname = usePathname();
   const exempt = isExemptPath(pathname);
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (!supabase) {
-      setSignedIn(false);
-      return;
-    }
-    let active = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (active) setSignedIn(Boolean(data.session));
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) setSignedIn(Boolean(session));
-    });
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
-    };
-  }, []);
+  const session = useSupabaseSession();
 
   const statusQuery = trpc.subscription.status.useQuery(undefined, {
-    enabled: signedIn === true,
+    enabled: Boolean(session),
     // Re-checked periodically so a session left open across the exact
     // trial-expiry moment still gets locked out without needing a reload.
     refetchInterval: 60_000,

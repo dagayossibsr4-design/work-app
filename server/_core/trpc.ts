@@ -13,54 +13,54 @@ export const publicProcedure = t.procedure;
 
 const requireUser = t.middleware(async (opts) => {
   const { ctx, next } = opts;
+  const user = await ctx.getUser();
 
-  if (!ctx.user) {
+  if (!user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
   return next({
     ctx: {
       ...ctx,
-      user: ctx.user,
+      user,
     },
   });
 });
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
-export const activeSubscriptionProcedure = protectedProcedure.use(
-  t.middleware(async (opts) => {
-    const { ctx, next } = opts;
-    const user = ctx.user!;
+export const activeSubscriptionProcedure = protectedProcedure.use(async (opts) => {
+  const { ctx, next } = opts;
+  const user = ctx.user;
 
-    if (!computeSubscriptionAccess(user).hasAccess) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "תקופת הניסיון ל-14 ימים הסתיימה. יש להסדיר מנוי להמשך שימוש.",
-      });
-    }
-
-    return next({
-      ctx: {
-        ...ctx,
-        user,
-      },
+  if (!computeSubscriptionAccess(user).hasAccess) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "תקופת הניסיון ל-14 ימים הסתיימה. יש להסדיר מנוי להמשך שימוש.",
     });
-  }),
-);
+  }
+
+  return next({
+    ctx: {
+      ...ctx,
+      user,
+    },
+  });
+});
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
+    const user = await ctx.getUser();
 
-    if (!ctx.user || ctx.user.role !== "admin") {
+    if (!user || user.role !== "admin") {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 
     return next({
       ctx: {
         ...ctx,
-        user: ctx.user,
+        user,
       },
     });
   }),

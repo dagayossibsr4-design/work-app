@@ -13,11 +13,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import Constants from "expo-constants";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { AuthGuardFallback } from "@/components/auth-guard-fallback";
 import { useAuthGuard } from "@/lib/use-auth-guard";
+import { useSupabaseSession } from "@/lib/use-supabase-session";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
 
@@ -45,10 +46,6 @@ const linkGroups = [
       ["אירובי", "/(tabs)/cardio"],
       ["התאוששות ושינה", "/(tabs)/recovery"],
     ],
-  },
-  {
-    title: "חיבורים",
-    links: [["Garmin Connect", "/(tabs)/garmin"]],
   },
 ] as const;
 const informationLinks = [
@@ -119,24 +116,10 @@ async function restoreFromAsset(asset: DocumentPicker.DocumentPickerAsset) {
 
 export default function SettingsScreen() {
   const authState = useAuthGuard();
+  const session = useSupabaseSession();
+  const accountEmail = session?.user.email ?? null;
   const [restoreStatus, setRestoreStatus] = useState("");
   const [authStatus, setAuthStatus] = useState("");
-  const [accountEmail, setAccountEmail] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!supabase) return;
-    let active = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (active) setAccountEmail(data.session?.user.email ?? null);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) setAccountEmail(session?.user.email ?? null);
-    });
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
-    };
-  }, []);
 
   const signOut = async () => {
     if (!supabase) {
