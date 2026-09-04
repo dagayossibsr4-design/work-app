@@ -10,6 +10,7 @@ import { ThemeProvider } from "../lib/theme-provider";
 import { EntryAnimation } from "../components/entry-animation";
 import { WorkoutProvider } from "../lib/workout-store";
 import { AccountSync } from "../components/account-sync";
+import { SubscriptionGate } from "../components/subscription-gate";
 import { WebComplianceOverlay } from "../components/web-compliance-overlay";
 import { trpc, createTRPCClient } from "../lib/trpc";
 import {
@@ -69,6 +70,7 @@ export default function RootLayout() {
               <AccountSync />
               <StatusBar style="light" />
               <Stack screenOptions={{ headerShown: false }} />
+              <SubscriptionGate />
               {!booted ? <EntryAnimation onFinished={() => setBooted(true)} /> : null}
               <WebComplianceOverlay />
             </WorkoutProvider>

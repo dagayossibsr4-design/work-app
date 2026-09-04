@@ -2,6 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from "../../shared/const.js";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { computeSubscriptionAccess } from "./subscriptionAccess";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -32,33 +33,18 @@ export const activeSubscriptionProcedure = protectedProcedure.use(
     const { ctx, next } = opts;
     const user = ctx.user!;
 
-    // אדמין פטור מבדיקת תקופת ניסיון או מנוי
-    if (user.role === "admin") {
-      return next({ 
-        ctx: { 
-          ...ctx, 
-          user 
-        } 
-      });
-    }
-
-    const isPaidActive = user.subscriptionStatus === "active";
-    const isTrialValid = Boolean(
-      user.trialEndsAt && new Date(user.trialEndsAt).getTime() > Date.now()
-    );
-
-    if (!isPaidActive && !isTrialValid) {
+    if (!computeSubscriptionAccess(user).hasAccess) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "תקופת הניסיון ל-14 ימים הסתיימה. יש להסדיר מנוי להמשך שימוש.",
       });
     }
 
-    return next({ 
-      ctx: { 
-        ...ctx, 
-        user 
-      } 
+    return next({
+      ctx: {
+        ...ctx,
+        user,
+      },
     });
   }),
 );

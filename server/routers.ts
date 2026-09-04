@@ -6,6 +6,7 @@ import { activeSubscriptionProcedure, protectedProcedure, publicProcedure, route
 import { invokeLLM } from "./_core/llm";
 import { createMorningPaymentForm } from "./morning";
 import { getSubscriptionPlan } from "../lib/subscription-plans";
+import { computeSubscriptionAccess } from "./_core/subscriptionAccess";
 import { z } from "zod";
 import {
   beginGarminConnection,
@@ -64,6 +65,15 @@ export const appRouter = router({
   
   // נתיבי מנויים וסליקה מול מורנינג
   subscription: router({
+    // נבדק ע"י כל מסכי האפליקציה כדי לנעול גישה ברגע שתקופת הניסיון/המנוי הסתיימה.
+    status: protectedProcedure.query(({ ctx }) => {
+      const access = computeSubscriptionAccess(ctx.user);
+      return {
+        subscriptionStatus: ctx.user.subscriptionStatus,
+        trialEndsAt: ctx.user.trialEndsAt,
+        isLocked: !access.hasAccess,
+      };
+    }),
     createCheckoutLink: protectedProcedure
       .input(z.object({ planType: z.enum(["monthly", "annual"]) }))
       .mutation(async ({ ctx, input }) => {
