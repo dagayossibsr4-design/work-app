@@ -109,6 +109,33 @@ export async function getUserById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+const SUPABASE_OPEN_ID_PREFIX = "supabase:";
+
+/**
+ * Bridges a verified Supabase identity into the app's own `users` table,
+ * provisioning a row (with the standard trial defaults from `upsertUser`) on
+ * first sight. This lets a user who signed up through the live Supabase
+ * register screen use every endpoint gated by `protectedProcedure` /
+ * `activeSubscriptionProcedure`, which only ever look at this table.
+ */
+export async function resolveUserFromSupabaseIdentity(identity: { id: string; email: string | null; name: string | null }) {
+  const openId = `${SUPABASE_OPEN_ID_PREFIX}${identity.id}`;
+  let user = await getUserByOpenId(openId);
+  if (!user) {
+    await upsertUser({
+      openId,
+      email: identity.email,
+      name: identity.name,
+      loginMethod: "supabase",
+      lastSignedIn: new Date(),
+    });
+    user = await getUserByOpenId(openId);
+  } else {
+    await upsertUser({ openId, lastSignedIn: new Date() });
+  }
+  return user ?? undefined;
+}
+
 /**
  * Marks a user's subscription active for `extendByDays` from whichever is
  * later: now, or their current trial/subscription end. Only ever called after

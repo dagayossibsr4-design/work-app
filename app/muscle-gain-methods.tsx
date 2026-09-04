@@ -244,7 +244,7 @@ export default function MuscleGainMethodsScreen() {
 
   return (
     <ScreenContainer className="px-5 pt-5" containerClassName="bg-background">
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך האימונים" onPress={() => router.back()} style={({ pressed }) => [styles.back, pressed && styles.pressed]}>
             <Text style={styles.backText}>‹ חזרה לאימונים</Text>

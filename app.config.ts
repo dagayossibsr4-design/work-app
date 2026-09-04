@@ -87,7 +87,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "./plugins/with-rtl.js",
-    "expo-router",
+    ["expo-router", { sitemap: false }],
     "expo-notifications",
     [
       "expo-audio",

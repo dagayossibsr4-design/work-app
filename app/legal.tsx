@@ -32,7 +32,7 @@ export default function LegalScreen() {
           <Pressable accessibilityRole="button" accessibilityLabel="חזרה" onPress={() => router.back()} style={({ pressed }) => [styles.back, pressed && styles.pressed]}><Text style={styles.backText}>‹ חזרה</Text></Pressable>
           <Text style={styles.eyebrow}>מידע חשוב</Text>
           <Text style={styles.title}>פרטיות ומידע משפטי</Text>
-          <Text style={styles.subtitle}>נוסח כללי בתוך האפליקציה. יש להתאים אותו למדינה, לעסק ולדרך השימוש בפועל לפני פרסום מסחרי.</Text>
+          <Text style={styles.subtitle}>תנאי השימוש ומדיניות הפרטיות של ProLifto.</Text>
         </View>
         <View style={styles.warning}><Text style={styles.warningTitle}>הבהרה</Text><Text style={styles.warningText}>אני כלי תוכנה ולא רופא, תזונאי או עורך דין. המידע באפליקציה הוא כלי עזר לתיעוד ולתכנון בלבד ואינו מחליף אבחון, טיפול, ייעוץ תזונתי או ייעוץ משפטי מקצועי.</Text></View>
         <LegalSection title="שימוש באפליקציה" text="האפליקציה מיועדת לתיעוד אימונים, תזונה, שינה והתאוששות. המשתמש אחראי לבדוק את הנתונים שהוזנו ולבחון אם המלצה או עומס מתאימים לו. אין לבצע שינוי קיצוני באימון, בתזונה או בתוספים ללא גורם מקצועי מתאים." />
@@ -40,7 +40,7 @@ export default function LegalScreen() {
         <LegalSection title="שמירה ושיתוף מידע" text="הנתונים המקומיים נשמרים במכשיר לפי התנהגות המערכת. ייצוא, שיתוף, שליחה ל־WhatsApp, דוא״ל או חיבור לשירות חיצוני מתבצעים בעקבות פעולה יזומה של המשתמש. לפני שיתוף יש לבדוק שהקובץ אינו כולל מידע שאינך רוצה לחשוף." />
         <LegalSection title="Garmin ושירותים חיצוניים" text="חיבור Garmin ידרוש הרשאה נפרדת ויכול להעביר נתוני פעילות ובריאות בהתאם להיקף ההרשאה שאושר. אין להפעיל חיבור שאינו מוכר לך. ניתן לנתק חיבור או למחוק נתונים בהתאם ליכולות הגרסה והשירות." />
         <LegalSection title="דיוק והגבלת אחריות" text="ערכי מזון, מקדמי בישול, חישובי המרה, המלצות עומס ונתוני שעון עשויים להיות אומדנים או להיות תלויים במקור ובמכשיר. אין לראות בתוצאה התחייבות לדיוק, לתוצאה גופנית או לזמינות רציפה של שירות חיצוני." />
-        <LegalSection title="פרטיות ופניות" text="לפני הפצה לציבור יש לפרסם מדיניות פרטיות מלאה, להגדיר בעלים ומפעיל, מטרות עיבוד, תקופות שמירה, מחיקה, אבטחה, ספקים חיצוניים ודרך ליצירת קשר. הנוסח במסך זה הוא שכבת הסבר כללית ואינו תחליף למדיניות מותאמת." />
+        <LegalSection title="פרטיות ופניות" text="ProLifto היא המפעילה של האפליקציה ואחראית לעיבוד הנתונים המתואר כאן. הנתונים משמשים אך ורק להפעלת האפליקציה עבורך (תיעוד אימונים ותזונה, סנכרון בין מכשירים וחיבורים חיצוניים שאישרת) ואינם נמכרים לצד שלישי. ניתן לבקש בכל עת עיון, תיקון או מחיקה של הנתונים השמורים בחשבונך, וכן לבטל חיבורים חיצוניים כמו Garmin. לפניות בנושאי פרטיות, מנוי או תשלום ניתן לפנות דרך אמצעי יצירת הקשר המופיעים בעמוד ההרשמה והמנוי באפליקציה." />
         <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: acknowledged }} onPress={acknowledge} style={({ pressed }) => [styles.ack, acknowledged && styles.ackActive, pressed && styles.pressed]}><View style={[styles.box, acknowledged && styles.boxActive]}>{acknowledged ? <Text style={styles.check}>✓</Text> : null}</View><Text style={styles.ackText}>קראתי את ההבהרות ואני מבין שהאפליקציה אינה תחליף לייעוץ מקצועי.</Text></Pressable>
         {saved ? <Text style={styles.saved}>ההסכמה נשמרה במכשיר.</Text> : null}
       </ScrollView>

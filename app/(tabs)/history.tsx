@@ -18,6 +18,7 @@ import * as FileSystem from "expo-file-system/legacy";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { WorkoutMethodPicker } from "@/components/workout-method-picker";
+import { ConfirmModal } from "@/components/confirm-modal";
 import { completedWorkoutHistoryRoute } from "@/lib/completed-workout-route";
 import {
   libraryForWorkout,
@@ -44,6 +45,7 @@ import {
   techniqueTipForExercise,
 } from "@/lib/workout-session-insights";
 import { cardioPaceText, cardioTotalsForSets } from "@/lib/cardio-details";
+import { sanitizeNonNegativeDecimalInput } from "@/lib/numeric-input";
 
 async function shareFile(uri: string, mimeType: string, title: string) {
   if (Platform.OS === "web") {
@@ -314,6 +316,7 @@ function SessionDetail({
     string | null
   >(null);
   const [methodPickerSetId, setMethodPickerSetId] = useState<string | null>(null);
+  const [pendingExerciseDelete, setPendingExerciseDelete] = useState<{ id: string; name: string } | null>(null);
   const toDateInput = (iso: string) => iso.slice(0, 10);
   const withDate = (iso: string, date: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return iso;
@@ -462,26 +465,22 @@ function SessionDetail({
     ]);
   };
   const removeDraftExercise = (exerciseId: string, name: string) => {
-    const remove = () =>
-      setDraft((current) => {
-        const next = removeExerciseFromHistorySession(current, exerciseId);
-        const nextNames = { ...(next.exerciseNames ?? {}) };
-        delete nextNames[exerciseId];
-        return {
-          ...next,
-          exerciseOrder: next.exerciseOrder?.filter((id) => id !== exerciseId),
-          exerciseNames: Object.keys(nextNames).length ? nextNames : undefined,
-        };
-      });
-    const message = `למחוק את ${name} וכל הסטים שלו מהאימון?`;
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && window.confirm(message)) remove();
-      return;
-    }
-    Alert.alert("מחיקת תרגיל", message, [
-      { text: "ביטול", style: "cancel" },
-      { text: "מחק", style: "destructive", onPress: remove },
-    ]);
+    setPendingExerciseDelete({ id: exerciseId, name });
+  };
+  const confirmRemoveDraftExercise = () => {
+    if (!pendingExerciseDelete) return;
+    const exerciseId = pendingExerciseDelete.id;
+    setDraft((current) => {
+      const next = removeExerciseFromHistorySession(current, exerciseId);
+      const nextNames = { ...(next.exerciseNames ?? {}) };
+      delete nextNames[exerciseId];
+      return {
+        ...next,
+        exerciseOrder: next.exerciseOrder?.filter((id) => id !== exerciseId),
+        exerciseNames: Object.keys(nextNames).length ? nextNames : undefined,
+      };
+    });
+    setPendingExerciseDelete(null);
   };
   const moveDraftExercise = (exerciseId: string, direction: -1 | 1) => {
     setDraft((current) => {
@@ -935,6 +934,15 @@ function SessionDetail({
         ))
       )}
       <WorkoutMethodPicker visible={Boolean(methodPickerSetId)} selectedMethod={draft.sets.find((set) => set.id === methodPickerSetId)?.method} onClose={() => setMethodPickerSetId(null)} onSelect={(method) => { if (methodPickerSetId) updateDraftSet(methodPickerSetId, { method: method.title === "ללא שיטה" ? undefined : method.title }); setMethodPickerSetId(null); }} />
+      <ConfirmModal
+        visible={Boolean(pendingExerciseDelete)}
+        title="מחיקת תרגיל"
+        message={pendingExerciseDelete ? `למחוק את ${pendingExerciseDelete.name} וכל הסטים שלו מהאימון?` : ""}
+        confirmLabel="מחק"
+        destructive
+        onConfirm={confirmRemoveDraftExercise}
+        onCancel={() => setPendingExerciseDelete(null)}
+      />
       <Modal
         visible={calendarVisible}
         transparent
@@ -1214,7 +1222,7 @@ function CardioSessionBlocks({
               <View style={styles.cardioEditRow}>
                 <TextInput
                   value={set.reps}
-                  onChangeText={(reps) => onUpdate(set.id, { reps })}
+                  onChangeText={(reps) => onUpdate(set.id, { reps: sanitizeNonNegativeDecimalInput(reps) })}
                   keyboardType="decimal-pad"
                   placeholder="דקות"
                   placeholderTextColor="#7E8DA4"
@@ -1222,7 +1230,7 @@ function CardioSessionBlocks({
                 />
                 <TextInput
                   value={set.weight}
-                  onChangeText={(weight) => onUpdate(set.id, { weight })}
+                  onChangeText={(weight) => onUpdate(set.id, { weight: sanitizeNonNegativeDecimalInput(weight) })}
                   keyboardType="decimal-pad"
                   placeholder="ק״מ"
                   placeholderTextColor="#7E8DA4"

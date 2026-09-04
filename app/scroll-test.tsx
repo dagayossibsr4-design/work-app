@@ -1,10 +1,13 @@
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
+import { router, Redirect } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 
 const meals = ["ארוחת בוקר 1", "ארוחת בוקר 2", "ארוחת צהריים", "ארוחת ביניים", "ארוחת ערב", "סיכום יומי"];
 
 export default function ScrollTestScreen() {
+  // Internal scroll-behavior diagnostic screen only - never shipped to real users.
+  if (!__DEV__) return <Redirect href="/" />;
+
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
       <FlatList

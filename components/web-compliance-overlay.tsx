@@ -52,13 +52,26 @@ function saveCookieConsent(value: CookieConsent) {
 
 export function WebComplianceOverlay() {
   const isWeb = Platform.OS === "web";
-  const [cookieConsent, setCookieConsent] = useState<CookieConsent | null>(() => readCookieConsent() ?? readStorage<CookieConsent | null>(COOKIE_CONSENT_KEY, null));
+  // Both start at a fixed, deterministic value instead of reading
+  // cookies/localStorage in the initializer: the static web export prerenders
+  // this component with no `window`/`document`, so an initializer that reads
+  // them would return a different value than the client's first hydration
+  // pass, causing a React hydration mismatch (error #418). The real stored
+  // values are loaded in an effect below, which only ever runs client-side
+  // after hydration has already committed.
+  const [cookieConsent, setCookieConsent] = useState<CookieConsent | null>(null);
   const [cookieSettingsOpen, setCookieSettingsOpen] = useState(false);
   const [accessibilityOpen, setAccessibilityOpen] = useState(false);
-  const [accessibility, setAccessibility] = useState<AccessibilityPreferences>(() => readStorage(ACCESSIBILITY_KEY, DEFAULT_ACCESSIBILITY));
+  const [accessibility, setAccessibility] = useState<AccessibilityPreferences>(DEFAULT_ACCESSIBILITY);
 
   const hasOptionalCookies = cookieConsent === "accepted";
   const accessibilityLabel = useMemo(() => accessibilityOpen ? "סגירת תפריט נגישות" : "פתיחת תפריט נגישות", [accessibilityOpen]);
+
+  useEffect(() => {
+    if (!isWeb) return;
+    setCookieConsent(readCookieConsent() ?? readStorage<CookieConsent | null>(COOKIE_CONSENT_KEY, null));
+    setAccessibility(readStorage(ACCESSIBILITY_KEY, DEFAULT_ACCESSIBILITY));
+  }, [isWeb]);
 
   useEffect(() => {
     if (!isWeb || typeof document === "undefined") return;

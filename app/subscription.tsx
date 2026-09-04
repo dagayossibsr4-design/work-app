@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 
@@ -6,20 +6,53 @@ import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { SUBSCRIPTION_PLANS, SUBSCRIPTION_START_DATE, type SubscriptionPlanId } from "@/lib/subscription-plans";
 import { trpc } from "@/lib/trpc";
+import { supabase } from "@/lib/supabase";
+
+const SIGN_IN_REQUIRED_MESSAGE = "כדי לעבור לתשלום יש קודם להירשם או להתחבר לחשבון. 14 הימים הראשונים חינם, ללא צורך בכרטיס אשראי.";
 
 export default function SubscriptionScreen() {
   const [selectedPlanId, setSelectedPlanId] = useState<SubscriptionPlanId>("monthly");
   const [isLoading, setIsLoading] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
 
   const createCheckoutLinkMutation = trpc.subscription.createCheckoutLink.useMutation();
+
+  useEffect(() => {
+    if (!supabase) {
+      setIsSignedIn(false);
+      return;
+    }
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (active) setIsSignedIn(Boolean(data.session));
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) setIsSignedIn(Boolean(session));
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   const selectedPlan = useMemo(
     () => SUBSCRIPTION_PLANS.find((plan) => plan.id === selectedPlanId) ?? SUBSCRIPTION_PLANS[0],
     [selectedPlanId],
   );
 
+  const goToRegister = () => router.push("/register" as never);
+
   const handleProceedToPayment = async () => {
+    if (!isSignedIn) {
+      setRequestError(SIGN_IN_REQUIRED_MESSAGE);
+      Alert.alert("נדרשת הרשמה או התחברות", SIGN_IN_REQUIRED_MESSAGE, [
+        { text: "ביטול", style: "cancel" },
+        { text: "מעבר להרשמה", onPress: goToRegister },
+      ]);
+      return;
+    }
+
     try {
       setIsLoading(true);
       setRequestError("");
@@ -32,9 +65,21 @@ export default function SubscriptionScreen() {
         throw new Error("לא התקבל קישור תשלום תקין ממערכת הסליקה.");
       }
     } catch (err: any) {
-      const errorMsg = err?.message || "אירעה שגיאה ביצירת דף התשלום. נסה שוב מאוחר יותר.";
+      // Defense in depth: never surface a raw auth error code (e.g. "(10001)")
+      // to the user, even if the session bridge above ever fails unexpectedly.
+      const isAuthError = err?.data?.code === "UNAUTHORIZED" || /\(1000[12]\)/.test(String(err?.message ?? ""));
+      const errorMsg = isAuthError
+        ? SIGN_IN_REQUIRED_MESSAGE
+        : err?.message || "אירעה שגיאה ביצירת דף התשלום. נסה שוב מאוחר יותר.";
       setRequestError(errorMsg);
-      Alert.alert("שגיאת סליקה", errorMsg);
+      if (isAuthError) {
+        Alert.alert("נדרשת הרשמה או התחברות", errorMsg, [
+          { text: "ביטול", style: "cancel" },
+          { text: "מעבר להרשמה", onPress: goToRegister },
+        ]);
+      } else {
+        Alert.alert("שגיאת סליקה", errorMsg);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -48,8 +93,18 @@ export default function SubscriptionScreen() {
         
         <Text style={styles.title}>בחר את המסלול שלך</Text>
         <Text style={styles.subtitle}>
-          כל משתמש חדש זכאי ל-14 ימי ניסיון בחינם. לאחר מכן, בחר מסלול מנוי להמשך גישה לכל פיצ'רי ה-AI ומעקב האימונים.
+          כל משתמש חדש זכאי ל-14 ימי ניסיון בחינם, ללא צורך בכרטיס אשראי. המסלולים כאן מיועדים למי שכבר יש לו חשבון ורוצה להמשיך אחרי תום הניסיון, או לשדרג מוקדם יותר.
         </Text>
+
+        {isSignedIn === false ? (
+          <View style={styles.signInNotice}>
+            <Text style={styles.signInNoticeTitle}>עדיין אין לך חשבון?</Text>
+            <Text style={styles.signInNoticeText}>הירשם קודם ל-14 ימי ניסיון חינם. התשלום למטה זמין רק למשתמש מחובר.</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="הרשמה עכשיו" onPress={goToRegister} style={({ pressed }) => [styles.signInNoticeButton, pressed && styles.pressed]}>
+              <Text style={styles.signInNoticeButtonText}>הרשמה ל-14 ימי ניסיון חינם</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>מסלולים זמינים</Text>
@@ -145,6 +200,11 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#F5B72C", fontSize: 13, fontWeight: "900", textAlign: "right" },
   title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900", textAlign: "right" },
   subtitle: { color: "#AAB7C8", fontSize: 14, lineHeight: 21, textAlign: "right" },
+  signInNotice: { backgroundColor: "#1C3152", borderColor: "#3F76A7", borderWidth: 1, borderRadius: 16, padding: 15, gap: 8 },
+  signInNoticeTitle: { color: "#F5B72C", fontSize: 15, fontWeight: "900", textAlign: "right" },
+  signInNoticeText: { color: "#D9E2EF", fontSize: 12, lineHeight: 18, textAlign: "right" },
+  signInNoticeButton: { minHeight: 44, backgroundColor: "#F5B72C", borderRadius: 11, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  signInNoticeButtonText: { color: "#0B1224", fontWeight: "900", fontSize: 13 },
   sectionHeader: { gap: 3, marginTop: 4 },
   sectionTitle: { color: "#F7F9FC", fontSize: 19, fontWeight: "900", textAlign: "right" },
   sectionHint: { color: "#7E8DA4", fontSize: 11, textAlign: "right" },

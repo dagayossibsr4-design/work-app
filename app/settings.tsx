@@ -16,6 +16,8 @@ import Constants from "expo-constants";
 import { useState } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
+import { AuthGuardFallback } from "@/components/auth-guard-fallback";
+import { useAuthGuard } from "@/lib/use-auth-guard";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
 
@@ -98,6 +100,7 @@ async function restoreFromAsset(asset: DocumentPicker.DocumentPickerAsset) {
 }
 
 export default function SettingsScreen() {
+  const authState = useAuthGuard();
   const [restoreStatus, setRestoreStatus] = useState("");
   const [authStatus, setAuthStatus] = useState("");
   const signOut = async () => {
@@ -192,6 +195,8 @@ export default function SettingsScreen() {
       ],
     );
   };
+  if (authState !== "authorized") return <AuthGuardFallback />;
+
   return (
     <ScreenContainer className="px-5 pt-5">
       <ScrollView contentContainerStyle={styles.content}>

@@ -4,6 +4,7 @@ import superjson from "superjson";
 import type { AppRouter } from "@/server/routers";
 import { getApiBaseUrl } from "@/constants/oauth";
 import * as Auth from "@/lib/_core/auth";
+import { supabase } from "@/lib/supabase";
 
 /**
  * tRPC React client for type-safe API calls.
@@ -27,7 +28,12 @@ export function createTRPCClient() {
         transformer: superjson,
         async headers() {
           const token = await Auth.getSessionToken();
-          return token ? { Authorization: `Bearer ${token}` } : {};
+          if (token) return { Authorization: `Bearer ${token}` };
+          // Falls back to the Supabase session (the app's real, live sign-in
+          // flow) so protected endpoints work for Supabase-authenticated
+          // users too, not only accounts created through the legacy OAuth flow.
+          const supabaseToken = supabase ? (await supabase.auth.getSession()).data.session?.access_token : null;
+          return supabaseToken ? { Authorization: `Bearer ${supabaseToken}` } : {};
         },
         // Custom fetch to include credentials for cookie-based auth
         fetch(url, options) {

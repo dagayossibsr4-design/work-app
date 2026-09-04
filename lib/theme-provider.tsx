@@ -12,8 +12,22 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useSystemColorScheme() ?? "light";
-  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(systemScheme);
+  const systemScheme = useSystemColorScheme();
+  // Starts at a fixed default rather than the live system scheme: on web the
+  // static export prerenders this component without a `window`, so reading
+  // the system scheme during the first render would mismatch what the client
+  // hydrates with (React hydration error #418). The real scheme is adopted
+  // in an effect below, once we're safely past hydration.
+  const [colorScheme, setColorSchemeState] = useState<ColorScheme>("dark");
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (isHydrated && systemScheme) setColorSchemeState(systemScheme);
+  }, [isHydrated, systemScheme]);
 
   const applyScheme = useCallback((scheme: ColorScheme) => {
     nativewindColorScheme.set(scheme);

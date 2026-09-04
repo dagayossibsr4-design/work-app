@@ -6,6 +6,8 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { AuthGuardFallback } from "@/components/auth-guard-fallback";
+import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useWorkoutStore, calculateVolume } from "@/lib/workout-store";
 import { buildNutritionRecommendations, type NutritionRecommendation } from "@/lib/nutrition-recommendations";
 import { requestNutritionCloudSave } from "@/lib/nutrition-persistence";
@@ -15,6 +17,7 @@ type NutritionRow = { date: string; calories: number; protein: number; carbohydr
 type Range = 7 | 30 | 90;
 
 export default function DashboardScreen() {
+  const authState = useAuthGuard();
   const { sessions, templates, nutritionProfile } = useWorkoutStore();
   const [range, setRange] = useState<Range>(30);
   const [nutrition, setNutrition] = useState<NutritionRow[]>([]);
@@ -75,8 +78,10 @@ export default function DashboardScreen() {
     });
   };
 
+  if (authState !== "authorized") return <AuthGuardFallback />;
+
   return <ScreenContainer edges={["top", "left", "right"]}>
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <View style={styles.header}><Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.back}><Text style={styles.backText}>‹</Text></Pressable><View><Text style={styles.eyebrow}>ניתוח אישי</Text><Text style={styles.title}>לוח בקרה</Text><Text style={styles.subtitle}>התקדמות האימונים והתזונה לאורך זמן</Text></View></View>
       <View style={styles.rangeRow}>{([7, 30, 90] as Range[]).map((item) => <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: range === item }} onPress={() => setRange(item)} style={[styles.range, range === item && styles.rangeActive]}><Text style={[styles.rangeText, range === item && styles.rangeTextActive]}>{item} ימים</Text></Pressable>)}</View>
       <View style={styles.exportRow}><Pressable accessibilityRole="button" onPress={() => exportDashboardPdf(range, workoutRows, nutritionRows)} style={({ pressed }) => [styles.exportButton, pressed && styles.pressed]}><Text style={styles.exportText}>ייצוא PDF</Text></Pressable><Pressable accessibilityRole="button" onPress={() => exportDashboardExcel(range, workoutRows, nutritionRows)} style={({ pressed }) => [styles.exportButton, pressed && styles.pressed]}><Text style={styles.exportText}>ייצוא Excel</Text></Pressable></View>

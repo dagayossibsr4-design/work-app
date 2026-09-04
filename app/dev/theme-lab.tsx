@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Redirect } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { ThemedView } from "@/components/themed-view";
@@ -25,6 +26,9 @@ function ColorSwatch({ name, value }: { name: PaletteName; value: string }) {
 }
 
 export default function ThemeLabScreen() {
+  // Internal design-system playground only - never shipped to real users.
+  if (!__DEV__) return <Redirect href="/" />;
+
   const [pressCount, setPressCount] = useState(0);
   const [lastAction, setLastAction] = useState<string>("None yet");
   const { colorScheme, setColorScheme } = useThemeContext();

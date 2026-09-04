@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Session } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
@@ -20,6 +20,7 @@ export default function RegisterScreen() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const incomingUrl = Linking.useURL();
+  const passwordInputRef = useRef<TextInput>(null);
   const goHome = () => router.replace("/(tabs)" as never);
 
   const signOut = async () => {
@@ -181,26 +182,32 @@ export default function RegisterScreen() {
               autoComplete="email"
               autoCorrect={false}
               keyboardType="email-address"
-              onChangeText={setEmail}
+              onChangeText={(value) => { setEmail(value); if (error) setError(""); }}
               placeholder="name@example.com"
               placeholderTextColor="#7E8DA4"
               style={styles.input}
               textAlign="right"
               value={email}
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => passwordInputRef.current?.focus()}
             />
 
             <View style={styles.passwordRow}>
               <TextInput
+                ref={passwordInputRef}
                 accessibilityLabel="סיסמה"
                 autoCapitalize="none"
                 autoCorrect={false}
-                onChangeText={setPassword}
+                onChangeText={(value) => { setPassword(value); if (error) setError(""); }}
                 placeholder="סיסמה (לפחות 6 תווים)"
                 placeholderTextColor="#7E8DA4"
                 secureTextEntry={!showPassword}
                 style={styles.passwordInput}
                 textAlign="right"
                 value={password}
+                returnKeyType="done"
+                onSubmitEditing={() => void handleAuthAction()}
               />
               <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? "הסתרת סיסמה" : "הצגת סיסמה"} onPress={() => setShowPassword((visible) => !visible)} style={({ pressed }) => [styles.passwordToggle, pressed && styles.pressed]}>
                 <Text style={styles.passwordToggleText}>{showPassword ? "הסתר" : "הצג"}</Text>

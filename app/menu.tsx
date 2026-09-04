@@ -1,6 +1,8 @@
 import { router } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { AuthGuardFallback } from "@/components/auth-guard-fallback";
+import { useAuthGuard } from "@/lib/use-auth-guard";
 
 const sections = [
   { title: "אימון יומי", items: [["היום", "/(tabs)"], ["אימונים", "/(tabs)/workouts"], ["יומן אימונים ולוח", "/(tabs)/schedule"], ["היסטוריה", "/(tabs)/history"]] },
@@ -10,6 +12,8 @@ const sections = [
 ] as const;
 
 export default function MenuScreen() {
+  const authState = useAuthGuard();
+  if (authState !== "authorized") return <AuthGuardFallback />;
   return <ScreenContainer className="px-5 pt-5" containerClassName="bg-background"><ScrollView contentContainerStyle={styles.content}><View style={styles.header}><Text style={styles.eyebrow}>ניווט מהיר</Text><Text style={styles.title}>כל האזורים</Text><Text style={styles.subtitle}>פעולות הליבה נמצאות למעלה. שאר המסכים מחולקים לפי מטרה.</Text></View>{sections.map((section) => <View key={section.title} style={styles.section}><Text style={styles.sectionTitle}>{section.title}</Text>{section.items.map(([label, path]) => <Pressable key={path} accessibilityRole="button" accessibilityLabel={`פתח ${label}`} onPress={() => router.push(path as never)} style={({ pressed }) => [styles.item, pressed && styles.pressed]}><Text style={styles.arrow}>‹</Text><Text style={styles.label}>{label}</Text></Pressable>)}</View>)}<Pressable accessibilityRole="button" accessibilityLabel="חזרה למסך הקודם" onPress={() => router.back()} style={({ pressed }) => [styles.back, pressed && styles.pressed]}><Text style={styles.backText}>חזרה למסך הקודם</Text></Pressable></ScrollView></ScreenContainer>;
 }
 

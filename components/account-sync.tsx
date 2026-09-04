@@ -130,13 +130,20 @@ export function AccountSync() {
     };
   }, [accountId, applyAccountState, hydrated]);
 
+  const lastSavedSnapshotRef = useRef<string | null>(null);
+
+  const buildSnapshot = useCallback(async () => {
+    const pairs = await AsyncStorage.multiGet([...LOCAL_KEYS]);
+    const localStorage = Object.fromEntries(pairs.filter(([, value]) => value !== null)) as Record<string, string>;
+    return { localStorage, serialized: JSON.stringify({ ...getAccountState(), localStorage }) };
+  }, [getAccountState]);
+
   const saveSnapshot = useCallback(async () => {
     if (!supabase || !accountId) return false;
     setNutritionCloudSaveStatus("saving");
     setAccountBackupStatus("saving");
     try {
-      const pairs = await AsyncStorage.multiGet([...LOCAL_KEYS]);
-      const localStorage = Object.fromEntries(pairs.filter(([, value]) => value !== null)) as Record<string, string>;
+      const { localStorage, serialized } = await buildSnapshot();
       const { error } = await supabase.from("account_state").upsert(
         { account_id: accountId, payload: { ...getAccountState(), localStorage }, updated_at: new Date().toISOString() },
         { onConflict: "account_id" },
@@ -147,6 +154,7 @@ export function AccountSync() {
         setAccountBackupStatus("failed");
         return false;
       }
+      lastSavedSnapshotRef.current = serialized;
       setNutritionCloudSaveStatus("saved");
       setAccountBackupStatus("saved");
       return true;
@@ -156,7 +164,19 @@ export function AccountSync() {
       setAccountBackupStatus("failed");
       return false;
     }
-  }, [accountId, getAccountState]);
+  }, [accountId, buildSnapshot, getAccountState]);
+
+  /**
+   * Used only by the periodic safety-net sync below. Skips the network
+   * round-trip entirely when nothing has changed since the last successful
+   * save, instead of upserting on a blind fixed interval regardless of edits.
+   */
+  const saveSnapshotIfChanged = useCallback(async () => {
+    if (!supabase || !accountId) return;
+    const { serialized } = await buildSnapshot();
+    if (serialized === lastSavedSnapshotRef.current) return;
+    await saveSnapshot();
+  }, [accountId, buildSnapshot, saveSnapshot]);
 
   useEffect(() => subscribeNutritionCloudSave(() => {
     if (!hydrated || !syncReady || !accountId) return;
@@ -182,9 +202,9 @@ export function AccountSync() {
 
   useEffect(() => {
     if (!hydrated || !syncReady || !accountId) return;
-    const timer = setInterval(() => { void saveSnapshot(); }, 4000);
+    const timer = setInterval(() => { void saveSnapshotIfChanged(); }, 4000);
     return () => clearInterval(timer);
-  }, [accountId, hydrated, saveSnapshot, syncReady]);
+  }, [accountId, hydrated, saveSnapshotIfChanged, syncReady]);
 
   return null;
 }
