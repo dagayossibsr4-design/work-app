@@ -115,6 +115,15 @@ export default function SubscriptionScreen() {
 
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="מעבר להרשמה או התחברות"
+          onPress={() => router.replace("/register")}
+          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
+        >
+          <Text style={styles.secondaryText}>משתמש חדש? לחץ כאן להרשמה (14 ימי ניסיון חינם)</Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
           accessibilityLabel="חזרה למסך הראשי"
           onPress={() => router.replace("/")}
           style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
