@@ -30,15 +30,22 @@ export const protectedProcedure = t.procedure.use(requireUser);
 export const activeSubscriptionProcedure = protectedProcedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
-    const user = ctx.user;
+    const user = ctx.user!;
 
     // אדמין פטור מבדיקת תקופת ניסיון או מנוי
     if (user.role === "admin") {
-      return next({ ctx });
+      return next({ 
+        ctx: { 
+          ...ctx, 
+          user 
+        } 
+      });
     }
 
     const isPaidActive = user.subscriptionStatus === "active";
-    const isTrialValid = user.trialEndsAt && new Date(user.trialEndsAt).getTime() > Date.now();
+    const isTrialValid = Boolean(
+      user.trialEndsAt && new Date(user.trialEndsAt).getTime() > Date.now()
+    );
 
     if (!isPaidActive && !isTrialValid) {
       throw new TRPCError({
@@ -47,7 +54,12 @@ export const activeSubscriptionProcedure = protectedProcedure.use(
       });
     }
 
-    return next({ ctx });
+    return next({ 
+      ctx: { 
+        ...ctx, 
+        user 
+      } 
+    });
   }),
 );
 
