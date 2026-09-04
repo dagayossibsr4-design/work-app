@@ -13,7 +13,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import Constants from "expo-constants";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { AuthGuardFallback } from "@/components/auth-guard-fallback";
@@ -21,17 +21,35 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
 
-const links = [
-  ["לוח אימונים שבועי", "/(tabs)/schedule"],
-  ["תבניות ותרגילים", "/(tabs)/editor"],
-  ["חמש ארוחות", "/(tabs)/meal-plan"],
-  ["היסטוריית אימונים", "/(tabs)/history"],
-  ["ניתוח והתקדמות", "/(tabs)/analysis"],
-  ["אירובי", "/(tabs)/cardio"],
-  ["התאוששות ושינה", "/(tabs)/recovery"],
-  ["Garmin Connect", "/(tabs)/garmin"],
-  ["חילוץ תווית מזון באמצעות AI", "/food-label"],
-  ["יעדים שבועיים לפרופיל", "/weekly-goals"],
+const linkGroups = [
+  {
+    title: "אימונים ותוכניות",
+    links: [
+      ["לוח אימונים שבועי", "/(tabs)/schedule"],
+      ["תבניות ותרגילים", "/(tabs)/editor"],
+      ["היסטוריית אימונים", "/(tabs)/history"],
+      ["יעדים שבועיים לפרופיל", "/weekly-goals"],
+    ],
+  },
+  {
+    title: "תזונה",
+    links: [
+      ["חמש ארוחות", "/(tabs)/meal-plan"],
+      ["חילוץ תווית מזון באמצעות AI", "/food-label"],
+    ],
+  },
+  {
+    title: "בריאות והתאוששות",
+    links: [
+      ["ניתוח והתקדמות", "/(tabs)/analysis"],
+      ["אירובי", "/(tabs)/cardio"],
+      ["התאוששות ושינה", "/(tabs)/recovery"],
+    ],
+  },
+  {
+    title: "חיבורים",
+    links: [["Garmin Connect", "/(tabs)/garmin"]],
+  },
 ] as const;
 const informationLinks = [
   ["איך משתמשים באפליקציה", "/guide"],
@@ -103,6 +121,23 @@ export default function SettingsScreen() {
   const authState = useAuthGuard();
   const [restoreStatus, setRestoreStatus] = useState("");
   const [authStatus, setAuthStatus] = useState("");
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (active) setAccountEmail(data.session?.user.email ?? null);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) setAccountEmail(session?.user.email ?? null);
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
   const signOut = async () => {
     if (!supabase) {
       setAuthStatus("מערכת ההתחברות אינה מוגדרת כרגע.");
@@ -200,50 +235,67 @@ export default function SettingsScreen() {
   return (
     <ScreenContainer className="px-5 pt-5">
       <ScrollView contentContainerStyle={styles.content}>
-        <BrandMark variant="original" onPress={requestSignOut} />
+        <BrandMark variant="original" />
         <Text style={styles.eyebrow}>ניהול אישי</Text>
         <Text style={styles.title}>הגדרות</Text>
         <Text style={styles.subtitle}>כל הכלים המתקדמים במקום אחד</Text>
-        <View style={styles.card}>
-          <Text style={styles.section}>חשבון אישי</Text>
-          <Text style={styles.note}>
-            רישום מאפשר לחבר את האפליקציה לחשבון אישי ולהמשיך בין מכשירים.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="פתח הרשמה או התחברות"
-            onPress={() => router.push("/register" as never)}
-            style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
-          >
-            <Text style={styles.primaryText}>הרשמה / התחברות</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="התנתקות מהחשבון"
-            onPress={requestSignOut}
-            style={({ pressed }) => [styles.danger, pressed && styles.pressed]}
-          >
-            <Text style={styles.dangerText}>התנתקות</Text>
-          </Pressable>
+
+        <View style={[styles.card, styles.accountCard]}>
+          <View style={styles.accountHeader}>
+            <View style={[styles.accountDot, accountEmail && styles.accountDotActive]} />
+            <Text style={styles.section}>חשבון אישי</Text>
+          </View>
+          {accountEmail ? (
+            <Text style={styles.accountEmail}>מחובר כ-{accountEmail}</Text>
+          ) : (
+            <Text style={styles.note}>
+              רישום מאפשר לחבר את האפליקציה לחשבון אישי ולהמשיך בין מכשירים.
+            </Text>
+          )}
+          {accountEmail ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="התנתקות מהחשבון"
+              onPress={requestSignOut}
+              style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryText}>התנתקות</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="פתח הרשמה או התחברות"
+              onPress={() => router.push("/register" as never)}
+              style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryText}>הרשמה / התחברות</Text>
+            </Pressable>
+          )}
           {authStatus ? (
             <Text accessibilityLiveRegion="polite" style={styles.status}>
               {authStatus}
             </Text>
           ) : null}
         </View>
+
         <View style={styles.card}>
           <Text style={styles.section}>מסכים וכלים</Text>
-          {links.map(([label, href]) => (
-            <Pressable
-              key={href}
-              accessibilityRole="button"
-              accessibilityLabel={`פתח ${label}`}
-              onPress={() => router.push(href as never)}
-              style={({ pressed }) => [styles.link, pressed && styles.pressed]}
-            >
-              <Text style={styles.arrow}>‹</Text>
-              <Text style={styles.linkText}>{label}</Text>
-            </Pressable>
+          {linkGroups.map((group) => (
+            <View key={group.title} style={styles.linkGroup}>
+              <Text style={styles.linkGroupTitle}>{group.title}</Text>
+              {group.links.map(([label, href]) => (
+                <Pressable
+                  key={href}
+                  accessibilityRole="button"
+                  accessibilityLabel={`פתח ${label}`}
+                  onPress={() => router.push(href as never)}
+                  style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+                >
+                  <Text style={styles.arrow}>‹</Text>
+                  <Text style={styles.linkText}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
           ))}
         </View>
         <View style={styles.card}>
@@ -262,26 +314,21 @@ export default function SettingsScreen() {
           ))}
         </View>
         <View style={styles.card}>
-          <Text style={styles.section}>העדפות</Text>
+          <Text style={styles.section}>נתונים וגיבוי</Text>
           <Text style={styles.note}>
-            העדפות התזונה, יעדי המאקרו והנתונים המקומיים נשמרים במכשיר. ניתן
-            לשנות אותם בכל עת במסך התזונה.
+            הגיבוי כולל את נתוני האימונים, התבניות, התזונה, ההתאוששות והמעקב
+            האישי בפורמט JSON לשמירה פרטית. עריכת העדפות תזונה ומאקרו זמינה
+            במסך התזונה.
           </Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="עריכת העדפות תזונה"
             onPress={() => router.push("/(tabs)/nutrition" as never)}
-            style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.link, pressed && styles.pressed]}
           >
-            <Text style={styles.primaryText}>עריכת העדפות תזונה</Text>
+            <Text style={styles.arrow}>‹</Text>
+            <Text style={styles.linkText}>עריכת העדפות תזונה</Text>
           </Pressable>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.section}>נתונים וגיבוי</Text>
-          <Text style={styles.note}>
-            הגיבוי כולל את נתוני האימונים, התבניות, התזונה, ההתאוששות והמעקב
-            האישי בפורמט JSON לשמירה פרטית.
-          </Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="שתף גיבוי נתונים"
@@ -306,6 +353,15 @@ export default function SettingsScreen() {
               {restoreStatus}
             </Text>
           ) : null}
+        </View>
+
+        <View style={[styles.card, styles.dangerCard]}>
+          <Text style={styles.dangerSection}>⚠ אזור מסוכן</Text>
+          <Text style={styles.note}>
+            מחיקת הנתונים המקומיים היא פעולה סופית ואינה הפיכה - כל האימונים,
+            התפריטים וההיסטוריה במכשיר זה יימחקו. מומלץ ליצור גיבוי JSON למעלה
+            לפני שממשיכים.
+          </Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="מחק את כל הנתונים המקומיים"
@@ -356,6 +412,15 @@ const styles = StyleSheet.create({
     textAlign: "right",
     marginBottom: 3,
   },
+  accountCard: { borderColor: "#3F76A7" },
+  accountHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
+  accountDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#7E8DA4" },
+  accountDotActive: { backgroundColor: "#42D392" },
+  accountEmail: { color: "#D9E2EF", fontSize: 12, textAlign: "right" },
+  linkGroup: { gap: 8, borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, marginTop: 2 },
+  linkGroupTitle: { color: "#65BDF6", fontSize: 11, fontWeight: "900", textAlign: "right" },
+  dangerCard: { borderColor: "#5A2A38" },
+  dangerSection: { color: "#FFB0BC", fontSize: 16, fontWeight: "900", textAlign: "right", marginBottom: 3 },
   link: {
     flexDirection: "row-reverse",
     alignItems: "center",
