@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
@@ -20,6 +20,10 @@ const STATUS_COLORS: Record<string, string> = {
   expired: "#FF879A",
   canceled: "#7E8DA4",
 };
+const UNKNOWN_STATUS_COLOR = "#7E8DA4";
+
+const SUSPEND_CONFIRM_MESSAGE =
+  "החשבון לא יוכל להתחבר או לחדש התחברות מרגע זה. חשוב לדעת: אם המשתמש מחובר כרגע במכשיר, ההתחברות הפעילה שלו עלולה להישאר בתוקף עד כשעה נוספת (כך פועל אימות הטוקן של Supabase) - זו לא נעילה מיידית לגמרי, אלא חסימת כניסה/חידוש מרגע זה והלאה.";
 
 function formatDate(value: string | Date | null) {
   if (!value) return "—";
@@ -41,9 +45,22 @@ function relativeFromNow(value: string | Date | null) {
   return diffDays >= 0 ? `בעוד ${diffDays} ימים` : `לפני ${Math.abs(diffDays)} ימים`;
 }
 
+function confirm(title: string, message: string, onConfirm: () => void) {
+  if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.confirm === "function") {
+    if (window.confirm(`${title}\n\n${message}`)) onConfirm();
+    return;
+  }
+  Alert.alert(title, message, [
+    { text: "ביטול", style: "cancel" },
+    { text: "אישור", style: "destructive", onPress: onConfirm },
+  ]);
+}
+
 export default function AdminSubscribersScreen() {
   // `undefined` = still checking storage, `null` = no code saved yet.
   const [adminToken, setAdminToken] = useState<string | null | undefined>(undefined);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -61,13 +78,13 @@ export default function AdminSubscribersScreen() {
     { adminToken: adminToken ?? "" },
     {
       enabled: Boolean(adminToken),
-      // Approximates a "live" view: this page has no real login/logout event
-      // log (only a last-signed-in timestamp per account), so it re-polls
-      // instead of streaming individual events.
+      // Approximates a "live" view: there is no login/logout event log, so
+      // this re-polls the current account list instead of streaming events.
       refetchInterval: 15_000,
       retry: false,
     },
   );
+  const suspendMutation = trpc.admin.setUserSuspended.useMutation();
 
   useEffect(() => {
     const isRejected = (usersQuery.error as { data?: { code?: string } } | null)?.data?.code === "UNAUTHORIZED";
@@ -82,9 +99,42 @@ export default function AdminSubscribersScreen() {
 
   const list = usersQuery.data ?? [];
   const counts = list.reduce<Record<string, number>>((acc, user) => {
-    acc[user.subscriptionStatus] = (acc[user.subscriptionStatus] ?? 0) + 1;
+    const key = user.subscriptionStatus ?? "ללא_חשבון_מנוי";
+    acc[key] = (acc[key] ?? 0) + 1;
     return acc;
   }, {});
+
+  const toggleSuspend = (userId: string, nextSuspended: boolean) => {
+    if (!adminToken) return;
+    setPendingUserId(userId);
+    setStatusMessage("");
+    suspendMutation.mutate(
+      { adminToken, userId, suspend: nextSuspended },
+      {
+        onSuccess: () => {
+          setStatusMessage(nextSuspended ? "הגישה של המשתמש הושהתה." : "הגישה של המשתמש שוחזרה.");
+          setPendingUserId(null);
+          void usersQuery.refetch();
+        },
+        onError: () => {
+          setStatusMessage("הפעולה נכשלה. נסה שוב.");
+          setPendingUserId(null);
+        },
+      },
+    );
+  };
+
+  const requestToggleSuspend = (userId: string, email: string | null, nextSuspended: boolean) => {
+    if (!nextSuspended) {
+      toggleSuspend(userId, false);
+      return;
+    }
+    confirm(
+      "נתק משתמש?",
+      `${email ?? userId}\n\n${SUSPEND_CONFIRM_MESSAGE}`,
+      () => toggleSuspend(userId, true),
+    );
+  };
 
   return (
     <ScreenContainer className="px-5 pt-5" edges={["top", "left", "right", "bottom"]}>
@@ -94,51 +144,76 @@ export default function AdminSubscribersScreen() {
         </Pressable>
         <Text style={styles.eyebrow}>לוח בעלים</Text>
         <Text style={styles.title}>מנויים ומשתמשים</Text>
-        <Text style={styles.subtitle}>מתעדכן אוטומטית כל 15 שניות. הנתון המוצג הוא הכניסה האחרונה הידועה של כל חשבון, לא פס אירועים חי.</Text>
+        <Text style={styles.subtitle}>הרשימה נטענת ישירות מ-Supabase (כל מי שנרשם, גם אם עדיין לא ביצע פעולה מחוברת) ומתעדכנת אוטומטית כל 15 שניות.</Text>
 
         <View style={styles.statsRow}>
-              <Stat label="סה״כ משתמשים" value={list.length} />
-              <Stat label="בניסיון" value={counts.trialing ?? 0} color={STATUS_COLORS.trialing} />
-              <Stat label="מנוי פעיל" value={counts.active ?? 0} color={STATUS_COLORS.active} />
-              <Stat label="פג/בוטל" value={(counts.expired ?? 0) + (counts.canceled ?? 0)} color={STATUS_COLORS.expired} />
-            </View>
+          <Stat label="סה״כ משתמשים" value={list.length} />
+          <Stat label="בניסיון" value={counts.trialing ?? 0} color={STATUS_COLORS.trialing} />
+          <Stat label="מנוי פעיל" value={counts.active ?? 0} color={STATUS_COLORS.active} />
+          <Stat label="פג/בוטל" value={(counts.expired ?? 0) + (counts.canceled ?? 0)} color={STATUS_COLORS.expired} />
+        </View>
 
-            {usersQuery.isLoading ? <Text style={styles.note}>טוען נתונים…</Text> : null}
-            {list.length === 0 && !usersQuery.isLoading ? (
-              <View style={styles.card}><Text style={styles.note}>אין עדיין משתמשים רשומים.</Text></View>
-            ) : null}
+        {usersQuery.isLoading ? <Text style={styles.note}>טוען נתונים…</Text> : null}
+        {usersQuery.isError && !usersQuery.isLoading ? (
+          <View style={styles.card}>
+            <Text style={styles.note}>לא ניתן לטעון את רשימת המשתמשים. ודא ש-SUPABASE_SERVICE_ROLE_KEY מוגדר בשרת.</Text>
+          </View>
+        ) : null}
+        {list.length === 0 && !usersQuery.isLoading && !usersQuery.isError ? (
+          <View style={styles.card}><Text style={styles.note}>אין עדיין משתמשים רשומים.</Text></View>
+        ) : null}
+        {statusMessage ? <Text accessibilityLiveRegion="polite" style={styles.statusMessage}>{statusMessage}</Text> : null}
 
-            {list.map((user) => (
-              <View key={user.id} style={styles.userCard}>
-                <View style={styles.userHeader}>
-                  <Text style={styles.userEmail}>{user.email ?? "ללא אימייל"}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: `${STATUS_COLORS[user.subscriptionStatus] ?? "#7E8DA4"}22`, borderColor: STATUS_COLORS[user.subscriptionStatus] ?? "#7E8DA4" }]}>
-                    <Text style={[styles.statusBadgeText, { color: STATUS_COLORS[user.subscriptionStatus] ?? "#7E8DA4" }]}>
-                      {STATUS_LABELS[user.subscriptionStatus] ?? user.subscriptionStatus}
-                    </Text>
-                  </View>
-                </View>
-                {user.name ? <Text style={styles.userName}>{user.name}</Text> : null}
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>נכנס לאחרונה</Text>
-                  <Text style={styles.metaValue}>{formatDate(user.lastSignedIn)}</Text>
-                </View>
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>נרשם בתאריך</Text>
-                  <Text style={styles.metaValue}>{formatDate(user.createdAt)}</Text>
-                </View>
-                {user.trialEndsAt ? (
-                  <View style={styles.metaRow}>
-                    <Text style={styles.metaLabel}>{user.subscriptionStatus === "active" ? "המנוי בתוקף עד" : "הניסיון בתוקף עד"}</Text>
-                    <Text style={styles.metaValue}>{formatDate(user.trialEndsAt)} · {relativeFromNow(user.trialEndsAt)}</Text>
-                  </View>
-                ) : null}
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>דרך הרשמה</Text>
-                  <Text style={styles.metaValue}>{user.loginMethod ?? "—"}</Text>
+        {list.map((user) => {
+          const status = user.subscriptionStatus;
+          const statusColor = (status && STATUS_COLORS[status]) ?? UNKNOWN_STATUS_COLOR;
+          const isBusy = pendingUserId === user.id && suspendMutation.isPending;
+          return (
+            <View key={user.id} style={styles.userCard}>
+              <View style={styles.userHeader}>
+                <Text style={styles.userEmail}>{user.email ?? "ללא אימייל"}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22`, borderColor: statusColor }]}>
+                  <Text style={[styles.statusBadgeText, { color: statusColor }]}>
+                    {user.isSuspended ? "מושהה" : status ? (STATUS_LABELS[status] ?? status) : "ללא חשבון מנוי"}
+                  </Text>
                 </View>
               </View>
-            ))}
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>נכנס לאחרונה</Text>
+                <Text style={styles.metaValue}>{formatDate(user.lastSignInAt)}</Text>
+              </View>
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>נרשם בתאריך</Text>
+                <Text style={styles.metaValue}>{formatDate(user.createdAt)}</Text>
+              </View>
+              {user.trialEndsAt ? (
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>{status === "active" ? "המנוי בתוקף עד" : "הניסיון בתוקף עד"}</Text>
+                  <Text style={styles.metaValue}>{formatDate(user.trialEndsAt)} · {relativeFromNow(user.trialEndsAt)}</Text>
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={user.isSuspended ? `שחזור גישה ל-${user.email ?? user.id}` : `ניתוק ${user.email ?? user.id}`}
+                disabled={isBusy}
+                onPress={() => requestToggleSuspend(user.id, user.email, !user.isSuspended)}
+                style={({ pressed }) => [
+                  user.isSuspended ? styles.restoreButton : styles.suspendButton,
+                  pressed && styles.pressed,
+                  isBusy && styles.disabled,
+                ]}
+              >
+                {isBusy ? (
+                  <ActivityIndicator color={user.isSuspended ? "#0B1224" : "#FFB0BC"} />
+                ) : (
+                  <Text style={user.isSuspended ? styles.restoreButtonText : styles.suspendButtonText}>
+                    {user.isSuspended ? "שחזור גישה" : "נתק משתמש"}
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          );
+        })}
       </ScrollView>
     </ScreenContainer>
   );
@@ -161,6 +236,7 @@ const styles = StyleSheet.create({
   title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900", textAlign: "right" },
   subtitle: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right" },
   note: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right" },
+  statusMessage: { color: "#42D392", fontSize: 12, fontWeight: "800", textAlign: "right" },
   statsRow: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 8 },
   stat: { flexGrow: 1, minWidth: 78, backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 16, padding: 12, gap: 4, alignItems: "flex-end" },
   statValue: { color: "#F7F9FC", fontSize: 20, fontWeight: "900" },
@@ -169,11 +245,15 @@ const styles = StyleSheet.create({
   userCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 16, padding: 14, gap: 6 },
   userHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 8 },
   userEmail: { color: "#F7F9FC", fontSize: 14, fontWeight: "900", textAlign: "right", flex: 1 },
-  userName: { color: "#AAB7C8", fontSize: 12, textAlign: "right" },
   statusBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   statusBadgeText: { fontSize: 10, fontWeight: "900" },
   metaRow: { flexDirection: "row-reverse", justifyContent: "space-between" },
   metaLabel: { color: "#7E8DA4", fontSize: 11 },
   metaValue: { color: "#D9E2EF", fontSize: 11, fontWeight: "700" },
+  suspendButton: { marginTop: 6, minHeight: 42, borderColor: "#FB7185", borderWidth: 1, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  suspendButtonText: { color: "#FFB0BC", fontWeight: "900", fontSize: 12 },
+  restoreButton: { marginTop: 6, minHeight: 42, backgroundColor: "#42D392", borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  restoreButtonText: { color: "#0B1224", fontWeight: "900", fontSize: 12 },
+  disabled: { opacity: 0.6 },
   pressed: { opacity: 0.74, transform: [{ scale: 0.98 }] },
 });

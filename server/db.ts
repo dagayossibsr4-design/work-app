@@ -122,6 +122,7 @@ export async function listUsersForAdmin() {
   return db
     .select({
       id: users.id,
+      openId: users.openId,
       email: users.email,
       name: users.name,
       role: users.role,
@@ -135,7 +136,7 @@ export async function listUsersForAdmin() {
     .orderBy(desc(users.lastSignedIn));
 }
 
-const SUPABASE_OPEN_ID_PREFIX = "supabase:";
+export const SUPABASE_OPEN_ID_PREFIX = "supabase:";
 
 /**
  * Bridges a verified Supabase identity into the app's own `users` table,

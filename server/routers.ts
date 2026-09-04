@@ -1,6 +1,6 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { getUserAppState, saveUserAppState, listUsersForAdmin } from "./db";
+import { getUserAppState, saveUserAppState } from "./db";
 import { systemRouter } from "./_core/systemRouter";
 import { activeSubscriptionProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
@@ -9,6 +9,7 @@ import { createMorningPaymentForm } from "./morning";
 import { getSubscriptionPlan } from "../lib/subscription-plans";
 import { computeSubscriptionAccess } from "./_core/subscriptionAccess";
 import { isValidAdminAccessCode } from "./_core/adminAccessCode";
+import { listAdminUsers, setUserSuspended } from "./_core/adminUsers";
 import { z } from "zod";
 import {
   beginGarminConnection,
@@ -82,7 +83,16 @@ export const appRouter = router({
         if (!isValidAdminAccessCode(input.adminToken)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "קוד גישה שגוי." });
         }
-        return listUsersForAdmin();
+        return listAdminUsers();
+      }),
+    setUserSuspended: publicProcedure
+      .input(z.object({ adminToken: z.string(), userId: z.string().uuid(), suspend: z.boolean() }))
+      .mutation(async ({ input }) => {
+        if (!isValidAdminAccessCode(input.adminToken)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "קוד גישה שגוי." });
+        }
+        await setUserSuspended(input.userId, input.suspend);
+        return { ok: true as const };
       }),
   }),
 
