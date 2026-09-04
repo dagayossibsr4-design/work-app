@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { AuthGuardFallback } from "@/components/auth-guard-fallback";
-import { useAuthGuard } from "@/lib/use-auth-guard";
 import { trpc } from "@/lib/trpc";
+import { ADMIN_ACCESS_CODE_STORAGE_KEY } from "@/lib/admin-access";
 
 const STATUS_LABELS: Record<string, string> = {
   trialing: "בניסיון",
@@ -40,19 +42,44 @@ function relativeFromNow(value: string | Date | null) {
 }
 
 export default function AdminSubscribersScreen() {
-  const authState = useAuthGuard();
+  // `undefined` = still checking storage, `null` = no code saved yet.
+  const [adminToken, setAdminToken] = useState<string | null | undefined>(undefined);
 
-  const usersQuery = trpc.admin.listUsers.useQuery(undefined, {
-    // Approximates a "live" view: this page has no real login/logout event
-    // log (only a last-signed-in timestamp per account), so it re-polls
-    // instead of streaming individual events.
-    refetchInterval: 15_000,
-    retry: false,
-  });
+  useEffect(() => {
+    let active = true;
+    void AsyncStorage.getItem(ADMIN_ACCESS_CODE_STORAGE_KEY).then((value) => {
+      if (!active) return;
+      if (!value) router.replace("/admin-login" as never);
+      else setAdminToken(value);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  if (authState !== "authorized") return <AuthGuardFallback />;
+  const usersQuery = trpc.admin.listUsers.useQuery(
+    { adminToken: adminToken ?? "" },
+    {
+      enabled: Boolean(adminToken),
+      // Approximates a "live" view: this page has no real login/logout event
+      // log (only a last-signed-in timestamp per account), so it re-polls
+      // instead of streaming individual events.
+      refetchInterval: 15_000,
+      retry: false,
+    },
+  );
 
-  const isForbidden = (usersQuery.error as { data?: { code?: string } } | null)?.data?.code === "FORBIDDEN";
+  useEffect(() => {
+    const isRejected = (usersQuery.error as { data?: { code?: string } } | null)?.data?.code === "UNAUTHORIZED";
+    if (isRejected) {
+      void AsyncStorage.removeItem(ADMIN_ACCESS_CODE_STORAGE_KEY).then(() => router.replace("/admin-login" as never));
+    }
+  }, [usersQuery.error]);
+
+  if (adminToken === undefined || (usersQuery.error as { data?: { code?: string } } | null)?.data?.code === "UNAUTHORIZED") {
+    return <AuthGuardFallback />;
+  }
+
   const list = usersQuery.data ?? [];
   const counts = list.reduce<Record<string, number>>((acc, user) => {
     acc[user.subscriptionStatus] = (acc[user.subscriptionStatus] ?? 0) + 1;
@@ -69,14 +96,7 @@ export default function AdminSubscribersScreen() {
         <Text style={styles.title}>מנויים ומשתמשים</Text>
         <Text style={styles.subtitle}>מתעדכן אוטומטית כל 15 שניות. הנתון המוצג הוא הכניסה האחרונה הידועה של כל חשבון, לא פס אירועים חי.</Text>
 
-        {isForbidden ? (
-          <View style={styles.denied}>
-            <Text style={styles.deniedTitle}>אין הרשאת בעלים לחשבון זה</Text>
-            <Text style={styles.note}>המסך הזה מוגן וזמין רק לחשבון שהוגדר כ-admin במערכת.</Text>
-          </View>
-        ) : (
-          <>
-            <View style={styles.statsRow}>
+        <View style={styles.statsRow}>
               <Stat label="סה״כ משתמשים" value={list.length} />
               <Stat label="בניסיון" value={counts.trialing ?? 0} color={STATUS_COLORS.trialing} />
               <Stat label="מנוי פעיל" value={counts.active ?? 0} color={STATUS_COLORS.active} />
@@ -119,8 +139,6 @@ export default function AdminSubscribersScreen() {
                 </View>
               </View>
             ))}
-          </>
-        )}
       </ScrollView>
     </ScreenContainer>
   );
@@ -143,8 +161,6 @@ const styles = StyleSheet.create({
   title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900", textAlign: "right" },
   subtitle: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right" },
   note: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right" },
-  denied: { backgroundColor: "#3A1D2A", borderColor: "#FF879A", borderWidth: 1, borderRadius: 18, padding: 16, gap: 8 },
-  deniedTitle: { color: "#FFB0BC", fontSize: 17, fontWeight: "900", textAlign: "right" },
   statsRow: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 8 },
   stat: { flexGrow: 1, minWidth: 78, backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 16, padding: 12, gap: 4, alignItems: "flex-end" },
   statValue: { color: "#F7F9FC", fontSize: 20, fontWeight: "900" },

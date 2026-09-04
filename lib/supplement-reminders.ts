@@ -127,21 +127,32 @@ export async function saveAndScheduleSupplementReminders(
   return { enabled: true, scheduled: ids.length, permissionDenied: false };
 }
 
-export async function sendSupplementReminderTest(): Promise<boolean> {
+export type ReminderTestResult = "sent" | "permission-denied" | "unsupported";
+
+export async function sendSupplementReminderTest(): Promise<ReminderTestResult> {
   if (Platform.OS === "web") {
-    if (!("Notification" in globalThis)) return false;
-    const permission = Notification.permission === "granted"
-      ? "granted"
-      : await Notification.requestPermission();
-    if (permission !== "granted") return false;
-    new Notification("בדיקת תזכורת תוספים", {
-      body: "זו התראה מיידית מהדפדפן. תזכורות יומיות דורשות אפליקציה מותקנת או Push Web.",
-      tag: "supplement-reminder-test",
-    });
-    return true;
+    if (!("Notification" in globalThis)) return "unsupported";
+    try {
+      const permission = Notification.permission === "granted"
+        ? "granted"
+        : await Notification.requestPermission();
+      if (permission !== "granted") return "permission-denied";
+      new Notification("בדיקת תזכורת תוספים", {
+        body: "זו התראה מיידית מהדפדפן. תזכורות יומיות דורשות אפליקציה מותקנת או Push Web.",
+        tag: "supplement-reminder-test",
+      });
+      return "sent";
+    } catch {
+      // Some mobile browsers (notably iPhone/iPad Safari on a regular website
+      // that wasn't added to the home screen) expose the Notification
+      // constructor but throw the moment it's actually used - reporting
+      // success here would silently lie to the user, so this is its own
+      // outcome rather than being swallowed into "permission-denied".
+      return "unsupported";
+    }
   }
   const permitted = await requestSupplementReminderPermission();
-  if (!permitted) return false;
+  if (!permitted) return "permission-denied";
   await Notifications.scheduleNotificationAsync({
     content: {
       title: "בדיקת תזכורת תוספים",
@@ -150,7 +161,7 @@ export async function sendSupplementReminderTest(): Promise<boolean> {
     },
     trigger: null,
   });
-  return true;
+  return "sent";
 }
 
 export async function initializeSupplementReminders() {

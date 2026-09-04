@@ -2,11 +2,13 @@ import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { getUserAppState, saveUserAppState, listUsersForAdmin } from "./db";
 import { systemRouter } from "./_core/systemRouter";
-import { activeSubscriptionProcedure, adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { activeSubscriptionProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
 import { createMorningPaymentForm } from "./morning";
 import { getSubscriptionPlan } from "../lib/subscription-plans";
 import { computeSubscriptionAccess } from "./_core/subscriptionAccess";
+import { isValidAdminAccessCode } from "./_core/adminAccessCode";
 import { z } from "zod";
 import {
   beginGarminConnection,
@@ -64,8 +66,24 @@ export const appRouter = router({
   system: systemRouter,
 
   // לוח הבקרה של בעל המערכת בלבד: כל המשתמשים, סטטוס המנוי שלהם ומועד הכניסה האחרון.
+  // שער נפרד ועצמאי מבוסס קוד קבוע (ADMIN_ACCESS_CODE) - לא תלוי בהתחברות/הרשאת Supabase.
   admin: router({
-    listUsers: adminProcedure.query(() => listUsersForAdmin()),
+    verifyAccessCode: publicProcedure
+      .input(z.object({ code: z.string().min(1) }))
+      .mutation(({ input }) => {
+        if (!isValidAdminAccessCode(input.code)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "קוד גישה שגוי." });
+        }
+        return { ok: true as const };
+      }),
+    listUsers: publicProcedure
+      .input(z.object({ adminToken: z.string() }))
+      .query(({ input }) => {
+        if (!isValidAdminAccessCode(input.adminToken)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "קוד גישה שגוי." });
+        }
+        return listUsersForAdmin();
+      }),
   }),
 
   // נתיבי מנויים וסליקה מול מורנינג

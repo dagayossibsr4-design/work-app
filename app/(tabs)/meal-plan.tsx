@@ -818,8 +818,14 @@ export default function MealPlanScreen() {
     setReminderBusy(true);
     setReminderStatus("");
     try {
-      const sent = await sendSupplementReminderTest();
-      setReminderStatus(sent ? "התראת בדיקה נשלחה למכשיר." : "לא ניתן לשלוח התראה: אשר הרשאות ובדוק במכשיר Android או iPhone.");
+      const result = await sendSupplementReminderTest();
+      setReminderStatus(
+        result === "sent"
+          ? "התראת בדיקה נשלחה. אם לא ראית אותה, בדוק שהתראות מהדפדפן/מהאפליקציה מופעלות במכשיר."
+          : result === "permission-denied"
+            ? "ההתראה נחסמה: יש לאשר הרשאת התראות בהגדרות הדפדפן או המכשיר ולנסות שוב."
+            : "הדפדפן במכשיר הזה לא תומך בהתראות מהאתר (נפוץ ב-iPhone/iPad ב-Safari). כדי לקבל תזכורות אמיתיות יש להתקין את האפליקציה.",
+      );
     } catch {
       setReminderStatus("שליחת התראת הבדיקה נכשלה. בדוק הרשאות התראות במכשיר.");
     } finally {
