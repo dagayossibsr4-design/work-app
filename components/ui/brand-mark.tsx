@@ -2,6 +2,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 const prolifitoLogo = require("../../assets/images/icon.png");
 const prolifitoOriginalLogo = require("../../assets/images/prolifto-user-blue-logo.png");
+const prolifitoWordmark = require("../../assets/images/prolifto-wordmark.jpg");
 
 type BrandMarkProps = {
   compact?: boolean;
@@ -12,15 +13,13 @@ type BrandMarkProps = {
 // "original" (the real ProLifto logo artwork) is the default - "icon" is an
 // old placeholder mark (a generic dumbbell/arrow, not the current brand)
 // that was still showing up anywhere a call site did not explicitly ask
-// for "original". "wordmark" crops that same artwork down to just the
-// "ProLifto" lettering (no arrow/P icon above it), for tight spaces like a
-// screen header where the full icon+wordmark lockup is too tall.
+// for "original". "wordmark" is a dedicated icon-less asset (just the
+// "ProLifto" lettering), for tight spaces like a screen header where the
+// full icon+wordmark lockup is too tall.
 export function BrandMark({ compact = false, onPress, variant = "original" }: BrandMarkProps) {
   const content =
     variant === "wordmark" ? (
-      <View style={styles.wordmarkClip}>
-        <Image source={prolifitoOriginalLogo} style={styles.wordmarkImage} />
-      </View>
+      <Image source={prolifitoWordmark} resizeMode="contain" style={styles.wordmarkImage} />
     ) : variant === "original" ? (
       <View style={[styles.originalRow, compact && styles.compactOriginalRow]}>
         <Image
@@ -87,20 +86,10 @@ const styles = StyleSheet.create({
     width: 150,
     height: 121,
   },
-  // Crops the same 780x630 artwork down to just the "ProLifto" wordmark
-  // band (roughly y=395 to the bottom edge), by rendering the full image
-  // at a fixed scale inside a shorter clipped box and shifting it up so
-  // only that band is visible - there is no separate wordmark-only asset.
-  wordmarkClip: {
-    width: 168,
-    height: 46,
-    overflow: "hidden",
-  },
+  // Dedicated icon-less asset, 1080x596 (~1.81:1).
   wordmarkImage: {
-    width: 168,
-    height: 136,
-    position: "absolute",
-    top: -85,
+    width: 140,
+    height: 77,
   },
   mark: {
     width: 42,

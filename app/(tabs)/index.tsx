@@ -454,8 +454,8 @@ export default function HomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <View style={styles.titleBlock}>
-            <BrandMark variant="wordmark" />
             <Text style={styles.title} numberOfLines={1}>{accountName ? `שלום, ${accountName}!` : isSignedIn ? "שלום!" : "מוכנים לעבוד?"}</Text>
+            <BrandMark variant="wordmark" />
           </View>
         </View>
         <HomeTimeWeatherWidget
@@ -811,9 +811,9 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 28, gap: 22 },
   // marginTop clears the fixed accessibility pill (top:14, 38 tall) that
   // floats over every screen, so it never covers the greeting title.
-  header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 40 },
-  titleBlock: { flex: 1, minWidth: 0, alignItems: "flex-end" },
-  title: { color: "#F7F9FC", fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 4, textAlign: "right" },
+  header: { alignItems: "center", marginTop: 40 },
+  titleBlock: { alignItems: "center", gap: 6 },
+  title: { color: "#F7F9FC", fontSize: 24, lineHeight: 30, fontWeight: "800", textAlign: "center" },
   logoMark: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" },
   logoText: { color: "#0B1224", fontSize: 28, fontWeight: "900" },
   todayCard: { backgroundColor: "#1C3152", borderColor: "#F5B72C", borderWidth: 1.5, borderRadius: 18, padding: 16, alignItems: "flex-end", gap: 6 },
