@@ -2,11 +2,17 @@
 -- הישן. להריץ ב-Supabase SQL Editor אחרי production-hardening.sql (משתמש
 -- באותה מוסכמת אבטחה: RLS מכריחה, קריאה בלבד למשתמש על השורה של עצמו,
 -- וכל כתיבה מתבצעת רק דרך service_role בצד השרת).
+--
+-- הערה: הטבלה כבר הייתה קיימת בפרויקט (עם עמודה בשם status, לא
+-- subscription_status) לפני הרצת הסקריפט הזה, כך שה-create table if not
+-- exists לא באמת יצר אותה - זו הסיבה שהקוד ציפה ל-subscription_status
+-- וקיבל שגיאת "column does not exist". הקוד עודכן להשתמש ב-status,
+-- והעמודה כאן שונתה בהתאם כדי שהסקריפט הזה יתאים למבנה בפועל.
 
 create table if not exists public.subscription_state (
   user_id uuid primary key references auth.users(id) on delete cascade,
-  subscription_status text not null default 'trialing'
-    check (subscription_status in ('trialing', 'active', 'expired', 'cancelled')),
+  status text not null default 'trialing'
+    check (status in ('trialing', 'active', 'expired', 'cancelled')),
   trial_ends_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

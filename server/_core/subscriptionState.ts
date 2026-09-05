@@ -3,8 +3,13 @@ import type { AppUser } from "./appUser";
 
 const TRIAL_DAYS = 14;
 
+// Column names match the live public.subscription_state table, which
+// already existed (created outside this code path) with a "status" column
+// rather than the "subscription_status" this module originally assumed -
+// see the "column subscription_state.subscription_status does not exist"
+// incident. Adapted here rather than altering the live table.
 type SubscriptionStateRow = {
-  subscription_status: AppUser["subscriptionStatus"];
+  status: AppUser["subscriptionStatus"];
   trial_ends_at: string | null;
   created_at: string;
   updated_at: string;
@@ -23,7 +28,7 @@ function touchLastActive(admin: NonNullable<ReturnType<typeof getSupabaseAdminCl
   // request just to refresh an activity timestamp.
   void admin
     .from("subscription_state")
-    .update({ subscription_status: currentStatus })
+    .update({ status: currentStatus })
     .eq("user_id", userId)
     .then(({ error }) => {
       if (error) console.warn("[subscriptionState] Failed to touch last-active timestamp:", error.message);
@@ -49,7 +54,7 @@ export async function ensureSubscriptionState(identity: {
     admin.from("user_roles").select("role").eq("user_id", identity.id).maybeSingle(),
     admin
       .from("subscription_state")
-      .select("subscription_status, trial_ends_at, created_at, updated_at")
+      .select("status, trial_ends_at, created_at, updated_at")
       .eq("user_id", identity.id)
       .maybeSingle<SubscriptionStateRow>(),
   ]);
@@ -62,13 +67,13 @@ export async function ensureSubscriptionState(identity: {
     const nowIso = new Date().toISOString();
     const { error: insertError } = await admin.from("subscription_state").insert({
       user_id: identity.id,
-      subscription_status: "trialing",
+      status: "trialing",
       trial_ends_at: trialEnd.toISOString(),
     });
     if (insertError) throw new Error(insertError.message);
-    state = { subscription_status: "trialing", trial_ends_at: trialEnd.toISOString(), created_at: nowIso, updated_at: nowIso };
+    state = { status: "trialing", trial_ends_at: trialEnd.toISOString(), created_at: nowIso, updated_at: nowIso };
   } else if (Date.now() - new Date(state.updated_at).getTime() > ACTIVITY_TOUCH_INTERVAL_MS) {
-    touchLastActive(admin, identity.id, state.subscription_status);
+    touchLastActive(admin, identity.id, state.status);
   }
 
   return {
@@ -78,7 +83,7 @@ export async function ensureSubscriptionState(identity: {
     email: identity.email,
     loginMethod: "supabase",
     role: roleRow?.role === "admin" ? "admin" : "user",
-    subscriptionStatus: state.subscription_status,
+    subscriptionStatus: state.status,
     trialEndsAt: state.trial_ends_at ? new Date(state.trial_ends_at) : null,
     createdAt: new Date(state.created_at),
     lastSignedIn: new Date(),
@@ -108,7 +113,7 @@ export async function activateSupabaseSubscription(userId: string, extendByDays:
 
   const { error } = await admin
     .from("subscription_state")
-    .upsert({ user_id: userId, subscription_status: "active", trial_ends_at: newEnd.toISOString() });
+    .upsert({ user_id: userId, status: "active", trial_ends_at: newEnd.toISOString() });
   if (error) throw new Error(error.message);
 }
 
@@ -127,12 +132,12 @@ export async function listSupabaseSubscriptionStates(): Promise<SupabaseSubscrip
   const byUser: SupabaseSubscriptionByUser = new Map();
   if (!admin) return byUser;
 
-  const { data, error } = await admin.from("subscription_state").select("user_id, subscription_status, trial_ends_at, updated_at");
+  const { data, error } = await admin.from("subscription_state").select("user_id, status, trial_ends_at, updated_at");
   if (error) throw new Error(error.message);
 
   for (const row of data ?? []) {
     byUser.set(row.user_id as string, {
-      subscriptionStatus: row.subscription_status as string,
+      subscriptionStatus: row.status as string,
       trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at as string) : null,
       lastActiveAt: row.updated_at ? new Date(row.updated_at as string) : null,
     });
