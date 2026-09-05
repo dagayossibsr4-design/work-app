@@ -10,8 +10,12 @@ describe("shouldResetLocalAccountCache", () => {
     expect(shouldResetLocalAccountCache({ storedOwnerId: "admin-uuid", currentAccountId: "new-user-uuid", hasCloudSnapshot: true })).toBe(false);
   });
 
-  it("never resets a brand-new device that has no owner marker yet", () => {
-    expect(shouldResetLocalAccountCache({ storedOwnerId: null, currentAccountId: "new-user-uuid", hasCloudSnapshot: false })).toBe(false);
+  it("resets a device with no owner marker at all - an absent marker is never trusted", () => {
+    expect(shouldResetLocalAccountCache({ storedOwnerId: null, currentAccountId: "new-user-uuid", hasCloudSnapshot: false })).toBe(true);
+  });
+
+  it("does not reset an unmarked device once a cloud snapshot exists to restore from instead", () => {
+    expect(shouldResetLocalAccountCache({ storedOwnerId: null, currentAccountId: "new-user-uuid", hasCloudSnapshot: true })).toBe(false);
   });
 
   it("never resets when the same account signs back in", () => {
