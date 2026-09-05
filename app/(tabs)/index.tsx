@@ -23,7 +23,6 @@ import { workoutAudienceSections } from "@/lib/workout-audience-sections";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { ActionToast } from "@/components/action-toast";
 import { HomeTimeWeatherWidget } from "@/components/home-time-weather-widget";
-import { BrandMark } from "@/components/ui/brand-mark";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
 import { getAllowedScheduleTemplates, readDefaultWorkoutTemplateId, readWorkoutScheduleOverrides, resolveTodaySchedule, setDefaultWorkoutTemplateId, type TodaySchedule } from "@/lib/workout-schedule";
@@ -455,7 +454,6 @@ export default function HomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <View style={styles.titleBlock}>
-            <BrandMark compact />
             <Text style={styles.eyebrow}>ProLifto</Text>
             <Text style={styles.title} numberOfLines={1}>{accountName ? `שלום, ${accountName}!` : isSignedIn ? "שלום!" : "מוכנים לעבוד?"}</Text>
           </View>

@@ -6,6 +6,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { router } from "expo-router";
@@ -13,7 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import Constants from "expo-constants";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { BrandMark } from "@/components/ui/brand-mark";
 import { AuthGuardFallback } from "@/components/auth-guard-fallback";
@@ -122,6 +123,40 @@ export default function SettingsScreen() {
   const accountEmail = session?.user.email ?? null;
   const [restoreStatus, setRestoreStatus] = useState("");
   const [authStatus, setAuthStatus] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [nameStatus, setNameStatus] = useState("");
+  const [savingName, setSavingName] = useState(false);
+
+  useEffect(() => {
+    const metadata = session?.user.user_metadata;
+    setFirstName(typeof metadata?.first_name === "string" ? metadata.first_name : "");
+    setLastName(typeof metadata?.last_name === "string" ? metadata.last_name : "");
+  }, [session?.user.id]);
+
+  const saveName = async () => {
+    if (!supabase) {
+      setNameStatus("מערכת ההתחברות אינה מוגדרת כרגע.");
+      return;
+    }
+    const trimmedFirstName = firstName.trim();
+    if (!trimmedFirstName) {
+      setNameStatus("נא להזין שם פרטי.");
+      return;
+    }
+    const trimmedLastName = lastName.trim();
+    setSavingName(true);
+    setNameStatus("");
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        full_name: [trimmedFirstName, trimmedLastName].filter(Boolean).join(" "),
+        first_name: trimmedFirstName,
+        last_name: trimmedLastName,
+      },
+    });
+    setSavingName(false);
+    setNameStatus(error ? error.message || "לא ניתן לשמור את השם כרגע." : "השם נשמר בהצלחה.");
+  };
 
   const signOut = async () => {
     if (!supabase) {
@@ -241,6 +276,45 @@ export default function SettingsScreen() {
               רישום מאפשר לחבר את האפליקציה לחשבון אישי ולהמשיך בין מכשירים.
             </Text>
           )}
+          {accountEmail ? (
+            <View style={styles.nameSection}>
+              <Text style={styles.nameSectionLabel}>שם תצוגה (מוצג בברכה במסך הבית)</Text>
+              <View style={styles.nameRow}>
+                <TextInput
+                  accessibilityLabel="שם פרטי"
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  onChangeText={(value) => { setFirstName(value); if (nameStatus) setNameStatus(""); }}
+                  placeholder="שם פרטי"
+                  placeholderTextColor="#7E8DA4"
+                  style={[styles.nameInput, styles.nameInputFlex]}
+                  textAlign="right"
+                  value={firstName}
+                />
+                <TextInput
+                  accessibilityLabel="שם משפחה"
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  onChangeText={(value) => { setLastName(value); if (nameStatus) setNameStatus(""); }}
+                  placeholder="שם משפחה (אופציונלי)"
+                  placeholderTextColor="#7E8DA4"
+                  style={[styles.nameInput, styles.nameInputFlex]}
+                  textAlign="right"
+                  value={lastName}
+                />
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="שמירת שם תצוגה"
+                onPress={() => void saveName()}
+                disabled={savingName}
+                style={({ pressed }) => [styles.saveNameButton, pressed && styles.pressed, savingName && styles.disabled]}
+              >
+                <Text style={styles.saveNameButtonText}>{savingName ? "שומר…" : "שמירת שם"}</Text>
+              </Pressable>
+              {nameStatus ? <Text accessibilityLiveRegion="polite" style={styles.status}>{nameStatus}</Text> : null}
+            </View>
+          ) : null}
           {accountEmail ? (
             <Pressable
               accessibilityRole="button"
@@ -419,6 +493,14 @@ const styles = StyleSheet.create({
   accountDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#7E8DA4" },
   accountDotActive: { backgroundColor: "#42D392" },
   accountEmail: { color: "#D9E2EF", fontSize: 12, textAlign: "right" },
+  nameSection: { gap: 8, borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, marginTop: 2 },
+  nameSectionLabel: { color: "#AAB7C8", fontSize: 11, textAlign: "right" },
+  nameRow: { flexDirection: "row-reverse", gap: 8 },
+  nameInput: { minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 13, paddingHorizontal: 12 },
+  nameInputFlex: { flex: 1, minWidth: 0 },
+  saveNameButton: { backgroundColor: "#1D2D48", borderColor: "#65BDF6", borderWidth: 1, padding: 10, borderRadius: 10, alignItems: "center" },
+  saveNameButtonText: { color: "#65BDF6", fontWeight: "900", fontSize: 12 },
+  disabled: { opacity: 0.6 },
   linkGroup: { gap: 8, borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, marginTop: 2 },
   linkGroupTitle: { color: "#65BDF6", fontSize: 11, fontWeight: "900", textAlign: "right" },
   dangerCard: { borderColor: "#5A2A38" },
