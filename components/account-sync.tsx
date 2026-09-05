@@ -16,12 +16,21 @@ import {
   subscribeAccountBackupRequests,
 } from "@/lib/account-backup";
 import { enqueueAsyncStorageMultiSet } from "@/lib/storage-write-queue";
+import { shouldResetLocalAccountCache } from "@/lib/account-cache-isolation";
 
 const LOCAL_KEYS = [
   ...NUTRITION_PERSISTENCE_KEYS,
   "workout-schedule-overrides-v1",
   "weekly-goals-v1",
 ] as const;
+
+// Remembers which Supabase account this device's local cache last belonged
+// to. A shared/reused browser (or device) can still hold another account's
+// cached workout/nutrition data in AsyncStorage; without this check, a
+// different person signing in with no cloud snapshot yet would inherit -
+// and then have uploaded under their own account - whatever was cached
+// locally from the previous person. See the reset branch below.
+const LOCAL_ACCOUNT_OWNER_KEY = "workout-tracker-local-account-owner-v1";
 
 type StoredAccountState = Partial<AccountState> & {
   localStorage?: Record<string, string>;
@@ -51,7 +60,7 @@ function repairCloudMealStorage(localStorage: Record<string, string>) {
 
 /** Saves each authenticated Supabase user's workout account independently. */
 export function AccountSync() {
-  const { hydrated, getAccountState, applyAccountState } = useWorkoutStore();
+  const { hydrated, getAccountState, applyAccountState, resetAccountState } = useWorkoutStore();
   const [accountId, setAccountId] = useState<string | null>(null);
   const [syncReady, setSyncReady] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,11 +104,10 @@ export function AccountSync() {
     }
     let active = true;
     void (async () => {
-      const { data, error } = await supabase
-        .from("account_state")
-        .select("payload")
-        .eq("account_id", accountId)
-        .maybeSingle();
+      const [{ data, error }, storedOwnerId] = await Promise.all([
+        supabase.from("account_state").select("payload").eq("account_id", accountId).maybeSingle(),
+        AsyncStorage.getItem(LOCAL_ACCOUNT_OWNER_KEY),
+      ]);
       if (!active) return;
       if (error) {
         console.warn("Unable to load cloud account state", error.message);
@@ -121,14 +129,22 @@ export function AccountSync() {
             notifyNutritionStorageRestored();
           }
         }
+      } else if (shouldResetLocalAccountCache({ storedOwnerId, currentAccountId: accountId, hasCloudSnapshot: false })) {
+        // No cloud snapshot for this account yet, and this device's local
+        // cache is marked as belonging to a different account - it must be
+        // wiped, not inherited or (once the save loop below fires) uploaded
+        // into this account's own cloud row.
+        resetAccountState();
+        await AsyncStorage.multiRemove([...LOCAL_KEYS]);
       }
+      await AsyncStorage.setItem(LOCAL_ACCOUNT_OWNER_KEY, accountId);
       setNutritionStorageRestoreReady(true);
       setSyncReady(true);
     })();
     return () => {
       active = false;
     };
-  }, [accountId, applyAccountState, hydrated]);
+  }, [accountId, applyAccountState, hydrated, resetAccountState]);
 
   const lastSavedSnapshotRef = useRef<string | null>(null);
 

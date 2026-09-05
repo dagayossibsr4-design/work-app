@@ -184,6 +184,7 @@ type WorkoutContextValue = {
   moveExercise: (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => void;
   getAccountState: () => AccountState;
   applyAccountState: (state: Partial<AccountState>) => void;
+  resetAccountState: () => void;
   toggleSelectedProgram: (programId: string) => { selected: boolean; limitReached: boolean };
   addPersonalProgram: (program: PersonalProgram) => void;
   removePersonalProgram: (programId: string) => void;
@@ -201,6 +202,7 @@ const SELECTED_PROGRAMS_KEY = "workout-tracker-selected-programs-v1";
 const PERSONAL_PROGRAMS_KEY = "workout-tracker-personal-programs-v1";
 export const ACTIVE_SESSION_STORAGE_KEY = "workout-tracker-active-session-v1";
 const cloneTemplates = () => JSON.parse(JSON.stringify(workoutTemplates)) as WorkoutTemplate[];
+const defaultNutritionProfile = (): NutritionProfile => ({ goal: "ניטרלי", weightKg: "", heightCm: "", age: "", sex: "זכר", activity: "בינונית", proteinPerKg: "1.8", fatPerKg: "0.8", calorieTarget: "2500", proteinTarget: "240", carbohydratesTarget: "150", fatsTarget: "", autoMacroField: "fats", customFoods: [] });
 
 export function normalizeWorkoutSessions(savedSessions: WorkoutSession[]): WorkoutSession[] {
   return savedSessions
@@ -298,7 +300,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [recoveryLogs, setRecoveryLogs] = useState<RecoveryLog[]>([]);
   const [cardioLogs, setCardioLogs] = useState<CardioLog[]>([]);
-  const [nutritionProfile, setNutritionProfile] = useState<NutritionProfile>({ goal: "ניטרלי", weightKg: "", heightCm: "", age: "", sex: "זכר", activity: "בינונית", proteinPerKg: "1.8", fatPerKg: "0.8", calorieTarget: "2500", proteinTarget: "240", carbohydratesTarget: "150", fatsTarget: "", autoMacroField: "fats", customFoods: [] });
+  const [nutritionProfile, setNutritionProfile] = useState<NutritionProfile>(defaultNutritionProfile);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(cloneTemplates);
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
@@ -660,6 +662,32 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (Array.isArray(state.personalPrograms)) setPersonalPrograms(state.personalPrograms.filter((program): program is PersonalProgram => Boolean(program && typeof program.id === "string" && typeof program.name === "string" && Array.isArray(program.workoutTemplateIds))));
     if ("activeSession" in state) setActiveSession((current) => current ?? state.activeSession ?? null);
   }, []);
+  /**
+   * Wipes every locally-cached workout/nutrition slice back to a brand-new
+   * account's defaults, and clears the matching AsyncStorage keys so a
+   * reload does not re-hydrate the data being cleared. Used when this
+   * device's cached data is discovered to belong to a different Supabase
+   * account than the one now signing in - it must never leak into (or get
+   * uploaded under) the newly signed-in user. See components/account-sync.tsx.
+   */
+  const resetAccountState = useCallback(() => {
+    setSessions([]);
+    setRecoveryLogs([]);
+    setCardioLogs([]);
+    setNutritionProfile(defaultNutritionProfile());
+    setTemplates(cloneTemplates());
+    setActiveSession(null);
+    setSelectedProgramIds([]);
+    setPersonalPrograms([]);
+    void enqueueAsyncStorageRemove(SESSION_KEY);
+    void enqueueAsyncStorageRemove(TEMPLATE_KEY);
+    void enqueueAsyncStorageRemove(RECOVERY_KEY);
+    void enqueueAsyncStorageRemove(CARDIO_KEY);
+    void enqueueAsyncStorageRemove(NUTRITION_KEY);
+    void enqueueAsyncStorageRemove(SELECTED_PROGRAMS_KEY);
+    void enqueueAsyncStorageRemove(PERSONAL_PROGRAMS_KEY);
+    void enqueueAsyncStorageRemove(ACTIVE_SESSION_STORAGE_KEY);
+  }, []);
   const moveExercise = (templateId: WorkoutId, exerciseId: string, direction: -1 | 1) => setTemplates((current) => current.map((template) => {
     if (template.id !== templateId) return template;
     const index = template.exercises.findIndex((exercise) => exercise.id === exerciseId);
@@ -673,7 +701,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({
     sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, selectedProgramIds, personalPrograms, activeTemplate: activeSession ? templates.find((template) => template.id === activeSession.templateId) ?? null : null, hydrated,
     startWorkout, startWorkoutOnDate, startWorkoutFromTemplate, updateSet, updateActiveSession, finishWorkout, updateSession, deleteSession, discardActiveWorkout: () => setActiveSession(null), recentSessionFor, copyPreviousWorkoutIntoActive, saveRecoveryLog, recentRecovery, saveCardioLog, updateNutritionProfile,
-    updateTemplate, addCustomTemplate, addExercise, addExerciseAfter, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addExerciseToActiveWorkoutAfter, addCustomExerciseToActiveWorkout, addCustomExerciseToActiveWorkoutAfter, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, moveActiveExercise, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState, toggleSelectedProgram, addPersonalProgram, removePersonalProgram, updatePersonalProgram, movePersonalProgramWorkout, duplicatePersonalProgram,
+    updateTemplate, addCustomTemplate, addExercise, addExerciseAfter, addCustomExercise, addExerciseFromLibrary, replaceExerciseFromLibrary, replaceActiveExerciseFromLibrary, addExerciseToActiveWorkout, addExerciseToActiveWorkoutAfter, addCustomExerciseToActiveWorkout, addCustomExerciseToActiveWorkoutAfter, duplicateActiveExercise, addSetToActiveExercise, duplicateActiveSet, removeSetFromActiveExercise, removeExerciseFromActiveWorkout, moveActiveExercise, updateExercise, deleteExercise, moveExercise, getAccountState, applyAccountState, resetAccountState, toggleSelectedProgram, addPersonalProgram, removePersonalProgram, updatePersonalProgram, movePersonalProgramWorkout, duplicatePersonalProgram,
   }), [sessions, recoveryLogs, cardioLogs, nutritionProfile, templates, activeSession, selectedProgramIds, personalPrograms, hydrated]);
   return <WorkoutContext.Provider value={value}>{children}</WorkoutContext.Provider>;
 }
