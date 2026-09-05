@@ -7,7 +7,7 @@ import { useSupabaseSession } from "@/lib/use-supabase-session";
 // Pages that must stay reachable even for a locked-out account: the payment
 // page itself, sign-in/sign-up (to pay with a different account or sign
 // out), and the legal notice.
-const EXEMPT_PATHS = ["/subscription", "/register", "/legal"];
+const EXEMPT_PATHS = ["/subscription", "/register", "/legal", "/reset-password"];
 
 function isExemptPath(pathname: string): boolean {
   return EXEMPT_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));

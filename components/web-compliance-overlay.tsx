@@ -117,7 +117,6 @@ export function WebComplianceOverlay() {
           style={({ pressed }) => [styles.accessibilityButton, pressed && styles.pressed]}
         >
           <Text style={styles.accessibilityIcon}>♿</Text>
-          <Text style={styles.accessibilityButtonText}>נגישות</Text>
         </Pressable>
 
         {accessibilityOpen ? (
@@ -187,10 +186,12 @@ function PreferenceRow({ label, value, onValueChange }: { label: string; value: 
 
 const styles = StyleSheet.create({
   layer: { ...StyleSheet.absoluteFillObject, zIndex: 1000 },
-  accessibilityButton: { position: "absolute", left: 14, top: 14, minHeight: 42, backgroundColor: "#F5B72C", borderRadius: 22, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 6, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
+  // Icon-only and small on purpose: a wide labeled pill here used to
+  // occupy the whole top-left corner on every page, competing with page
+  // headers/greetings for the same small strip of space.
+  accessibilityButton: { position: "absolute", left: 14, top: 14, width: 38, height: 38, borderRadius: 19, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
   accessibilityIcon: { color: "#0B1224", fontSize: 18 },
-  accessibilityButtonText: { color: "#0B1224", fontWeight: "900", fontSize: 12 },
-  accessibilityPanel: { position: "absolute", left: 14, top: 66, width: 286, backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
+  accessibilityPanel: { position: "absolute", left: 14, top: 58, width: 286, backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 16, padding: 14, gap: 10, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
   panelHeader: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between" },
   panelTitle: { color: "#F7F9FC", fontSize: 17, fontWeight: "900", textAlign: "right" },
   closeButton: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#293B5A", alignItems: "center", justifyContent: "center" },

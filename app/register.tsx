@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Session } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
@@ -10,6 +10,8 @@ import { supabase } from "@/lib/supabase";
 import { getCurrentAppRole } from "@/lib/admin-role";
 
 export default function RegisterScreen() {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -84,6 +86,12 @@ export default function RegisterScreen() {
       setError("הסיסמה חייבת להכיל לפחות 6 תווים.");
       return;
     }
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName.trim();
+    if (isRegisterMode && !trimmedFirstName) {
+      setError("נא להזין שם פרטי.");
+      return;
+    }
     if (!supabase) {
       setError("מערכת ההתחברות אינה מוגדרת כרגע.");
       return;
@@ -95,11 +103,15 @@ export default function RegisterScreen() {
 
     if (isRegisterMode) {
       const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const fullName = [trimmedFirstName, trimmedLastName].filter(Boolean).join(" ");
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
         options: {
           data: {
+            full_name: fullName,
+            first_name: trimmedFirstName,
+            last_name: trimmedLastName,
             subscription_status: "trialing",
             trial_ends_at: trialEndsAt,
           },
@@ -133,6 +145,30 @@ export default function RegisterScreen() {
       setMessage("ההתחברות הצליחה.");
       goHome();
     }
+  };
+
+  const handleForgotPassword = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      setError("נא להזין כתובת אימייל תקינה כדי לאפס סיסמה.");
+      return;
+    }
+    if (!supabase) {
+      setError("מערכת ההתחברות אינה מוגדרת כרגע.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setMessage("");
+    const redirectTo = Platform.OS === "web" && typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined;
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, redirectTo ? { redirectTo } : undefined);
+    setBusy(false);
+    if (resetError) {
+      setError(resetError.message || "לא ניתן לשלוח קישור לאיפוס סיסמה כרגע.");
+      return;
+    }
+    setMessage("נשלח קישור לאיפוס סיסמה לכתובת המייל שלך.");
   };
 
   return (
@@ -176,6 +212,35 @@ export default function RegisterScreen() {
               </Pressable>
             </View>
 
+            {isRegisterMode ? (
+              <View style={styles.nameRow}>
+                <TextInput
+                  accessibilityLabel="שם פרטי"
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  onChangeText={(value) => { setFirstName(value); if (error) setError(""); }}
+                  placeholder="שם פרטי"
+                  placeholderTextColor="#7E8DA4"
+                  style={[styles.input, styles.nameInput]}
+                  textAlign="right"
+                  value={firstName}
+                  returnKeyType="next"
+                />
+                <TextInput
+                  accessibilityLabel="שם משפחה"
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  onChangeText={(value) => { setLastName(value); if (error) setError(""); }}
+                  placeholder="שם משפחה (אופציונלי)"
+                  placeholderTextColor="#7E8DA4"
+                  style={[styles.input, styles.nameInput]}
+                  textAlign="right"
+                  value={lastName}
+                  returnKeyType="next"
+                />
+              </View>
+            ) : null}
+
             <TextInput
               accessibilityLabel="כתובת דוא״ל"
               autoCapitalize="none"
@@ -214,6 +279,12 @@ export default function RegisterScreen() {
               </Pressable>
             </View>
 
+            {!isRegisterMode ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="שחזור סיסמה" onPress={() => void handleForgotPassword()} disabled={busy} style={styles.forgotPasswordLink}>
+                <Text style={styles.forgotPasswordText}>שכחת סיסמה?</Text>
+              </Pressable>
+            ) : null}
+
             <Pressable accessibilityRole="button" accessibilityLabel={isRegisterMode ? "הרשמה" : "התחברות"} onPress={() => void handleAuthAction()} disabled={busy} style={({ pressed }) => [styles.primary, pressed && styles.pressed, busy && styles.disabled]}>
               {busy ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.primaryText}>{isRegisterMode ? "התחל 14 ימי ניסיון חינם" : "התחבר לחשבון"}</Text>}
             </Pressable>
@@ -245,6 +316,10 @@ const styles = StyleSheet.create({
   tabText: { color: "#7E8DA4", fontSize: 12, fontWeight: "800" },
   tabTextActive: { color: "#F7F9FC" },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
+  nameRow: { flexDirection: "row-reverse", gap: 8 },
+  nameInput: { flex: 1 },
+  forgotPasswordLink: { alignSelf: "flex-start", paddingVertical: 4 },
+  forgotPasswordText: { color: "#65BDF6", fontSize: 12, fontWeight: "800", textDecorationLine: "underline" },
   passwordRow: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
   passwordInput: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
   passwordToggle: { minHeight: 44, minWidth: 58, borderRadius: 10, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#1D2D48", alignItems: "center", justifyContent: "center" },

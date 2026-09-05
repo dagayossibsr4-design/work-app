@@ -23,6 +23,7 @@ import { workoutAudienceSections } from "@/lib/workout-audience-sections";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { ActionToast } from "@/components/action-toast";
 import { HomeTimeWeatherWidget } from "@/components/home-time-weather-widget";
+import { BrandMark } from "@/components/ui/brand-mark";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
 import { getAllowedScheduleTemplates, readDefaultWorkoutTemplateId, readWorkoutScheduleOverrides, resolveTodaySchedule, setDefaultWorkoutTemplateId, type TodaySchedule } from "@/lib/workout-schedule";
@@ -454,19 +455,16 @@ export default function HomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <View style={styles.titleBlock}>
+            <BrandMark compact />
             <Text style={styles.eyebrow}>ProLifto</Text>
             <Text style={styles.title} numberOfLines={1}>{accountName ? `שלום, ${accountName}!` : isSignedIn ? "שלום!" : "מוכנים לעבוד?"}</Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={isSignedIn ? "התנתקות מהחשבון המחובר" : "הרשמה או התחברות"}
-            onPress={isSignedIn ? requestAccountSignOut : () => router.push("/register" as never)}
-            style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.logoutButtonText}>{isSignedIn ? "התנתק" : "כניסה"}</Text>
-          </Pressable>
         </View>
-        <HomeTimeWeatherWidget />
+        <HomeTimeWeatherWidget
+          isSignedIn={isSignedIn}
+          onLogout={requestAccountSignOut}
+          onSignIn={() => router.push("/register" as never)}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={todaySchedule.status === "workout" ? `התחל את ${todaySchedule.label}` : "פתח את לוח הזמנים"}
@@ -813,12 +811,10 @@ function MyProgramsModal({ visible, selectedPrograms, availablePersonalPrograms,
 const styles = StyleSheet.create({
   categoryMenu: { marginTop: 18, gap: 10 }, personalProfilePanel: { backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1.5, borderRadius: 18, padding: 13, gap: 11 }, personalProfileHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10 }, personalProfileIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#F5B72C22", borderColor: "#F5B72C88", borderWidth: 1, alignItems: "center", justifyContent: "center" }, personalProfileIconText: { fontSize: 19 }, personalProfileHeading: { flex: 1, alignItems: "flex-end", gap: 2 }, personalProfileTitle: { color: "#F5B72C", fontSize: 20, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, personalProfileSubtitle: { color: "#AAB7C8", fontSize: 11, lineHeight: 16, textAlign: "right", writingDirection: "rtl" }, personalProfileList: { gap: 7 }, personalProfileRow: { flexDirection: "row-reverse", alignItems: "center", gap: 9, borderColor: "#2C3B55", borderWidth: 1, borderRadius: 11, backgroundColor: "#0F1A2E", paddingHorizontal: 10, paddingVertical: 9 }, personalProfileArrow: { width: 27, height: 27, borderRadius: 9, backgroundColor: "#F5B72C22", alignItems: "center", justifyContent: "center" }, personalProfileArrowText: { color: "#F5B72C", fontSize: 22, lineHeight: 22, fontWeight: "900" }, personalProfileRowText: { flex: 1, alignItems: "flex-end", gap: 2 }, personalProfileRowTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, personalProfileRowDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 14, textAlign: "right", writingDirection: "rtl" }, categoryMenuHeader: { alignItems: "flex-end", gap: 4, marginBottom: 2 }, categoryMenuTitle: { color: "#F7F9FC", fontSize: 22, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryMenuSubtitle: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right", writingDirection: "rtl" }, categoryFolder: { backgroundColor: "#111D31", borderWidth: 1, borderRadius: 16, padding: 10, gap: 7 }, audienceFolder: { backgroundColor: "#111D31", borderWidth: 1, borderRadius: 16, padding: 10, gap: 8 }, muscleBuildingFolder: { backgroundColor: "#14243D", borderWidth: 1.5, borderRadius: 16, padding: 10, gap: 8 }, muscleBuildingIcon: { backgroundColor: "#F5B72C22", borderColor: "#F5B72C88" }, nestedFolderList: { gap: 8, paddingTop: 4 }, nestedCategoryFolder: { borderRadius: 13, padding: 8 }, categoryFolderContent: { gap: 7, paddingTop: 3 }, categoryFolderChevron: { fontSize: 22, fontWeight: "900", lineHeight: 22 }, audienceHeaderPressable: { flex: 1, flexDirection: "row-reverse", alignItems: "center", gap: 10 }, categoryFolderChevronButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" }, groupSelectButton: { minWidth: 68, minHeight: 30, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 }, groupSelectButtonText: { fontSize: 9, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, categoryEmptyText: { color: "#AAB7C8", fontSize: 11, textAlign: "right", paddingVertical: 7 }, categoryFolderHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10, paddingVertical: 4 }, categoryFolderIcon: { width: 38, height: 38, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" }, categoryFolderIconText: { fontSize: 11, fontWeight: "900" }, categoryFolderText: { flex: 1, alignItems: "flex-end", gap: 2 }, categoryFolderTitle: { fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryFolderDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, categoryFolderCount: { fontSize: 12, fontWeight: "900" }, categoryProgramRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, backgroundColor: "#16233A", borderWidth: 1, borderRadius: 11, padding: 9 }, categoryProgramText: { flex: 1, alignItems: "flex-end", gap: 2 }, categoryProgramTitle: { color: "#F7F9FC", fontSize: 12, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryProgramDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, categoryProgramAction: { fontSize: 10, fontWeight: "900" }, folderWorkoutCard: { backgroundColor: "#0B1224", borderWidth: 1, borderRadius: 13, padding: 11, gap: 9 }, folderWorkoutHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 9 }, folderWorkoutBadge: { width: 34, height: 34, borderWidth: 1, borderRadius: 11, alignItems: "center", justifyContent: "center" }, folderWorkoutBadgeText: { fontSize: 13, fontWeight: "900" }, folderWorkoutHeading: { flex: 1, alignItems: "flex-end", gap: 2 }, folderWorkoutTitle: { color: "#F7F9FC", fontSize: 16, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, folderWorkoutFocus: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, folderExerciseList: { gap: 5, borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 8 }, folderExerciseRow: { flexDirection: "row-reverse", alignItems: "flex-start", gap: 7 }, folderExerciseNumber: { minWidth: 15, fontSize: 10, fontWeight: "900", textAlign: "right" }, folderExerciseInfo: { flex: 1, alignItems: "flex-end", gap: 1 }, folderExerciseName: { color: "#EAF1F8", fontSize: 11, fontWeight: "800", textAlign: "right", writingDirection: "rtl" }, folderExerciseMeta: { color: "#7E8DA4", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" }, folderWorkoutActions: { flexDirection: "row-reverse", gap: 8 }, folderOutlineButton: { flex: 1, minHeight: 37, borderColor: "#52759C", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, folderOutlineButtonText: { color: "#A9CFF2", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, folderSelectButton: { flex: 1.45, minHeight: 37, borderColor: "#42D392", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 }, folderSelectButtonText: { color: "#42D392", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, folderStartButton: { flex: 1, minHeight: 37, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, folderStartButtonText: { color: "#081222", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" },
   content: { paddingBottom: 28, gap: 22 },
-  // marginTop clears the fixed accessibility-widget pill (top:14, ~42 tall)
-  // that floats over every screen, so it never covers the greeting title.
-  header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 46 },
+  // marginTop clears the fixed accessibility pill (top:14, 38 tall) that
+  // floats over every screen, so it never covers the greeting title.
+  header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 40 },
   titleBlock: { flex: 1, minWidth: 0, alignItems: "flex-end" },
-  logoutButton: { borderColor: "#3F76A7", borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#16233A" },
-  logoutButtonText: { color: "#A9CFF2", fontSize: 12, fontWeight: "900" },
   eyebrow: { color: "#F5B72C", fontSize: 14, fontWeight: "700", textAlign: "right" },
   title: { color: "#F7F9FC", fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 4, textAlign: "right" },
   logoMark: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" },

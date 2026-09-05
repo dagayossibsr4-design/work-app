@@ -9,7 +9,11 @@ type BrandMarkProps = {
   variant?: "icon" | "original";
 };
 
-export function BrandMark({ compact = false, onPress, variant = "icon" }: BrandMarkProps) {
+// "original" (the real ProLifto logo artwork) is the default - "icon" is an
+// old placeholder mark (a generic dumbbell/arrow, not the current brand)
+// that was still showing up anywhere a call site did not explicitly ask
+// for "original".
+export function BrandMark({ compact = false, onPress, variant = "original" }: BrandMarkProps) {
   const content =
     variant === "original" ? (
       <View style={[styles.originalRow, compact && styles.compactOriginalRow]}>
