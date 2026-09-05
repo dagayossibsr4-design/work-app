@@ -86,10 +86,13 @@ const styles = StyleSheet.create({
     width: 150,
     height: 121,
   },
-  // Dedicated icon-less asset, 1080x596 (~1.81:1).
+  // Dedicated icon-less asset, 1080x596 (~1.81:1). The source file has
+  // generous built-in padding around the lettering, so this is sized down
+  // a bit from the asset's native ratio-correct size to keep the visible
+  // whitespace in check.
   wordmarkImage: {
-    width: 190,
-    height: 105,
+    width: 160,
+    height: 88,
   },
   mark: {
     width: 42,
