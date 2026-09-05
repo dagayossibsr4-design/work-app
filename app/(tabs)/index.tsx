@@ -23,6 +23,7 @@ import { workoutAudienceSections } from "@/lib/workout-audience-sections";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { ActionToast } from "@/components/action-toast";
 import { HomeTimeWeatherWidget } from "@/components/home-time-weather-widget";
+import { BrandMark } from "@/components/ui/brand-mark";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
 import { getAllowedScheduleTemplates, readDefaultWorkoutTemplateId, readWorkoutScheduleOverrides, resolveTodaySchedule, setDefaultWorkoutTemplateId, type TodaySchedule } from "@/lib/workout-schedule";
@@ -203,7 +204,6 @@ export default function HomeScreen() {
   const availableMyExercises = myExercises.filter((exercise) => !isBuilderExerciseAlreadyChosen(exercise));
   const builderSourceCounts = { all: allBuilderExercises.length, catalog: allBuilderExercises.filter((exercise) => !isPersonalBuilderExercise(exercise)).length, personal: allBuilderExercises.filter((exercise) => isPersonalBuilderExercise(exercise)).length };
   const builderDuplicateCount = selectedExerciseIds.length - new Set(selectedExerciseIds.map((id) => { const exercise = allBuilderExercises.find((item) => item.id === id); return exercise ? builderExerciseIdentity(exercise) : id; })).size;
-  const completedSets = sessions.reduce((sum, session) => sum + session.sets.filter((set) => set.completed).length, 0);
   const last = useMemo(() => sortWorkoutSessionsNewestFirst(sessions)[0], [sessions]);
   const previousSessionForPreview = previewTemplate ? sessions.find((session) => session.templateId === previewTemplate.id && Boolean(session.finishedAt)) : undefined;
   const projectedPreviewVolume = previewTemplate ? calculateProjectedVolume(previewTemplate, previousSessionForPreview) : 0;
@@ -454,7 +454,7 @@ export default function HomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <View style={styles.titleBlock}>
-            <Text style={styles.eyebrow}>ProLifto</Text>
+            <BrandMark variant="wordmark" />
             <Text style={styles.title} numberOfLines={1}>{accountName ? `שלום, ${accountName}!` : isSignedIn ? "שלום!" : "מוכנים לעבוד?"}</Text>
           </View>
         </View>
@@ -495,7 +495,7 @@ export default function HomeScreen() {
         </Pressable>
         <View style={styles.statsRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="פתח היסטוריית אימונים" onPress={() => router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{sessions.length}</Text><Text style={styles.statLabel}>אימונים · פתח היסטוריה</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="פתח סטים שהושלמו בהיסטוריה" onPress={() => router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{completedSets}</Text><Text style={styles.statLabel}>סטים שהושלמו · פירוט</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="פתח את האימון האחרון" onPress={() => last ? router.push(completedWorkoutHistoryRoute(last.id) as never) : router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue} numberOfLines={1}>{last ? (templates.find((template) => template.id === last.templateId)?.name ?? last.templateId.toUpperCase()) : "—"}</Text><Text style={styles.statLabel}>האימון האחרון · פתח</Text></Pressable>
         </View>
         <View style={styles.personalProfilePanel}>
           <View style={styles.personalProfileHeader}><View style={styles.personalProfileIcon}><Text style={styles.personalProfileIconText}>◉</Text></View><View style={styles.personalProfileHeading}><Text style={styles.personalProfileTitle}>הפרופיל האישי שלי</Text><Text style={styles.personalProfileSubtitle}>כל הכלים האישיים שלך במקום אחד</Text></View></View>
@@ -813,7 +813,6 @@ const styles = StyleSheet.create({
   // floats over every screen, so it never covers the greeting title.
   header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 40 },
   titleBlock: { flex: 1, minWidth: 0, alignItems: "flex-end" },
-  eyebrow: { color: "#F5B72C", fontSize: 14, fontWeight: "700", textAlign: "right" },
   title: { color: "#F7F9FC", fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 4, textAlign: "right" },
   logoMark: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" },
   logoText: { color: "#0B1224", fontSize: 28, fontWeight: "900" },

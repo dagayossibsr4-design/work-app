@@ -8,6 +8,7 @@ export type AdminUserRow = {
   email: string | null;
   createdAt: string;
   lastSignInAt: string | null;
+  lastActiveAt: Date | null;
   isSuspended: boolean;
   subscriptionStatus: string | null;
   trialEndsAt: Date | null;
@@ -41,7 +42,7 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
   // misconfigured, that must not hide the real, authoritative Supabase user
   // list - degrade to showing users without subscription/trial info instead
   // of failing outright.
-  let byOpenId = new Map<string, { subscriptionStatus: string | null; trialEndsAt: Date | null }>();
+  let byOpenId = new Map<string, { subscriptionStatus: string | null; trialEndsAt: Date | null; lastActiveAt?: Date | null }>();
   try {
     if (ENV.subscriptionSource === "supabase") {
       const byUserId = await listSupabaseSubscriptionStates();
@@ -63,12 +64,17 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
         email: user.email ?? null,
         createdAt: user.created_at,
         lastSignInAt: user.last_sign_in_at ?? null,
+        lastActiveAt: subscriptionState?.lastActiveAt ?? null,
         isSuspended: Boolean(bannedUntil && bannedUntil.getTime() > Date.now()),
         subscriptionStatus: subscriptionState?.subscriptionStatus ?? null,
         trialEndsAt: subscriptionState?.trialEndsAt ?? null,
       };
     })
-    .sort((a, b) => new Date(b.lastSignInAt ?? b.createdAt).getTime() - new Date(a.lastSignInAt ?? a.createdAt).getTime());
+    .sort((a, b) => {
+      const aTime = Math.max(new Date(a.lastSignInAt ?? a.createdAt).getTime(), a.lastActiveAt?.getTime() ?? 0);
+      const bTime = Math.max(new Date(b.lastSignInAt ?? b.createdAt).getTime(), b.lastActiveAt?.getTime() ?? 0);
+      return bTime - aTime;
+    });
 }
 
 // ~100 years - Supabase's own documented convention for an effectively
@@ -89,5 +95,18 @@ export async function setUserSuspended(userId: string, suspended: boolean): Prom
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     ban_duration: suspended ? SUSPEND_DURATION : "none",
   });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Sets a new password for an account directly via the Supabase Admin API -
+ * for when a user is locked out and cannot use the self-service "forgot
+ * password" email flow. The new password is never logged.
+ */
+export async function setUserPassword(userId: string, newPassword: string): Promise<void> {
+  const supabaseAdmin = getSupabaseAdminClient();
+  if (!supabaseAdmin) throw new Error("Supabase admin client is not configured");
+
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { password: newPassword });
   if (error) throw new Error(error.message);
 }

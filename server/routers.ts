@@ -9,7 +9,7 @@ import { createMorningPaymentForm } from "./morning";
 import { getSubscriptionPlan } from "../lib/subscription-plans";
 import { computeSubscriptionAccess } from "./_core/subscriptionAccess";
 import { isValidAdminAccessCode } from "./_core/adminAccessCode";
-import { listAdminUsers, setUserSuspended } from "./_core/adminUsers";
+import { listAdminUsers, setUserPassword, setUserSuspended } from "./_core/adminUsers";
 import { z } from "zod";
 import {
   beginGarminConnection,
@@ -92,6 +92,15 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "קוד גישה שגוי." });
         }
         await setUserSuspended(input.userId, input.suspend);
+        return { ok: true as const };
+      }),
+    setUserPassword: publicProcedure
+      .input(z.object({ adminToken: z.string(), userId: z.string().uuid(), newPassword: z.string().min(6) }))
+      .mutation(async ({ input }) => {
+        if (!isValidAdminAccessCode(input.adminToken)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "קוד גישה שגוי." });
+        }
+        await setUserPassword(input.userId, input.newPassword);
         return { ok: true as const };
       }),
   }),

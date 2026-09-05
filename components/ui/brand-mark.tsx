@@ -6,16 +6,22 @@ const prolifitoOriginalLogo = require("../../assets/images/prolifto-user-blue-lo
 type BrandMarkProps = {
   compact?: boolean;
   onPress?: () => void;
-  variant?: "icon" | "original";
+  variant?: "icon" | "original" | "wordmark";
 };
 
 // "original" (the real ProLifto logo artwork) is the default - "icon" is an
 // old placeholder mark (a generic dumbbell/arrow, not the current brand)
 // that was still showing up anywhere a call site did not explicitly ask
-// for "original".
+// for "original". "wordmark" crops that same artwork down to just the
+// "ProLifto" lettering (no arrow/P icon above it), for tight spaces like a
+// screen header where the full icon+wordmark lockup is too tall.
 export function BrandMark({ compact = false, onPress, variant = "original" }: BrandMarkProps) {
   const content =
-    variant === "original" ? (
+    variant === "wordmark" ? (
+      <View style={styles.wordmarkClip}>
+        <Image source={prolifitoOriginalLogo} style={styles.wordmarkImage} />
+      </View>
+    ) : variant === "original" ? (
       <View style={[styles.originalRow, compact && styles.compactOriginalRow]}>
         <Image
           source={prolifitoOriginalLogo}
@@ -80,6 +86,21 @@ const styles = StyleSheet.create({
   compactOriginalLogo: {
     width: 150,
     height: 121,
+  },
+  // Crops the same 780x630 artwork down to just the "ProLifto" wordmark
+  // band (roughly y=395 to the bottom edge), by rendering the full image
+  // at a fixed scale inside a shorter clipped box and shifting it up so
+  // only that band is visible - there is no separate wordmark-only asset.
+  wordmarkClip: {
+    width: 168,
+    height: 46,
+    overflow: "hidden",
+  },
+  wordmarkImage: {
+    width: 168,
+    height: 136,
+    position: "absolute",
+    top: -85,
   },
   mark: {
     width: 42,

@@ -7,7 +7,28 @@ type SubscriptionStateRow = {
   subscription_status: AppUser["subscriptionStatus"];
   trial_ends_at: string | null;
   created_at: string;
+  updated_at: string;
 };
+
+// How often ensureSubscriptionState touches updated_at as an activity
+// signal for the admin dashboard - Supabase Auth's own last_sign_in_at only
+// changes on an actual login, not on every request a stay-signed-in
+// session makes, so it under-reports how recently an account was really
+// used. Throttled to keep write volume down on a table read on every
+// authenticated request.
+const ACTIVITY_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+
+function touchLastActive(admin: NonNullable<ReturnType<typeof getSupabaseAdminClient>>, userId: string, currentStatus: AppUser["subscriptionStatus"]) {
+  // Fire-and-forget: this must never slow down or fail the caller's actual
+  // request just to refresh an activity timestamp.
+  void admin
+    .from("subscription_state")
+    .update({ subscription_status: currentStatus })
+    .eq("user_id", userId)
+    .then(({ error }) => {
+      if (error) console.warn("[subscriptionState] Failed to touch last-active timestamp:", error.message);
+    });
+}
 
 /**
  * The Supabase-backed replacement for `resolveUserFromSupabaseIdentity` in
@@ -28,7 +49,7 @@ export async function ensureSubscriptionState(identity: {
     admin.from("user_roles").select("role").eq("user_id", identity.id).maybeSingle(),
     admin
       .from("subscription_state")
-      .select("subscription_status, trial_ends_at, created_at")
+      .select("subscription_status, trial_ends_at, created_at, updated_at")
       .eq("user_id", identity.id)
       .maybeSingle<SubscriptionStateRow>(),
   ]);
@@ -38,13 +59,16 @@ export async function ensureSubscriptionState(identity: {
   if (!state) {
     const trialEnd = new Date();
     trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
+    const nowIso = new Date().toISOString();
     const { error: insertError } = await admin.from("subscription_state").insert({
       user_id: identity.id,
       subscription_status: "trialing",
       trial_ends_at: trialEnd.toISOString(),
     });
     if (insertError) throw new Error(insertError.message);
-    state = { subscription_status: "trialing", trial_ends_at: trialEnd.toISOString(), created_at: new Date().toISOString() };
+    state = { subscription_status: "trialing", trial_ends_at: trialEnd.toISOString(), created_at: nowIso, updated_at: nowIso };
+  } else if (Date.now() - new Date(state.updated_at).getTime() > ACTIVITY_TOUCH_INTERVAL_MS) {
+    touchLastActive(admin, identity.id, state.subscription_status);
   }
 
   return {
@@ -88,25 +112,29 @@ export async function activateSupabaseSubscription(userId: string, extendByDays:
   if (error) throw new Error(error.message);
 }
 
-export type SupabaseSubscriptionByUser = Map<string, { subscriptionStatus: string; trialEndsAt: Date | null }>;
+export type SupabaseSubscriptionByUser = Map<string, { subscriptionStatus: string; trialEndsAt: Date | null; lastActiveAt: Date | null }>;
 
 /**
  * For the admin dashboard: every known subscription_state row, keyed by the
  * Supabase Auth user id, to merge into the Supabase Auth user list the same
- * way listAdminUsers() merges in the legacy MySQL data today.
+ * way listAdminUsers() merges in the legacy MySQL data today. updated_at
+ * doubles as a real "last active" signal (see touchLastActive above) - more
+ * accurate than Supabase Auth's own last_sign_in_at for a session that just
+ * keeps auto-refreshing without a fresh login.
  */
 export async function listSupabaseSubscriptionStates(): Promise<SupabaseSubscriptionByUser> {
   const admin = getSupabaseAdminClient();
   const byUser: SupabaseSubscriptionByUser = new Map();
   if (!admin) return byUser;
 
-  const { data, error } = await admin.from("subscription_state").select("user_id, subscription_status, trial_ends_at");
+  const { data, error } = await admin.from("subscription_state").select("user_id, subscription_status, trial_ends_at, updated_at");
   if (error) throw new Error(error.message);
 
   for (const row of data ?? []) {
     byUser.set(row.user_id as string, {
       subscriptionStatus: row.subscription_status as string,
       trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at as string) : null,
+      lastActiveAt: row.updated_at ? new Date(row.updated_at as string) : null,
     });
   }
   return byUser;

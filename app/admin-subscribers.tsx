@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
@@ -62,6 +62,8 @@ export default function AdminSubscribersScreen() {
   const [statusMessage, setStatusMessage] = useState("");
   const [statusIsError, setStatusIsError] = useState(false);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const [passwordEditUserId, setPasswordEditUserId] = useState<string | null>(null);
+  const [passwordDraft, setPasswordDraft] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -86,6 +88,7 @@ export default function AdminSubscribersScreen() {
     },
   );
   const suspendMutation = trpc.admin.setUserSuspended.useMutation();
+  const passwordMutation = trpc.admin.setUserPassword.useMutation();
 
   useEffect(() => {
     const isRejected = (usersQuery.error as { data?: { code?: string } } | null)?.data?.code === "UNAUTHORIZED";
@@ -140,6 +143,32 @@ export default function AdminSubscribersScreen() {
     );
   };
 
+  const submitPasswordChange = (userId: string) => {
+    if (!adminToken) return;
+    if (passwordDraft.length < 6) {
+      setStatusMessage("הסיסמה החדשה חייבת להכיל לפחות 6 תווים.");
+      setStatusIsError(true);
+      return;
+    }
+    setStatusMessage("");
+    setStatusIsError(false);
+    passwordMutation.mutate(
+      { adminToken, userId, newPassword: passwordDraft },
+      {
+        onSuccess: () => {
+          setStatusMessage("הסיסמה עודכנה בהצלחה.");
+          setStatusIsError(false);
+          setPasswordEditUserId(null);
+          setPasswordDraft("");
+        },
+        onError: (mutationError) => {
+          setStatusMessage(`עדכון הסיסמה נכשל: ${mutationError.message || "שגיאה לא ידועה"}`);
+          setStatusIsError(true);
+        },
+      },
+    );
+  };
+
   return (
     <ScreenContainer className="px-5 pt-5" edges={["top", "left", "right", "bottom"]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -185,9 +214,15 @@ export default function AdminSubscribersScreen() {
                 </View>
               </View>
               <View style={styles.metaRow}>
-                <Text style={styles.metaLabel}>נכנס לאחרונה</Text>
+                <Text style={styles.metaLabel}>נכנס לאחרונה (התחברות בפועל)</Text>
                 <Text style={styles.metaValue}>{formatDate(user.lastSignInAt)}</Text>
               </View>
+              {user.lastActiveAt ? (
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>פעיל לאחרונה באפליקציה</Text>
+                  <Text style={styles.metaValue}>{formatDate(user.lastActiveAt)}</Text>
+                </View>
+              ) : null}
               <View style={styles.metaRow}>
                 <Text style={styles.metaLabel}>נרשם בתאריך</Text>
                 <Text style={styles.metaValue}>{formatDate(user.createdAt)}</Text>
@@ -217,6 +252,48 @@ export default function AdminSubscribersScreen() {
                   </Text>
                 )}
               </Pressable>
+              {passwordEditUserId === user.id ? (
+                <View style={styles.passwordEditRow}>
+                  <TextInput
+                    accessibilityLabel={`סיסמה חדשה עבור ${user.email ?? user.id}`}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    onChangeText={setPasswordDraft}
+                    placeholder="סיסמה חדשה (לפחות 6 תווים)"
+                    placeholderTextColor="#7E8DA4"
+                    secureTextEntry
+                    style={styles.passwordInput}
+                    textAlign="right"
+                    value={passwordDraft}
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="עדכון הסיסמה"
+                    disabled={passwordMutation.isPending}
+                    onPress={() => submitPasswordChange(user.id)}
+                    style={({ pressed }) => [styles.passwordConfirmButton, pressed && styles.pressed, passwordMutation.isPending && styles.disabled]}
+                  >
+                    {passwordMutation.isPending ? <ActivityIndicator color="#0B1224" /> : <Text style={styles.passwordConfirmButtonText}>עדכון</Text>}
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="ביטול שינוי סיסמה"
+                    onPress={() => { setPasswordEditUserId(null); setPasswordDraft(""); }}
+                    style={({ pressed }) => [styles.passwordCancelButton, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.passwordCancelButtonText}>ביטול</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`שינוי סיסמה עבור ${user.email ?? user.id}`}
+                  onPress={() => { setPasswordEditUserId(user.id); setPasswordDraft(""); }}
+                  style={({ pressed }) => [styles.changePasswordButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.changePasswordButtonText}>שינוי סיסמה</Text>
+                </Pressable>
+              )}
             </View>
           );
         })}
@@ -262,6 +339,14 @@ const styles = StyleSheet.create({
   suspendButtonText: { color: "#FFB0BC", fontWeight: "900", fontSize: 12 },
   restoreButton: { marginTop: 6, minHeight: 42, backgroundColor: "#42D392", borderRadius: 10, alignItems: "center", justifyContent: "center" },
   restoreButtonText: { color: "#0B1224", fontWeight: "900", fontSize: 12 },
+  changePasswordButton: { marginTop: 6, minHeight: 42, borderColor: "#65BDF6", borderWidth: 1, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  changePasswordButtonText: { color: "#9BC9FF", fontWeight: "900", fontSize: 12 },
+  passwordEditRow: { marginTop: 6, flexDirection: "row-reverse", alignItems: "center", gap: 6 },
+  passwordInput: { flex: 1, minWidth: 0, minHeight: 42, borderRadius: 10, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 12, paddingHorizontal: 10 },
+  passwordConfirmButton: { minHeight: 42, backgroundColor: "#65BDF6", borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  passwordConfirmButtonText: { color: "#0B1224", fontWeight: "900", fontSize: 12 },
+  passwordCancelButton: { minHeight: 42, borderColor: "#52759C", borderWidth: 1, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  passwordCancelButtonText: { color: "#D9E2EF", fontWeight: "800", fontSize: 12 },
   disabled: { opacity: 0.6 },
   pressed: { opacity: 0.74, transform: [{ scale: 0.98 }] },
 });
