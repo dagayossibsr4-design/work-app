@@ -76,6 +76,31 @@ export async function readWorkoutScheduleOverrides(): Promise<ScheduleOverrides>
   }
 }
 
+export type TodaySchedule =
+  | { status: "none" }
+  | { status: "rest" }
+  | { status: "workout"; templateId: string; label: string; focus: string };
+
+/**
+ * Resolves what today's schedule card should show, given the raw override
+ * for today's date (from readWorkoutScheduleOverrides) and the templates
+ * currently allowed by the user's selected programs (from
+ * getAllowedScheduleTemplates) - the same validation the schedule screen
+ * itself applies, so a stale templateId from a since-removed program never
+ * renders as "today's workout".
+ */
+export function resolveTodaySchedule(
+  override: ScheduleOverride | undefined,
+  allowedTemplates: Pick<WorkoutTemplate, "id" | "name" | "focus">[],
+): TodaySchedule {
+  if (!override) return { status: "none" };
+  if (override.kind === "rest") return { status: "rest" };
+  const templateId = override.templateId ?? override.cardioTemplateId;
+  const template = templateId ? allowedTemplates.find((item) => item.id === templateId) : undefined;
+  if (!template) return { status: "none" };
+  return { status: "workout", templateId: template.id, label: template.name, focus: template.focus };
+}
+
 export async function assignWorkoutTemplateToDate(date: string, template: Pick<WorkoutTemplate, "id" | "name" | "focus">, kind: ScheduleOverride["kind"] = "workout") {
   const overrides = await readWorkoutScheduleOverrides();
   overrides[date] = {

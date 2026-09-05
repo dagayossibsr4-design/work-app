@@ -66,13 +66,16 @@ const styles = StyleSheet.create({
   compactOriginalRow: {
     alignSelf: "center",
   },
+  // The source asset is 780x630 (~1.24:1) - these keep that real ratio so
+  // resizeMode="contain" renders it at full size instead of shrinking it
+  // down to fit a box shaped for a much wider image.
   originalLogo: {
-    width: 210,
-    height: 105,
+    width: 220,
+    height: 178,
   },
   compactOriginalLogo: {
     width: 150,
-    height: 75,
+    height: 121,
   },
   mark: {
     width: 42,

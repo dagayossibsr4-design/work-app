@@ -3,7 +3,6 @@ import type { GestureResponderEvent } from "react-native";
 import { KeyboardAvoidingView } from "react-native";
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -12,7 +11,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { completedWorkoutHistoryRoute } from "@/lib/completed-workout-route";
 import { getTemplate, type WorkoutId, type WorkoutTemplate } from "@/lib/workout-data";
 import { categoryForExercise, exerciseLibrary } from "@/lib/exercise-library";
-import { calculateVolume, MAX_SELECTED_PROGRAMS, sortWorkoutSessionsNewestFirst, useWorkoutStore, type PersonalProgram } from "@/lib/workout-store";
+import { CARDIO_WORKOUT_TEMPLATE_IDS, calculateVolume, MAX_SELECTED_PROGRAMS, sortWorkoutSessionsNewestFirst, useWorkoutStore, type PersonalProgram } from "@/lib/workout-store";
 import { calculateFivePercentProgress } from "@/lib/workout-progression";
 import { calculateProjectedVolume } from "@/lib/workout-volume";
 import { buildPlanMetrics } from "@/lib/workout-analysis";
@@ -22,10 +21,12 @@ import { workoutCategoryTemplateIds } from "@/lib/workout-category-content";
 import { workoutAudienceSections } from "@/lib/workout-audience-sections";
 import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { ActionToast } from "@/components/action-toast";
+import { HomeTimeWeatherWidget } from "@/components/home-time-weather-widget";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
-import { setDefaultWorkoutTemplateId } from "@/lib/workout-schedule";
+import { getAllowedScheduleTemplates, readDefaultWorkoutTemplateId, readWorkoutScheduleOverrides, resolveTodaySchedule, setDefaultWorkoutTemplateId, type TodaySchedule } from "@/lib/workout-schedule";
 import { canonicalProgramSelectionId } from "@/lib/workout-program-selection";
+import { localDateKey } from "@/lib/calendar-grid";
 
 const formatDate = (iso: string) => new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "long" }).format(new Date(iso));
 
@@ -79,7 +80,7 @@ const trainingMethods: TrainingMethod[] = [
 ];
 
 export default function HomeScreen() {
-  const { sessions, startWorkoutFromTemplate, hydrated, templates, addCustomTemplate, addPersonalProgram, removePersonalProgram, updatePersonalProgram, movePersonalProgramWorkout, duplicatePersonalProgram, updateTemplate, selectedProgramIds, toggleSelectedProgram, personalPrograms } = useWorkoutStore();
+  const { sessions, startWorkoutFromTemplate, templates, addCustomTemplate, addPersonalProgram, removePersonalProgram, updatePersonalProgram, movePersonalProgramWorkout, duplicatePersonalProgram, updateTemplate, selectedProgramIds, toggleSelectedProgram, personalPrograms } = useWorkoutStore();
   const [accountName, setAccountName] = useState<string | null>(null);
   const [selectedMethodId, setSelectedMethodId] = useState("fixed");
   const [isSwitchingMethod, setIsSwitchingMethod] = useState(false);
@@ -132,6 +133,17 @@ export default function HomeScreen() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => updateAccountName(session));
     return () => listener.subscription.unsubscribe();
   }, []);
+  const [todaySchedule, setTodaySchedule] = useState<TodaySchedule>({ status: "none" });
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const [overrides, defaultTemplateId] = await Promise.all([readWorkoutScheduleOverrides(), readDefaultWorkoutTemplateId()]);
+      if (!active) return;
+      const allowed = getAllowedScheduleTemplates(templates, selectedProgramIds, defaultTemplateId, CARDIO_WORKOUT_TEMPLATE_IDS, personalPrograms);
+      setTodaySchedule(resolveTodaySchedule(overrides[localDateKey(new Date())], allowed));
+    })();
+    return () => { active = false; };
+  }, [templates, selectedProgramIds, personalPrograms]);
   const requestAccountSignOut = () => confirmSignOut(() => {
     void supabase?.auth.signOut().then(() => router.replace("/register" as never));
   });
@@ -443,13 +455,42 @@ export default function HomeScreen() {
           <View style={styles.titleBlock}>
             <Text style={styles.eyebrow}>ProLifto</Text>
             <Text style={styles.title} numberOfLines={1}>{accountName ? `שלום ${accountName}!` : "מוכנים לעבוד?"}</Text>
-            <Text style={styles.subtitle}>{accountName ? "החשבון מחובר והנתונים מגובים בענן" : hydrated ? "כל סט נשמר מיד במכשיר" : "טוען את היומן שלך…"}</Text><Text testID="home-build-stamp" style={styles.buildStamp}>גרסת התקנה {Constants.expoConfig?.version ?? "לא ידועה"} · Android build {Constants.expoConfig?.android?.versionCode ?? "לא ידוע"}</Text>
           </View>
         </View>
+        <HomeTimeWeatherWidget />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={todaySchedule.status === "workout" ? `התחל את ${todaySchedule.label}` : "פתח את לוח הזמנים"}
+          onPress={() => {
+            if (todaySchedule.status !== "workout") { router.push("/(tabs)/schedule" as never); return; }
+            const template = templates.find((item) => item.id === todaySchedule.templateId) ?? getTemplate(todaySchedule.templateId as WorkoutId);
+            if (template) startTemplateFromFolder(template);
+            else router.push("/(tabs)/schedule" as never);
+          }}
+          style={({ pressed }) => [styles.todayCard, pressed && styles.pressed]}
+        >
+          <Text style={styles.todayEyebrow}>האימון של היום</Text>
+          {todaySchedule.status === "workout" ? (
+            <>
+              <Text style={styles.todayTitle}>{todaySchedule.label}</Text>
+              {todaySchedule.focus ? <Text style={styles.todaySubtitle}>{todaySchedule.focus}</Text> : null}
+              <View style={styles.todayButton}><Text style={styles.todayButtonText}>התחל אימון</Text></View>
+            </>
+          ) : todaySchedule.status === "rest" ? (
+            <>
+              <Text style={styles.todayTitle}>יום מנוחה 💤</Text>
+              <Text style={styles.todaySubtitle}>מתוכנן יום מנוחה להיום. אפשר לפתוח את לוח הזמנים לשינוי.</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.todayTitle}>עדיין לא שובץ אימון להיום</Text>
+              <View style={styles.todayButton}><Text style={styles.todayButtonText}>שיבוץ אימון להיום</Text></View>
+            </>
+          )}
+        </Pressable>
         <View style={styles.statsRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="פתח היסטוריית אימונים" onPress={() => router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{sessions.length}</Text><Text style={styles.statLabel}>אימונים · פתח היסטוריה</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="פתח סטים שהושלמו בהיסטוריה" onPress={() => router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{completedSets}</Text><Text style={styles.statLabel}>סטים שהושלמו · פירוט</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="פתח את האימון האחרון" onPress={() => last ? router.push(completedWorkoutHistoryRoute(last.id) as never) : router.push("/(tabs)/history" as never)} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}><Text style={styles.statValue}>{last ? `${Math.round(calculateVolume(last))}` : "—"}</Text><Text style={styles.statLabel}>נפח אחרון · פרטים</Text></Pressable>
         </View>
         <View style={styles.personalProfilePanel}>
           <View style={styles.personalProfileHeader}><View style={styles.personalProfileIcon}><Text style={styles.personalProfileIconText}>◉</Text></View><View style={styles.personalProfileHeading}><Text style={styles.personalProfileTitle}>הפרופיל האישי שלי</Text><Text style={styles.personalProfileSubtitle}>כל הכלים האישיים שלך במקום אחד</Text></View></View>
@@ -763,7 +804,9 @@ function MyProgramsModal({ visible, selectedPrograms, availablePersonalPrograms,
 const styles = StyleSheet.create({
   categoryMenu: { marginTop: 18, gap: 10 }, personalProfilePanel: { backgroundColor: "#16233A", borderColor: "#F5B72C", borderWidth: 1.5, borderRadius: 18, padding: 13, gap: 11 }, personalProfileHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10 }, personalProfileIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#F5B72C22", borderColor: "#F5B72C88", borderWidth: 1, alignItems: "center", justifyContent: "center" }, personalProfileIconText: { fontSize: 19 }, personalProfileHeading: { flex: 1, alignItems: "flex-end", gap: 2 }, personalProfileTitle: { color: "#F5B72C", fontSize: 20, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, personalProfileSubtitle: { color: "#AAB7C8", fontSize: 11, lineHeight: 16, textAlign: "right", writingDirection: "rtl" }, personalProfileList: { gap: 7 }, personalProfileRow: { flexDirection: "row-reverse", alignItems: "center", gap: 9, borderColor: "#2C3B55", borderWidth: 1, borderRadius: 11, backgroundColor: "#0F1A2E", paddingHorizontal: 10, paddingVertical: 9 }, personalProfileArrow: { width: 27, height: 27, borderRadius: 9, backgroundColor: "#F5B72C22", alignItems: "center", justifyContent: "center" }, personalProfileArrowText: { color: "#F5B72C", fontSize: 22, lineHeight: 22, fontWeight: "900" }, personalProfileRowText: { flex: 1, alignItems: "flex-end", gap: 2 }, personalProfileRowTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, personalProfileRowDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 14, textAlign: "right", writingDirection: "rtl" }, categoryMenuHeader: { alignItems: "flex-end", gap: 4, marginBottom: 2 }, categoryMenuTitle: { color: "#F7F9FC", fontSize: 22, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryMenuSubtitle: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right", writingDirection: "rtl" }, categoryFolder: { backgroundColor: "#111D31", borderWidth: 1, borderRadius: 16, padding: 10, gap: 7 }, audienceFolder: { backgroundColor: "#111D31", borderWidth: 1, borderRadius: 16, padding: 10, gap: 8 }, muscleBuildingFolder: { backgroundColor: "#14243D", borderWidth: 1.5, borderRadius: 16, padding: 10, gap: 8 }, muscleBuildingIcon: { backgroundColor: "#F5B72C22", borderColor: "#F5B72C88" }, nestedFolderList: { gap: 8, paddingTop: 4 }, nestedCategoryFolder: { borderRadius: 13, padding: 8 }, categoryFolderContent: { gap: 7, paddingTop: 3 }, categoryFolderChevron: { fontSize: 22, fontWeight: "900", lineHeight: 22 }, audienceHeaderPressable: { flex: 1, flexDirection: "row-reverse", alignItems: "center", gap: 10 }, categoryFolderChevronButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" }, groupSelectButton: { minWidth: 68, minHeight: 30, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 }, groupSelectButtonText: { fontSize: 9, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, categoryEmptyText: { color: "#AAB7C8", fontSize: 11, textAlign: "right", paddingVertical: 7 }, categoryFolderHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 10, paddingVertical: 4 }, categoryFolderIcon: { width: 38, height: 38, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" }, categoryFolderIconText: { fontSize: 11, fontWeight: "900" }, categoryFolderText: { flex: 1, alignItems: "flex-end", gap: 2 }, categoryFolderTitle: { fontSize: 15, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryFolderDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, categoryFolderCount: { fontSize: 12, fontWeight: "900" }, categoryProgramRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 8, backgroundColor: "#16233A", borderWidth: 1, borderRadius: 11, padding: 9 }, categoryProgramText: { flex: 1, alignItems: "flex-end", gap: 2 }, categoryProgramTitle: { color: "#F7F9FC", fontSize: 12, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, categoryProgramDescription: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, categoryProgramAction: { fontSize: 10, fontWeight: "900" }, folderWorkoutCard: { backgroundColor: "#0B1224", borderWidth: 1, borderRadius: 13, padding: 11, gap: 9 }, folderWorkoutHeader: { flexDirection: "row-reverse", alignItems: "center", gap: 9 }, folderWorkoutBadge: { width: 34, height: 34, borderWidth: 1, borderRadius: 11, alignItems: "center", justifyContent: "center" }, folderWorkoutBadgeText: { fontSize: 13, fontWeight: "900" }, folderWorkoutHeading: { flex: 1, alignItems: "flex-end", gap: 2 }, folderWorkoutTitle: { color: "#F7F9FC", fontSize: 16, fontWeight: "900", textAlign: "right", writingDirection: "rtl" }, folderWorkoutFocus: { color: "#AAB7C8", fontSize: 10, lineHeight: 15, textAlign: "right", writingDirection: "rtl" }, folderExerciseList: { gap: 5, borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 8 }, folderExerciseRow: { flexDirection: "row-reverse", alignItems: "flex-start", gap: 7 }, folderExerciseNumber: { minWidth: 15, fontSize: 10, fontWeight: "900", textAlign: "right" }, folderExerciseInfo: { flex: 1, alignItems: "flex-end", gap: 1 }, folderExerciseName: { color: "#EAF1F8", fontSize: 11, fontWeight: "800", textAlign: "right", writingDirection: "rtl" }, folderExerciseMeta: { color: "#7E8DA4", fontSize: 9, lineHeight: 14, textAlign: "right", writingDirection: "rtl" }, folderWorkoutActions: { flexDirection: "row-reverse", gap: 8 }, folderOutlineButton: { flex: 1, minHeight: 37, borderColor: "#52759C", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, folderOutlineButtonText: { color: "#A9CFF2", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, folderSelectButton: { flex: 1.45, minHeight: 37, borderColor: "#42D392", borderWidth: 1, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 }, folderSelectButtonText: { color: "#42D392", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" }, folderStartButton: { flex: 1, minHeight: 37, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, folderStartButtonText: { color: "#081222", fontSize: 10, fontWeight: "900", textAlign: "center", writingDirection: "rtl" },
   content: { paddingBottom: 28, gap: 22 },
-  header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  // marginTop clears the fixed accessibility-widget pill (top:14, ~42 tall)
+  // that floats over every screen, so it never covers the greeting title.
+  header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 46 },
   titleBlock: { flex: 1, minWidth: 0, alignItems: "flex-end" },
   headerActions: { alignItems: "flex-end", gap: 8 },
   menuButton: { backgroundColor: "#253653", borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7 },
@@ -774,10 +817,14 @@ const styles = StyleSheet.create({
   accountButtonText: { color: "#F5B72C", fontSize: 10, fontWeight: "900" },
   eyebrow: { color: "#F5B72C", fontSize: 14, fontWeight: "700", textAlign: "right" },
   title: { color: "#F7F9FC", fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 4, textAlign: "right" },
-  subtitle: { color: "#AAB7C8", fontSize: 13, marginTop: 6, textAlign: "right" },
-  buildStamp: { color: "#718096", fontSize: 9, marginTop: 5, textAlign: "right", letterSpacing: 0.2 },
   logoMark: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" },
   logoText: { color: "#0B1224", fontSize: 28, fontWeight: "900" },
+  todayCard: { backgroundColor: "#1C3152", borderColor: "#F5B72C", borderWidth: 1.5, borderRadius: 18, padding: 16, alignItems: "flex-end", gap: 6 },
+  todayEyebrow: { color: "#F5B72C", fontSize: 12, fontWeight: "900", textAlign: "right" },
+  todayTitle: { color: "#F7F9FC", fontSize: 20, fontWeight: "900", textAlign: "right" },
+  todaySubtitle: { color: "#C6D2E2", fontSize: 12, lineHeight: 17, textAlign: "right" },
+  todayButton: { backgroundColor: "#F5B72C", borderRadius: 12, paddingVertical: 12, paddingHorizontal: 22, marginTop: 6, alignSelf: "stretch", alignItems: "center" },
+  todayButtonText: { color: "#0B1224", fontSize: 15, fontWeight: "900" },
   statsRow: { flexDirection: "row-reverse", gap: 10 },
   statCard: { flex: 1, backgroundColor: "#16233A", borderRadius: 16, paddingVertical: 15, alignItems: "center", borderWidth: 1, borderColor: "#2C3B55" },
   statValue: { color: "#F7F9FC", fontSize: 21, fontWeight: "800" },
