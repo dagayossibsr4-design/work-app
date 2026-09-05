@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
@@ -55,7 +55,7 @@ export default function ResetPasswordScreen() {
 
   return (
     <ScreenContainer className="px-5 pt-5">
-      <View style={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <BrandMark variant="original" />
         <Text style={styles.title}>איפוס סיסמה</Text>
         {!ready ? (
@@ -97,7 +97,7 @@ export default function ResetPasswordScreen() {
             {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
           </View>
         )}
-      </View>
+      </ScrollView>
     </ScreenContainer>
   );
 }

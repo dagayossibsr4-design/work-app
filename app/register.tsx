@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Session } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
@@ -173,7 +173,7 @@ export default function RegisterScreen() {
 
   return (
     <ScreenContainer className="px-5 pt-5">
-      <View style={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <BrandMark variant="original" />
         <Text style={styles.eyebrow}>חשבון אישי</Text>
         <Text style={styles.title}>
@@ -297,7 +297,7 @@ export default function RegisterScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="מסלולי מנוי" onPress={() => router.push("/subscription" as never)} style={({ pressed }) => [styles.subscriptionButton, pressed && styles.pressed]}>
           <Text style={styles.subscriptionButtonText}>צפייה במסלולי מנוי וסליקה</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     </ScreenContainer>
   );
 }
@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
   tabTextActive: { color: "#F7F9FC" },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#52759C", backgroundColor: "#0F1B31", color: "#F7F9FC", fontSize: 15, paddingHorizontal: 13 },
   nameRow: { flexDirection: "row-reverse", gap: 8 },
-  nameInput: { flex: 1 },
+  nameInput: { flex: 1, minWidth: 0 },
   forgotPasswordLink: { alignSelf: "flex-start", paddingVertical: 4 },
   forgotPasswordText: { color: "#65BDF6", fontSize: 12, fontWeight: "800", textDecorationLine: "underline" },
   passwordRow: { flexDirection: "row-reverse", alignItems: "center", gap: 8 },
