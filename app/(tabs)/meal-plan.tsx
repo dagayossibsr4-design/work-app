@@ -48,7 +48,7 @@ import {
   weightModeLabels,
   type WeightMode,
 } from "@/lib/cooking-weight";
-import { useAuth } from "@/hooks/use-auth";
+import { useSupabaseSession } from "@/lib/use-supabase-session";
 import { todayKey, upsertSnapshot } from "@/lib/weekly-nutrition";
 import {
   catalogConversionFoods,
@@ -169,7 +169,8 @@ export default function MealPlanScreen() {
   const { openSupplements } = useLocalSearchParams<{ openSupplements?: string }>();
   const standalone = usePathname() === "/meals";
   const { nutritionProfile, updateNutritionProfile } = useWorkoutStore();
-  const { user } = useAuth();
+  const session = useSupabaseSession();
+  const userDisplayName = typeof session?.user?.user_metadata?.name === "string" ? session.user.user_metadata.name : "";
   const mealFoods = useMemo(() => [...(nutritionProfile.customFoods ?? []), ...foodItems], [nutritionProfile.customFoods]);
   const mealConversionFoods = useMemo(() => [
     ...catalogConversionFoods,
@@ -1063,7 +1064,7 @@ export default function MealPlanScreen() {
       activeProfile,
       targetCalories,
       meals,
-      user?.name ?? "",
+      userDisplayName,
       bodyWeight,
       consumed,
       macroDeviationItems,

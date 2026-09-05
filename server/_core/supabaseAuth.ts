@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { ENV } from "./env";
 
 let client: SupabaseClient | null | undefined;
@@ -39,24 +39,50 @@ function setCached(token: string, identity: SupabaseIdentity) {
   verifiedTokenCache.set(token, { identity, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
+function identityFromPayload(payload: Record<string, unknown>): SupabaseIdentity | null {
+  if (typeof payload.sub !== "string") return null;
+  const metadata = payload.user_metadata as { name?: unknown } | undefined;
+  return {
+    id: payload.sub,
+    email: typeof payload.email === "string" ? payload.email : null,
+    name: typeof metadata?.name === "string" ? metadata.name : null,
+  };
+}
+
+let jwks: JWTVerifyGetKey | null = null;
+function getJwks(): JWTVerifyGetKey | null {
+  if (jwks) return jwks;
+  if (!ENV.supabaseUrl) return null;
+  jwks = createRemoteJWKSet(new URL(`${ENV.supabaseUrl.replace(/\/$/, "")}/auth/v1/.well-known/jwks.json`));
+  return jwks;
+}
+
 /**
- * Verifies the token's signature locally against the Supabase project's JWT
- * secret - no network call. This is the preferred path: it is instant and
- * cannot fail because Supabase's own API happened to be slow or unreachable
- * for that one request.
+ * Verifies the token's signature locally - no network call to Supabase's
+ * /user endpoint. Projects that use Supabase's newer asymmetric JWT signing
+ * keys (ES256/RS256) publish a JWKS; older projects sign with a shared HS256
+ * secret instead. Both are tried so this keeps working across that setting
+ * without needing to know which mode the project is in - either one failing
+ * (e.g. no JWKS published) is expected, not an error, so it falls through
+ * silently to the other.
  */
 async function verifyLocally(token: string): Promise<SupabaseIdentity | null> {
+  const keySet = getJwks();
+  if (keySet) {
+    try {
+      const { payload } = await jwtVerify(token, keySet);
+      const identity = identityFromPayload(payload);
+      if (identity) return identity;
+    } catch {
+      // Falls through to the shared-secret check below.
+    }
+  }
+
   if (!ENV.supabaseJwtSecret) return null;
   try {
     const secret = new TextEncoder().encode(ENV.supabaseJwtSecret);
     const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
-    if (typeof payload.sub !== "string") return null;
-    const metadata = payload.user_metadata as { name?: unknown } | undefined;
-    return {
-      id: payload.sub,
-      email: typeof payload.email === "string" ? payload.email : null,
-      name: typeof metadata?.name === "string" ? metadata.name : null,
-    };
+    return identityFromPayload(payload);
   } catch {
     return null;
   }
