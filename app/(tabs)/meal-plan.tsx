@@ -3285,14 +3285,26 @@ export default function MealPlanScreen() {
                 {isMealExpanded ? <View style={styles.mealSimpleActions}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={supplementMealId === meal.id ? `סגור תוספי תזונה של ${meal.title}` : `פתח תוספי תזונה של ${meal.title}`}
-                    onPress={() => {
-                      setSupplementMealId((current) => current === meal.id ? null : meal.id);
-                      setAdvancedMealId(null);
-                    }}
-                    style={({ pressed }) => [styles.mealSimplePrimaryAction, supplementMealId === meal.id && styles.mealSupplementActionActive, pressed && styles.mealSimpleActionPressed]}
+                    accessibilityLabel={`שמור עכשיו את ${meal.title}`}
+                    disabled={mealSaveState[meal.id] === "saving"}
+                    onPress={() => void saveMealImmediately(meal)}
+                    style={({ pressed }) => [
+                      styles.mealSimplePrimaryAction,
+                      mealSaveState[meal.id] === "saving" && styles.saveMealNowButtonBusy,
+                      mealSaveState[meal.id] === "saved" && styles.saveMealNowButtonSaved,
+                      mealSaveState[meal.id] === "failed" && styles.saveMealNowButtonFailed,
+                      pressed && mealSaveState[meal.id] !== "saving" && styles.mealSimpleActionPressed,
+                    ]}
                   >
-                    <Text style={styles.mealSimplePrimaryActionText}>{supplementMealId === meal.id ? "סגור תוספים" : "תוספי תזונה"}</Text>
+                    <Text style={styles.mealSimplePrimaryActionText}>
+                      {mealSaveState[meal.id] === "saving"
+                        ? "שומר…"
+                        : mealSaveState[meal.id] === "saved"
+                          ? "נשמר ✓"
+                          : mealSaveState[meal.id] === "failed"
+                            ? "נסה שוב"
+                            : "שמור ארוחה עכשיו"}
+                    </Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
@@ -3414,27 +3426,15 @@ export default function MealPlanScreen() {
                 <View style={styles.mealActions}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`שמור עכשיו את ${meal.title}`}
-                    disabled={mealSaveState[meal.id] === "saving"}
-                    onPress={() => void saveMealImmediately(meal)}
-                    style={({ pressed }) => [
-                      styles.saveMealNowButton,
-                      mealSaveState[meal.id] === "saving" && styles.saveMealNowButtonBusy,
-                      mealSaveState[meal.id] === "saved" && styles.saveMealNowButtonSaved,
-                      mealSaveState[meal.id] === "failed" && styles.saveMealNowButtonFailed,
-                      pressed && mealSaveState[meal.id] !== "saving" && styles.saveMealNowButtonPressed,
-                    ]}
+                    accessibilityLabel={supplementMealId === meal.id ? `סגור תוספי תזונה של ${meal.title}` : `פתח תוספי תזונה של ${meal.title}`}
+                    onPress={() => {
+                      setSupplementMealId((current) => current === meal.id ? null : meal.id);
+                      setAdvancedMealId(null);
+                    }}
+                    style={({ pressed }) => [styles.duplicateMealButton, pressed && styles.duplicateMealButtonPressed]}
                   >
-                    <Text style={styles.saveMealNowText}>
-                      {mealSaveState[meal.id] === "saving"
-                        ? "שומר…"
-                        : mealSaveState[meal.id] === "saved"
-                          ? "נשמר ✓"
-                          : mealSaveState[meal.id] === "failed"
-                            ? "נסה לשמור שוב"
-                            : "שמור ארוחה עכשיו"}
-                    </Text>
-                    <Text style={styles.saveMealNowHint}>רכיבים · כמויות · קלוריות · מאקרו</Text>
+                    <Text style={styles.duplicateMealText}>{supplementMealId === meal.id ? "סגור תוספים" : "תוספי תזונה"}</Text>
+                    <Text style={styles.duplicateMealHint}>מעקב נטילת תוספים לארוחה זו</Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
