@@ -93,20 +93,20 @@ export default function ExerciseLibraryScreen() {
           {templates.length === 0 ? (
             <Text style={styles.hint}>אין עדיין תוכניות. צור תוכנית במסך התבניות ואז חזור לכאן.</Text>
           ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.targetRow}>
+            <View style={styles.targetRow}>
               {templates.map((item) => (
                 <Pressable key={item.id} onPress={() => setTargetId(item.id as WorkoutId)} style={[styles.targetChip, targetId === item.id && { backgroundColor: `${item.accent}22`, borderColor: item.accent }]}>
-                  <Text style={[styles.targetChipText, targetId === item.id && { color: item.accent }]}>{item.name}</Text>
+                  <Text style={[styles.targetChipText, targetId === item.id && { color: item.accent }]} numberOfLines={1}>{item.name}</Text>
                 </Pressable>
               ))}
-            </ScrollView>
+            </View>
           )}
           {!target ? <Text style={styles.hint}>בחר תוכנית יעד כדי להוסיף אליה תרגילים.</Text> : null}
         </View>
 
         <View style={styles.libraryCard}>
           <View style={styles.libraryTitleRow}>
-            <View><Text style={styles.sectionTitle}>ספריית תרגילים</Text><Text style={styles.libraryHint}>מחולק לפי רובריקות שרירים</Text></View>
+            <View><Text style={styles.sectionTitle}>בחירת תרגיל להוספה</Text><Text style={styles.libraryHint}>לפי רובריקות שרירים</Text></View>
             <View style={styles.libraryCountBadge}><Text style={styles.libraryCountValue}>{libraryGroups.reduce((total, group) => total + group.items.length, 0)}</Text><Text style={styles.libraryCountLabel}>זמינים</Text></View>
           </View>
           <TextInput value={librarySearch} onChangeText={setLibrarySearch} placeholder="חפש תרגיל בעברית, באנגלית או בכינוי" placeholderTextColor="#7E8DA4" style={styles.librarySearchInput} textAlign="right" returnKeyType="search" />
@@ -170,9 +170,9 @@ const styles = StyleSheet.create({
   card: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 15, gap: 10 },
   sectionTitle: { color: "#F7F9FC", fontSize: 17, fontWeight: "800", textAlign: "right" },
   hint: { color: "#AAB7C8", fontSize: 11, textAlign: "right", lineHeight: 17 },
-  targetRow: { flexDirection: "row-reverse", gap: 8, paddingVertical: 2 },
-  targetChip: { borderColor: "#2C3B55", borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#0D1A30" },
-  targetChipText: { color: "#D9E2EF", fontSize: 12, fontWeight: "800" },
+  targetRow: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 8, paddingVertical: 2 },
+  targetChip: { borderColor: "#2C3B55", borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#0D1A30", maxWidth: "100%" },
+  targetChipText: { color: "#D9E2EF", fontSize: 12, fontWeight: "800", textAlign: "right" },
   disabled: { opacity: 0.4 },
   libraryCard: { backgroundColor: "#132D2C", borderColor: "#2E6A60", borderWidth: 1, borderRadius: 18, padding: 15, gap: 9 },
   libraryTitleRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 10 },
