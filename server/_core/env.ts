@@ -26,4 +26,9 @@ export const ENV = {
   garminReturnUri: process.env.GARMIN_RETURN_URI ?? "workouttracker://garmin/callback",
   garminScopes: (process.env.GARMIN_SCOPES ?? "").split(" ").filter(Boolean),
   garminKeyVersion: process.env.GARMIN_KEY_VERSION ?? "v1",
+  // "mysql" (default) keeps reading subscription/trial state from the legacy
+  // database; "supabase" switches to public.subscription_state. A plain env
+  // var (not a redeploy) so it can be flipped back instantly if the new path
+  // misbehaves in production.
+  subscriptionSource: process.env.SUBSCRIPTION_SOURCE === "supabase" ? "supabase" : "mysql",
 };

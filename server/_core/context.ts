@@ -23,21 +23,26 @@ function bearerToken(req: CreateExpressContextOptions["req"]): string | null {
 }
 
 async function resolveUser(req: CreateExpressContextOptions["req"]): Promise<User | null> {
-  try {
-    return await sdk.authenticateRequest(req);
-  } catch {
-    // The legacy OAuth cookie/token session is absent or invalid - this may
-    // be a user who signed in through the app's real, live Supabase auth
-    // flow instead, so fall through to checking that.
+  // Every real user signs in through Supabase now, carrying a Supabase JWT as
+  // a Bearer token - checked first so the common case is fast and silent.
+  // The legacy Manus session check below would otherwise run first on every
+  // single request and always fail against that token (wrong secret, and
+  // often a mismatched algorithm), logging noise for no reason.
+  const token = bearerToken(req);
+  if (token) {
+    try {
+      const identity = await getSupabaseIdentityFromToken(token);
+      if (identity) {
+        const user = await resolveUserFromSupabaseIdentity(identity);
+        if (user) return user;
+      }
+    } catch {
+      // Falls through to the legacy check below.
+    }
   }
 
-  const token = bearerToken(req);
-  if (!token) return null;
-
   try {
-    const identity = await getSupabaseIdentityFromToken(token);
-    if (!identity) return null;
-    return (await resolveUserFromSupabaseIdentity(identity)) ?? null;
+    return await sdk.authenticateRequest(req);
   } catch {
     return null;
   }
