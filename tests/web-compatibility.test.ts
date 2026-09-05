@@ -66,13 +66,19 @@ describe("תאימות Web ונתיבים", () => {
     expect(overlay).toContain("saveCookieConsent(value)");
   });
 
-  it("מציג תבניות ותרגילים בהגדרות בקבוצות נפתחות", () => {
+  it("מציג את בורר התבניות בקבוצות נפתחות, נפרד ממסך עריכת התרגילים", () => {
     const editor = readSource("app/(tabs)/editor.tsx");
     expect(editor).toContain("templateGroupList");
-    expect(editor).toContain("libraryCategoryList");
     expect(editor).toContain("toggleTemplateGroup");
-    expect(editor).toContain("toggleExerciseCategory");
-    expect(editor).toContain("addExerciseFromLibrary");
+    expect(editor).toContain("/template-exercises");
+    expect(editor).not.toContain("libraryCategoryList");
+  });
+
+  it("מציג את ספריית התרגילים בקטגוריות נפתחות במסך נפרד", () => {
+    const library = readSource("app/exercise-library.tsx");
+    expect(library).toContain("libraryCategoryList");
+    expect(library).toContain("toggleExerciseCategory");
+    expect(library).toContain("addExerciseFromLibrary");
   });
 
   it("מציג בונה תוכנית מחולק לקטגוריות נפתחות", () => {

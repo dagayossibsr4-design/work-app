@@ -28,6 +28,7 @@ const linkGroups = [
     links: [
       ["לוח אימונים שבועי", "/(tabs)/schedule"],
       ["תבניות ותרגילים", "/(tabs)/editor"],
+      ["עריכת תרגילים", "/exercise-library"],
       ["היסטוריית אימונים", "/(tabs)/history"],
       ["יעדים שבועיים לפרופיל", "/weekly-goals"],
     ],

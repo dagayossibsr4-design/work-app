@@ -1,25 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useWorkoutStore } from "@/lib/workout-store";
 import type { WorkoutId } from "@/lib/workout-data";
-import { categoryForExercise, exerciseLibrary, type ExerciseCategory, type ExerciseLibraryItem } from "@/lib/exercise-library";
-import { ActionToast } from "@/components/action-toast";
-import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 
 const templateCategoryOrder = ["PPL", "AB", "ABC", "ABCD", "Full Body", "אירובי", "תוכניות מותאמות", "אחר"];
-const exerciseCategoryOrder: ExerciseCategory[] = ["חזה", "גב", "כתפיים", "רגליים", "יד קדמית", "יד אחורית", "ליבה", "כללי"];
-const exerciseCategoryMeta: Record<string, { icon: IconSymbolName; accent: string }> = {
-  "חזה": { icon: "square.grid.2x2.fill", accent: "#FB7185" },
-  "גב": { icon: "rowing", accent: "#65BDF6" },
-  "כתפיים": { icon: "dumbbell.fill", accent: "#C084FC" },
-  "רגליים": { icon: "figure.run", accent: "#42D392" },
-  "יד קדמית": { icon: "dumbbell.fill", accent: "#F5B72C" },
-  "יד אחורית": { icon: "dumbbell.fill", accent: "#F59E0B" },
-  "ליבה": { icon: "bolt.fill", accent: "#22C55E" },
-  "כללי": { icon: "square.grid.2x2.fill", accent: "#94A3B8" },
-};
 const templateCategoryFor = (template: { id: string; name: string }) => {
   if (template.id.startsWith("custom-")) return "תוכניות מותאמות";
   if (/PPL|Push|Pull|Legs|Arms/i.test(`${template.id} ${template.name}`)) return "PPL";
@@ -31,102 +18,97 @@ const templateCategoryFor = (template: { id: string; name: string }) => {
   return "אחר";
 };
 
+/**
+ * Pure template picker: browse templates by category and either mark one
+ * selected (a lightweight preview, no editing) or jump straight into a
+ * dedicated editing screen via the pencil button. Editing a template's
+ * exercises, and browsing the exercise library, both live on their own
+ * screens (template-exercises.tsx, exercise-library.tsx) - deliberately
+ * kept out of this screen so it stays a clean, focused list.
+ */
 export default function EditorScreen() {
-  const { templates, updateTemplate, addExercise, addExerciseAfter, addCustomExercise, addExerciseFromLibrary, updateExercise, deleteExercise, moveExercise } = useWorkoutStore();
+  const { templates } = useWorkoutStore();
   const { templateId } = useLocalSearchParams<{ templateId?: string }>();
   const [selectedId, setSelectedId] = useState<WorkoutId | null>((templateId as WorkoutId | undefined) ?? null);
-  const [category, setCategory] = useState<ExerciseCategory | "הכול">("הכול");
-  const [librarySearch, setLibrarySearch] = useState("");
-  const [customExerciseName, setCustomExerciseName] = useState("");
-  const [customExerciseEnglishName, setCustomExerciseEnglishName] = useState("");
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [expandedTemplateGroups, setExpandedTemplateGroups] = useState<string[]>([]);
-  const [expandedExerciseCategories, setExpandedExerciseCategories] = useState<string[]>([]);
-  const scrollRef = useRef<ScrollView>(null);
-  const pickerSectionHeight = useRef(0);
-  const [scrollToEditorPending, setScrollToEditorPending] = useState(false);
-  const template = useMemo(() => selectedId ? templates.find((item) => item.id === selectedId) : undefined, [templates, selectedId]);
   const templateGroups = useMemo(() => templateCategoryOrder.map((group) => ({ group, items: templates.filter((item) => templateCategoryFor(item) === group) })).filter(({ items }) => items.length > 0), [templates]);
-  const libraryExercises = useMemo<ExerciseLibraryItem[]>(() => {
-    const templateExercises = templates.flatMap((sourceTemplate) => sourceTemplate.exercises.map((exercise) => ({
-      id: `template-library-${sourceTemplate.id}-${exercise.id}`,
-      name: exercise.name,
-      englishName: exercise.englishName ?? "",
-      category: (categoryForExercise(`${exercise.name} ${exercise.englishName ?? ""}`) ?? "כללי") as ExerciseCategory,
-      defaultTarget: exercise.sets[0]?.target ?? "8–12",
-      note: exercise.note,
-    })));
-    const seen = new Set<string>();
-    return [...exerciseLibrary, ...templateExercises].filter((item) => {
-      const key = `${item.name.trim().toLowerCase()}|${item.englishName.trim().toLowerCase()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return Boolean(item.name.trim());
-    });
-  }, [templates]);
-  const libraryGroups = useMemo(() => {
-    const query = librarySearch.trim().toLowerCase();
-    const matchesSearch = (item: ExerciseLibraryItem) => !query || `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(query);
-    const knownGroups = exerciseCategoryOrder.filter((group) => libraryExercises.some((item) => item.category === group));
-    const additionalGroups = Array.from(new Set(libraryExercises.map((item) => item.category))).filter((group) => !exerciseCategoryOrder.includes(group));
-    return [...knownGroups, ...additionalGroups].map((group) => ({ group, items: libraryExercises.filter((item) => item.category === group && matchesSearch(item)) })).filter(({ group, items }) => items.length > 0 && (category === "הכול" || group === category));
-  }, [libraryExercises, category, librarySearch]);
   const toggleTemplateGroup = (group: string) => setExpandedTemplateGroups((current) => current.includes(group) ? current.filter((item) => item !== group) : [...current, group]);
-  const toggleExerciseCategory = (group: string) => setExpandedExerciseCategories((current) => current.includes(group) ? current.filter((item) => item !== group) : [...current, group]);
-  // Jumps straight to editing a template instead of leaving the user to scroll
-  // past the (potentially long) template picker to reach the editor below.
-  const editTemplate = (id: WorkoutId) => {
-    setSelectedId(id);
-    setExpandedTemplateGroups([]);
-    setScrollToEditorPending(true);
-  };
-  useEffect(() => {
-    if (!scrollToEditorPending) return;
-    // Collapsing the template groups above changes their height, so this
-    // waits a beat for that layout pass to settle before reading the
-    // now-updated height and jumping straight past it.
-    const timer = setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: Math.max(0, pickerSectionHeight.current - 12), animated: false });
-      setScrollToEditorPending(false);
-    }, 80);
-    return () => clearTimeout(timer);
-  }, [scrollToEditorPending]);
+  const editTemplate = (id: WorkoutId) => router.push({ pathname: "/template-exercises" as never, params: { templateId: id } } as never);
   useEffect(() => {
     if (templateId && templates.some((item) => item.id === templateId)) setSelectedId(templateId as WorkoutId);
   }, [templateId, templates]);
 
-  return <ScreenContainer className="px-5 pt-5" containerClassName="bg-background">
-    <ScrollView ref={scrollRef} style={styles.screenScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenContent}>
-    <View onLayout={(event) => { pickerSectionHeight.current = event.nativeEvent.layout.height; }}>
-    <View style={styles.heading}><Text style={styles.title}>עריכת תבניות</Text><Text style={styles.subtitle}>כל שינוי נשמר אוטומטית במכשיר</Text></View>
-    <View style={styles.templateGroupList}>{templateGroups.map(({ group, items }) => { const expanded = expandedTemplateGroups.includes(group); return <View key={group} style={styles.templateGroup}><Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => toggleTemplateGroup(group)} style={({ pressed }) => [styles.templateGroupHeader, pressed && styles.pressed]}><View style={styles.templateGroupTitleWrap}><Text style={styles.templateGroupTitle}>{group}</Text><Text style={styles.templateGroupMeta}>{items.length} תבניות זמינות</Text></View><Text style={styles.groupChevron}>{expanded ? "⌃" : "⌄"}</Text></Pressable>{expanded && <View style={styles.templateGroupItems}>{items.map((item) => <View key={item.id} style={styles.templateOptionRow}><Pressable accessibilityRole="button" accessibilityLabel={item.id === selectedId ? `ביטול בחירת ${item.name}` : `בחירת ${item.name}`} onPress={() => setSelectedId((current) => current === item.id ? null : item.id)} style={({ pressed }) => [styles.templateOption, item.id === selectedId && { backgroundColor: `${item.accent}22`, borderColor: item.accent }, pressed && styles.pressed]}><View style={[styles.templateOptionAccent, { backgroundColor: item.accent }]} /><View style={styles.templateOptionCopy}><Text style={styles.templateOptionTitle}>{item.name}</Text><Text style={styles.templateOptionMeta}>{item.exercises.length} תרגילים · {item.focus}</Text></View><Text style={[styles.templateOptionCheck, item.id === selectedId && { color: item.accent }]}>{item.id === selectedId ? "✓" : "›"}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`עריכת ${item.name}`} onPress={() => editTemplate(item.id)} style={({ pressed }) => [styles.templateEditButton, pressed && styles.pressed]}><IconSymbol name="pencil" size={18} color="#0B1224" /></Pressable></View>)}</View>}</View>; })}</View>
-    </View>
-    <View style={styles.content}>
-      {!template ? <View style={styles.emptyState}><Text style={styles.emptyStateTitle}>לא נבחרה תבנית</Text><Text style={styles.emptyStateText}>בחר תבנית מהרשימה למעלה כדי להציג ולערוך אותה, או לחץ על סמל העריכה כדי לקפוץ ישר לעריכה.</Text></View> : <>
-      <View style={styles.libraryCard}><View style={styles.libraryTitleRow}><View><Text style={styles.sectionTitle}>הוספת תרגילים לתבנית</Text><Text style={styles.libraryHint}>אותן רובריקות כמו בבניית תוכנית אישית</Text></View><View style={styles.libraryCountBadge}><Text style={styles.libraryCountValue}>{libraryGroups.reduce((total, group) => total + group.items.length, 0)}</Text><Text style={styles.libraryCountLabel}>זמינים</Text></View></View><Text style={styles.libraryHint}>כל התרגילים זמינים כאן לבחירה, לפי רובריקות כמו בבניית תוכנית אישית.</Text><TextInput value={librarySearch} onChangeText={setLibrarySearch} placeholder="חפש תרגיל בעברית, באנגלית או בכינוי" placeholderTextColor="#7E8DA4" style={styles.librarySearchInput} textAlign="right" returnKeyType="search" /><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>{["הכול", ...Array.from(new Set(libraryExercises.map((item) => item.category)))].map((item) => <Pressable key={item} onPress={() => setCategory(item as ExerciseCategory | "הכול")} style={[styles.categoryPill, category === item && styles.categoryPillActive]}><Text style={[styles.categoryText, category === item && styles.categoryTextActive]}>{item === "הכול" ? "כל הקטגוריות" : item}</Text></Pressable>)}</ScrollView><View style={styles.libraryCategoryList}>{libraryGroups.map(({ group, items }) => { const expanded = category !== "הכול" || expandedExerciseCategories.includes(group); const meta = exerciseCategoryMeta[group] ?? exerciseCategoryMeta["כללי"]; return <View key={group} style={[styles.libraryCategory, { borderColor: `${meta.accent}88` }]}><Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => { setCategory("הכול"); toggleExerciseCategory(group); }} style={({ pressed }) => [styles.libraryCategoryHeader, pressed && styles.pressed]}><View style={[styles.libraryCategoryIcon, { backgroundColor: `${meta.accent}22`, borderColor: meta.accent }]}><IconSymbol name={meta.icon} size={19} color={meta.accent} /></View><View style={styles.libraryCategoryCopy}><Text style={styles.libraryCategoryTitle}>{group}</Text><Text style={styles.libraryCategoryMeta}>{items.length} תרגילים לבחירה</Text></View><View style={styles.libraryCategoryCount}><Text style={[styles.libraryCategoryCountValue, { color: meta.accent }]}>{items.length}</Text></View><Text style={styles.groupChevron}>{expanded ? "⌃" : "⌄"}</Text></Pressable>{expanded && <View style={styles.libraryCategoryItems}>{items.map((item) => <Pressable key={item.id} onPress={() => { addExerciseFromLibrary(template.id, item); setToastMessage(`נוסף ${item.name} לתוכנית ${template.name}`); }} style={({ pressed }) => [styles.libraryItem, pressed && styles.pressed]}><View style={styles.libraryItemCopy}><Text style={styles.libraryItemName}>{item.name}</Text><Text style={styles.libraryItemMeta}>{item.englishName} · יעד {item.defaultTarget}</Text></View><Text style={styles.libraryAdd}>＋ הוסף</Text></Pressable>)}</View>}</View>})}</View><View style={styles.customExerciseBox}><Text style={styles.customExerciseTitle}>תרגיל שלא נמצא ברשימה</Text><Text style={styles.customExerciseHint}>הקלד שם והוסף אותו ישירות לתוכנית הנוכחית.</Text><TextInput value={customExerciseName} onChangeText={setCustomExerciseName} placeholder="שם התרגיל בעברית" placeholderTextColor="#7E8DA4" style={styles.customExerciseInput} textAlign="right" /><TextInput value={customExerciseEnglishName} onChangeText={setCustomExerciseEnglishName} placeholder="שם באנגלית (אופציונלי)" placeholderTextColor="#7E8DA4" style={styles.customExerciseInput} textAlign="right" /><Pressable accessibilityRole="button" accessibilityLabel="הוסף תרגיל מותאם אישית" onPress={() => { if (!customExerciseName.trim()) return; const addedName = customExerciseName.trim(); addCustomExercise(template.id, addedName, customExerciseEnglishName); setCustomExerciseName(""); setCustomExerciseEnglishName(""); setToastMessage(`נוסף ${addedName} לתוכנית ${template.name}`); }} style={({ pressed }) => [styles.customExerciseButton, pressed && styles.pressed]}><Text style={styles.customExerciseButtonText}>＋ הוסף תרגיל מותאם אישית</Text></Pressable></View></View>
-      <View style={styles.templateCard}>
-        <Text style={styles.sectionTitle}>פרטי התבנית</Text>
-        <Field label="שם האימון" value={template.name} onChangeText={(name) => updateTemplate(template.id, { name })} />
-        <Field label="קבוצות שרירים / מיקוד" value={template.focus} onChangeText={(focus) => updateTemplate(template.id, { focus })} />
-      </View>
-      <View style={styles.exerciseHeader}><Text style={styles.sectionTitle}>תרגילי האימון</Text><Text style={styles.count}>{template.exercises.length} תרגילים</Text></View>
-      {template.exercises.map((exercise, index) => <View key={exercise.id} style={styles.exerciseCard}>
-        <View style={styles.exerciseTop}><Text style={styles.exerciseNumber}>תרגיל {index + 1}</Text><View style={styles.orderButtons}><Pressable disabled={index === 0} onPress={() => moveExercise(template.id, exercise.id, -1)} style={[styles.orderButton, index === 0 && styles.disabled]}><Text style={styles.orderText}>↑</Text></Pressable><Pressable disabled={index === template.exercises.length - 1} onPress={() => moveExercise(template.id, exercise.id, 1)} style={[styles.orderButton, index === template.exercises.length - 1 && styles.disabled]}><Text style={styles.orderText}>↓</Text></Pressable><Pressable onPress={() => { addExerciseAfter(template.id, exercise.id); setToastMessage(`נוסף תרגיל אחרי ${exercise.name}`); }} style={styles.insertAfterButton}><Text style={styles.insertAfterText}>＋ אחרי</Text></Pressable></View></View>
-        <Field label="שם התרגיל" value={exercise.name} onChangeText={(name) => updateExercise(template.id, exercise.id, { name })} />
-        <Field label="שם באנגלית (אופציונלי)" value={exercise.englishName ?? ""} onChangeText={(englishName) => updateExercise(template.id, exercise.id, { englishName })} />
-        <View style={styles.setsHeader}><Pressable onPress={() => updateExercise(template.id, exercise.id, { sets: [...exercise.sets, { target: "8–12" }] })} style={styles.smallButton}><Text style={styles.smallButtonText}>+ הוסף סט</Text></Pressable><Text style={styles.fieldLabel}>טווחי חזרות וסטים</Text></View>
-        {exercise.sets.map((set, setIndex) => <View key={`${exercise.id}-${setIndex}`} style={styles.setRow}><Text style={styles.setNumber}>סט {setIndex + 1}</Text><TextInput value={set.target} placeholder="8–12" placeholderTextColor="#7E8DA4" onChangeText={(target) => updateExercise(template.id, exercise.id, { sets: exercise.sets.map((currentSet, currentIndex) => currentIndex === setIndex ? { ...currentSet, target } : currentSet) })} style={styles.setInput} /><TextInput value={set.restPause ?? ""} placeholder="Rest Pause (אופציונלי)" placeholderTextColor="#7E8DA4" onChangeText={(restPause) => updateExercise(template.id, exercise.id, { sets: exercise.sets.map((currentSet, currentIndex) => currentIndex === setIndex ? { ...currentSet, restPause } : currentSet) })} style={styles.setInput} /><Pressable onPress={() => updateExercise(template.id, exercise.id, { sets: exercise.sets.filter((_, indexToRemove) => indexToRemove !== setIndex) })} disabled={exercise.sets.length <= 1} style={[styles.removeSet, exercise.sets.length <= 1 && styles.disabled]}><Text style={styles.removeText}>×</Text></Pressable></View>)}
-        <Field label="הערה" value={exercise.note ?? ""} onChangeText={(note) => updateExercise(template.id, exercise.id, { note })} placeholder="למשל: טכניקה, מנוחה או דגשים" />
-        <Pressable onPress={() => deleteExercise(template.id, exercise.id)} style={styles.deleteButton}><Text style={styles.deleteText}>מחיקת תרגיל</Text></Pressable>
-      </View>)}
-      <Pressable onPress={() => addExercise(template.id)} style={[styles.addButton, { borderColor: template.accent }]}><Text style={[styles.addText, { color: template.accent }]}>+ הוספת תרגיל חדש</Text></Pressable>
-      <View style={styles.tip}><Text style={styles.tipText}>השינויים נשמרים אוטומטית ויופיעו מיד בבחירת אימון, באימון הפעיל ובמסך הניתוח.</Text></View>
-      </>}
-    </View></ScrollView>
-    <ActionToast message={toastMessage} />
-  </ScreenContainer>;
+  return (
+    <ScreenContainer className="px-5 pt-5" containerClassName="bg-background">
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenContent}>
+        <View style={styles.heading}><Text style={styles.title}>עריכת תבניות</Text><Text style={styles.subtitle}>בחר תבנית לתצוגה מהירה, או לחץ על סמל העריכה כדי לערוך את התרגילים שלה</Text></View>
+        <View style={styles.templateGroupList}>
+          {templateGroups.map(({ group, items }) => {
+            const expanded = expandedTemplateGroups.includes(group);
+            return (
+              <View key={group} style={styles.templateGroup}>
+                <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => toggleTemplateGroup(group)} style={({ pressed }) => [styles.templateGroupHeader, pressed && styles.pressed]}>
+                  <View style={styles.templateGroupTitleWrap}><Text style={styles.templateGroupTitle}>{group}</Text><Text style={styles.templateGroupMeta}>{items.length} תבניות זמינות</Text></View>
+                  <Text style={styles.groupChevron}>{expanded ? "⌃" : "⌄"}</Text>
+                </Pressable>
+                {expanded ? (
+                  <View style={styles.templateGroupItems}>
+                    {items.map((item) => (
+                      <View key={item.id} style={styles.templateOptionRow}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={item.id === selectedId ? `ביטול בחירת ${item.name}` : `בחירת ${item.name}`}
+                          onPress={() => setSelectedId((current) => current === item.id ? null : item.id)}
+                          style={({ pressed }) => [styles.templateOption, item.id === selectedId && { backgroundColor: `${item.accent}22`, borderColor: item.accent }, pressed && styles.pressed]}
+                        >
+                          <View style={[styles.templateOptionAccent, { backgroundColor: item.accent }]} />
+                          <View style={styles.templateOptionCopy}>
+                            <Text style={styles.templateOptionTitle}>{item.name}</Text>
+                            <Text style={styles.templateOptionMeta}>{item.exercises.length} תרגילים · {item.focus}</Text>
+                          </View>
+                          <Text style={[styles.templateOptionCheck, item.id === selectedId && { color: item.accent }]}>{item.id === selectedId ? "✓" : "›"}</Text>
+                        </Pressable>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`עריכת ${item.name}`} onPress={() => editTemplate(item.id)} style={({ pressed }) => [styles.templateEditButton, pressed && styles.pressed]}>
+                          <IconSymbol name="pencil" size={18} color="#0B1224" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+        <Pressable accessibilityRole="button" onPress={() => router.push("/exercise-library" as never)} style={({ pressed }) => [styles.libraryLink, pressed && styles.pressed]}>
+          <Text style={styles.libraryLinkText}>עריכת תרגילים · ניהול ספריית התרגילים</Text>
+        </Pressable>
+      </ScrollView>
+    </ScreenContainer>
+  );
 }
 
-function Field({ label, value, onChangeText, placeholder }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string }) { return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#7E8DA4" style={styles.input} /></View>; }
-
-const styles = StyleSheet.create({ templateGroupList: { gap: 9, marginBottom: 2 }, templateGroup: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 15, overflow: "hidden" }, templateGroupHeader: { minHeight: 60, flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13 }, templateGroupTitleWrap: { flex: 1, alignItems: "flex-end" }, templateGroupTitle: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right" }, templateGroupMeta: { color: "#AAB7C8", fontSize: 10, marginTop: 3, textAlign: "right" }, groupChevron: { color: "#F5B72C", fontSize: 21, width: 22, textAlign: "center" }, templateGroupItems: { gap: 7, paddingHorizontal: 9, paddingBottom: 9, borderTopColor: "#2C3B55", borderTopWidth: 1 }, templateOptionRow: { flexDirection: "row-reverse", alignItems: "center", gap: 7 }, templateOption: { flex: 1, minHeight: 58, flexDirection: "row-reverse", alignItems: "center", gap: 9, backgroundColor: "#0D1A30", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 11, paddingHorizontal: 10 }, templateEditButton: { width: 44, height: 44, borderRadius: 11, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" }, templateOptionAccent: { width: 5, height: 31, borderRadius: 3 }, templateOptionCopy: { flex: 1, alignItems: "flex-end" }, templateOptionTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right" }, templateOptionMeta: { color: "#AAB7C8", fontSize: 9, marginTop: 3, textAlign: "right" }, templateOptionCheck: { color: "#7E8DA4", fontSize: 22, width: 22, textAlign: "center" }, libraryCategoryList: { gap: 8 }, libraryCategory: { backgroundColor: "#0D2424", borderColor: "#2E6A60", borderWidth: 1, borderRadius: 13, overflow: "hidden" }, libraryCategoryIcon: { width: 36, height: 36, borderRadius: 11, borderWidth: 1, alignItems: "center", justifyContent: "center" }, libraryCategoryCount: { minWidth: 28, alignItems: "center", justifyContent: "center" }, libraryCategoryCountValue: { fontSize: 15, fontWeight: "900" }, libraryCategoryHeader: { minHeight: 56, flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 11 }, libraryCategoryCopy: { flex: 1, alignItems: "flex-end" }, libraryCategoryTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right" }, libraryCategoryMeta: { color: "#82B9A8", fontSize: 9, marginTop: 3, textAlign: "right" }, libraryCategoryItems: { gap: 6, paddingHorizontal: 8, paddingBottom: 8, borderTopColor: "#2E6A60", borderTopWidth: 1 }, libraryItemCopy: { flex: 1, alignItems: "flex-end" }, heading: { alignItems: "flex-end", marginBottom: 14 }, title: { color: "#F7F9FC", fontSize: 30, fontWeight: "800" }, subtitle: { color: "#AAB7C8", fontSize: 13, marginTop: 6 }, pills: { gap: 8, paddingBottom: 15, flexDirection: "row" }, pill: { paddingHorizontal: 15, paddingVertical: 10, backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 30 }, pillText: { color: "#AAB7C8", fontWeight: "800", fontSize: 13 }, pillTextActive: { color: "#0B1224" }, screenScroll: { flex: 1 }, screenContent: { paddingBottom: 35 }, content: { gap: 14 }, emptyState: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 20, gap: 8, alignItems: "flex-end" }, emptyStateTitle: { color: "#F7F9FC", fontSize: 17, fontWeight: "900", textAlign: "right" }, emptyStateText: { color: "#AAB7C8", fontSize: 12, lineHeight: 19, textAlign: "right" }, libraryCard: { backgroundColor: "#132D2C", borderColor: "#2E6A60", borderWidth: 1, borderRadius: 18, padding: 15, gap: 9 }, libraryTitleRow: { flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", gap: 10 }, libraryCountBadge: { minWidth: 52, minHeight: 44, borderRadius: 12, backgroundColor: "#0B2424", borderColor: "#42D392", borderWidth: 1, alignItems: "center", justifyContent: "center" }, libraryCountValue: { color: "#42D392", fontSize: 16, fontWeight: "900" }, libraryCountLabel: { color: "#82B9A8", fontSize: 8, marginTop: 1 },   libraryHint: { color: "#A9DACA", fontSize: 11, textAlign: "right" }, librarySearchInput: { minHeight: 44, backgroundColor: "#0B2424", borderColor: "#42D392", borderWidth: 1, borderRadius: 11, color: "#F7F9FC", paddingHorizontal: 12, textAlign: "right", writingDirection: "rtl", fontSize: 12 }, categoryRow: { gap: 7, paddingVertical: 4 }, categoryPill: { borderColor: "#2E6A60", borderWidth: 1, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 7 }, categoryPillActive: { backgroundColor: "#42D392", borderColor: "#42D392" }, categoryText: { color: "#B7DACE", fontSize: 10, fontWeight: "800" }, categoryTextActive: { color: "#0B1224" }, libraryGrid: { gap: 7 }, customExerciseBox: { backgroundColor: "#17253E", borderColor: "#F5B72C", borderWidth: 1, borderRadius: 14, padding: 12, gap: 8 }, customExerciseTitle: { color: "#F5B72C", fontSize: 14, fontWeight: "900", textAlign: "right" }, customExerciseHint: { color: "#C4D2E3", fontSize: 11, textAlign: "right" }, customExerciseInput: { backgroundColor: "#0B1224", borderColor: "#48617E", borderWidth: 1, borderRadius: 9, minHeight: 42, color: "#F7F9FC", paddingHorizontal: 10, textAlign: "right" }, customExerciseButton: { backgroundColor: "#F5B72C", borderRadius: 10, minHeight: 44, alignItems: "center", justifyContent: "center" }, customExerciseButtonText: { color: "#0B1224", fontSize: 12, fontWeight: "900" }, libraryItem: { backgroundColor: "#0D2424", borderRadius: 11, padding: 10 }, libraryItemName: { color: "#F7F9FC", textAlign: "right", fontSize: 12, fontWeight: "800" }, libraryItemMeta: { color: "#82B9A8", fontSize: 9, textAlign: "right", marginTop: 3 }, libraryAdd: { color: "#42D392", fontSize: 10, fontWeight: "900", textAlign: "right", marginTop: 6 }, templateCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 15, gap: 11 }, sectionTitle: { color: "#F7F9FC", fontSize: 17, fontWeight: "800", textAlign: "right" }, exerciseHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, count: { color: "#AAB7C8", fontSize: 12 }, exerciseCard: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 18, padding: 15, gap: 10 }, exerciseTop: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center" }, exerciseNumber: { color: "#F5B72C", fontSize: 14, fontWeight: "800" }, orderButtons: { flexDirection: "row-reverse", gap: 6 }, orderButton: { width: 32, height: 30, borderRadius: 9, backgroundColor: "#253653", alignItems: "center", justifyContent: "center" }, orderText: { color: "#F7F9FC", fontWeight: "900" }, insertAfterButton: { height: 30, borderRadius: 9, backgroundColor: "#2E6A60", paddingHorizontal: 8, alignItems: "center", justifyContent: "center" }, insertAfterText: { color: "#B7F2DF", fontSize: 10, fontWeight: "900" }, disabled: { opacity: 0.25 }, field: { gap: 5 }, fieldLabel: { color: "#AAB7C8", fontSize: 11, textAlign: "right" }, input: { backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 10, minHeight: 40, color: "#F7F9FC", paddingHorizontal: 11, textAlign: "right", fontSize: 13 }, setsHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", marginTop: 2 }, smallButton: { backgroundColor: "#253653", borderRadius: 9, paddingVertical: 7, paddingHorizontal: 10 }, smallButtonText: { color: "#F7F9FC", fontSize: 11, fontWeight: "800" }, setRow: { flexDirection: "row-reverse", alignItems: "center", gap: 7 }, setInput: { flex: 1, minHeight: 38, backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 9, color: "#F7F9FC", paddingHorizontal: 8, textAlign: "right", fontSize: 11 }, setNumber: { color: "#AAB7C8", width: 35, fontSize: 10, textAlign: "right" }, removeSet: { width: 29, height: 30, borderRadius: 8, backgroundColor: "#432330", alignItems: "center", justifyContent: "center" }, removeText: { color: "#F16B7A", fontSize: 19 }, deleteButton: { alignItems: "center", paddingTop: 5 }, deleteText: { color: "#F16B7A", fontSize: 12, fontWeight: "800" }, addButton: { borderWidth: 1, borderRadius: 15, paddingVertical: 15, alignItems: "center", borderStyle: "dashed" }, addText: { fontSize: 15, fontWeight: "900" }, tip: { backgroundColor: "#231F12", borderColor: "#715B21", borderWidth: 1, padding: 14, borderRadius: 16 }, tipText: { color: "#D7C89C", fontSize: 11, lineHeight: 18, textAlign: "right" }, pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] } });
+const styles = StyleSheet.create({
+  screenContent: { paddingBottom: 35, gap: 14 },
+  heading: { alignItems: "flex-end", marginBottom: 2 },
+  title: { color: "#F7F9FC", fontSize: 30, fontWeight: "800" },
+  subtitle: { color: "#AAB7C8", fontSize: 13, marginTop: 6, textAlign: "right" },
+  templateGroupList: { gap: 9, marginBottom: 2 },
+  templateGroup: { backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 15, overflow: "hidden" },
+  templateGroupHeader: { minHeight: 60, flexDirection: "row-reverse", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13 },
+  templateGroupTitleWrap: { flex: 1, alignItems: "flex-end" },
+  templateGroupTitle: { color: "#F7F9FC", fontSize: 15, fontWeight: "900", textAlign: "right" },
+  templateGroupMeta: { color: "#AAB7C8", fontSize: 10, marginTop: 3, textAlign: "right" },
+  groupChevron: { color: "#F5B72C", fontSize: 21, width: 22, textAlign: "center" },
+  templateGroupItems: { gap: 7, paddingHorizontal: 9, paddingBottom: 9, borderTopColor: "#2C3B55", borderTopWidth: 1 },
+  templateOptionRow: { flexDirection: "row-reverse", alignItems: "center", gap: 7 },
+  templateOption: { flex: 1, minHeight: 58, flexDirection: "row-reverse", alignItems: "center", gap: 9, backgroundColor: "#0D1A30", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 11, paddingHorizontal: 10 },
+  templateEditButton: { width: 44, height: 44, borderRadius: 11, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" },
+  templateOptionAccent: { width: 5, height: 31, borderRadius: 3 },
+  templateOptionCopy: { flex: 1, alignItems: "flex-end" },
+  templateOptionTitle: { color: "#F7F9FC", fontSize: 13, fontWeight: "900", textAlign: "right" },
+  templateOptionMeta: { color: "#AAB7C8", fontSize: 9, marginTop: 3, textAlign: "right" },
+  templateOptionCheck: { color: "#7E8DA4", fontSize: 22, width: 22, textAlign: "center" },
+  libraryLink: { backgroundColor: "#132D2C", borderColor: "#2E6A60", borderWidth: 1, borderRadius: 15, paddingVertical: 15, alignItems: "center" },
+  libraryLinkText: { color: "#42D392", fontWeight: "900", fontSize: 13 },
+  pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
+});
