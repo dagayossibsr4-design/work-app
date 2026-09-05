@@ -60,6 +60,7 @@ export default function AdminSubscribersScreen() {
   // `undefined` = still checking storage, `null` = no code saved yet.
   const [adminToken, setAdminToken] = useState<string | null | undefined>(undefined);
   const [statusMessage, setStatusMessage] = useState("");
+  const [statusIsError, setStatusIsError] = useState(false);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -108,16 +109,19 @@ export default function AdminSubscribersScreen() {
     if (!adminToken) return;
     setPendingUserId(userId);
     setStatusMessage("");
+    setStatusIsError(false);
     suspendMutation.mutate(
       { adminToken, userId, suspend: nextSuspended },
       {
         onSuccess: () => {
           setStatusMessage(nextSuspended ? "הגישה של המשתמש הושהתה." : "הגישה של המשתמש שוחזרה.");
+          setStatusIsError(false);
           setPendingUserId(null);
           void usersQuery.refetch();
         },
-        onError: () => {
-          setStatusMessage("הפעולה נכשלה. נסה שוב.");
+        onError: (mutationError) => {
+          setStatusMessage(`הפעולה נכשלה: ${mutationError.message || "שגיאה לא ידועה"}`);
+          setStatusIsError(true);
           setPendingUserId(null);
         },
       },
@@ -156,13 +160,15 @@ export default function AdminSubscribersScreen() {
         {usersQuery.isLoading ? <Text style={styles.note}>טוען נתונים…</Text> : null}
         {usersQuery.isError && !usersQuery.isLoading ? (
           <View style={styles.card}>
-            <Text style={styles.note}>לא ניתן לטעון את רשימת המשתמשים. ודא ש-SUPABASE_SERVICE_ROLE_KEY מוגדר בשרת.</Text>
+            <Text style={styles.noteTitle}>לא ניתן לטעון את רשימת המשתמשים</Text>
+            <Text style={styles.note}>{usersQuery.error?.message || "שגיאה לא ידועה."}</Text>
+            <Text style={styles.note}>ברוב המקרים זה אומר ש-SUPABASE_SERVICE_ROLE_KEY עדיין לא הוגדר (או שגוי) במשתני הסביבה ב-Render.</Text>
           </View>
         ) : null}
         {list.length === 0 && !usersQuery.isLoading && !usersQuery.isError ? (
           <View style={styles.card}><Text style={styles.note}>אין עדיין משתמשים רשומים.</Text></View>
         ) : null}
-        {statusMessage ? <Text accessibilityLiveRegion="polite" style={styles.statusMessage}>{statusMessage}</Text> : null}
+        {statusMessage ? <Text accessibilityLiveRegion="polite" style={statusIsError ? styles.statusMessageError : styles.statusMessage}>{statusMessage}</Text> : null}
 
         {list.map((user) => {
           const status = user.subscriptionStatus;
@@ -236,7 +242,9 @@ const styles = StyleSheet.create({
   title: { color: "#F7F9FC", fontSize: 30, fontWeight: "900", textAlign: "right" },
   subtitle: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right" },
   note: { color: "#AAB7C8", fontSize: 12, lineHeight: 18, textAlign: "right" },
+  noteTitle: { color: "#FFB0BC", fontSize: 14, fontWeight: "900", textAlign: "right", marginBottom: 4 },
   statusMessage: { color: "#42D392", fontSize: 12, fontWeight: "800", textAlign: "right" },
+  statusMessageError: { color: "#FF879A", fontSize: 12, fontWeight: "800", textAlign: "right" },
   statsRow: { flexDirection: "row-reverse", flexWrap: "wrap", gap: 8 },
   stat: { flexGrow: 1, minWidth: 78, backgroundColor: "#16233A", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 16, padding: 12, gap: 4, alignItems: "flex-end" },
   statValue: { color: "#F7F9FC", fontSize: 20, fontWeight: "900" },

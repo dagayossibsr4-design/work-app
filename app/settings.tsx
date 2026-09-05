@@ -21,6 +21,7 @@ import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useSupabaseSession } from "@/lib/use-supabase-session";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
+import { ADMIN_ACCESS_CODE_STORAGE_KEY } from "@/lib/admin-access";
 
 const linkGroups = [
   {
@@ -136,6 +137,10 @@ export default function SettingsScreen() {
     router.replace("/register" as never);
   };
   const requestSignOut = () => confirmSignOut(() => void signOut());
+  const openAdminPanel = async () => {
+    const savedCode = await AsyncStorage.getItem(ADMIN_ACCESS_CODE_STORAGE_KEY);
+    router.push((savedCode ? "/admin-subscribers" : "/admin-login") as never);
+  };
   const restoreBackup = async () => {
     setRestoreStatus("בוחר קובץ…");
     try {
@@ -355,6 +360,19 @@ export default function SettingsScreen() {
             <Text style={styles.dangerText}>מחק את כל הנתונים המקומיים</Text>
           </Pressable>
         </View>
+
+        <View style={[styles.card, styles.adminCard]}>
+          <Text style={styles.section}>גישת בעלים</Text>
+          <Text style={styles.note}>כניסה למורשים בלבד ללוח הבקרה של המנויים והמשתמשים.</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="כניסה למורשים"
+            onPress={() => void openAdminPanel()}
+            style={({ pressed }) => [styles.adminButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.adminButtonText}>כניסה למורשים</Text>
+          </Pressable>
+        </View>
         <Text style={styles.footer}>ProLifto · מידע אישי נשמר במכשיר</Text>
         <Text style={styles.creator}>Created by Yossi Daga</Text>
         <Text testID="installed-build-version" style={styles.buildVersion}>
@@ -404,6 +422,9 @@ const styles = StyleSheet.create({
   linkGroup: { gap: 8, borderTopColor: "#2C3B55", borderTopWidth: 1, paddingTop: 10, marginTop: 2 },
   linkGroupTitle: { color: "#65BDF6", fontSize: 11, fontWeight: "900", textAlign: "right" },
   dangerCard: { borderColor: "#5A2A38" },
+  adminCard: { borderColor: "#3F76A7" },
+  adminButton: { backgroundColor: "#1D2D48", borderColor: "#65BDF6", borderWidth: 1, padding: 12, borderRadius: 10, alignItems: "center" },
+  adminButtonText: { color: "#65BDF6", fontWeight: "900" },
   dangerSection: { color: "#FFB0BC", fontSize: 16, fontWeight: "900", textAlign: "right", marginBottom: 3 },
   link: {
     flexDirection: "row-reverse",

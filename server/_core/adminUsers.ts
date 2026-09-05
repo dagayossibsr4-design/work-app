@@ -21,12 +21,16 @@ export type AdminUserRow = {
  */
 export async function listAdminUsers(): Promise<AdminUserRow[]> {
   const supabaseAdmin = getSupabaseAdminClient();
-  if (!supabaseAdmin) return [];
+  if (!supabaseAdmin) {
+    // Surfaced to the client deliberately: an empty array here would look
+    // identical to "genuinely zero users registered" and hide a
+    // misconfigured server from the person trying to diagnose it.
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured on the server.");
+  }
 
   const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (error || !data) {
-    console.warn("[Admin] Failed to list Supabase users:", error?.message);
-    return [];
+    throw new Error(error?.message ?? "Failed to list Supabase users.");
   }
 
   const mysqlUsers = await listUsersForAdmin();
