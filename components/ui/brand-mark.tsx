@@ -88,8 +88,8 @@ const styles = StyleSheet.create({
   },
   // Dedicated icon-less asset, 1080x596 (~1.81:1).
   wordmarkImage: {
-    width: 140,
-    height: 77,
+    width: 190,
+    height: 105,
   },
   mark: {
     width: 42,
