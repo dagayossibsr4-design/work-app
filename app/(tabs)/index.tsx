@@ -1,8 +1,9 @@
 import { ActivityIndicator, Alert, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { GestureResponderEvent } from "react-native";
 import { KeyboardAvoidingView } from "react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -82,6 +83,7 @@ const trainingMethods: TrainingMethod[] = [
 export default function HomeScreen() {
   const { sessions, startWorkoutFromTemplate, templates, addCustomTemplate, addPersonalProgram, removePersonalProgram, updatePersonalProgram, movePersonalProgramWorkout, duplicatePersonalProgram, updateTemplate, selectedProgramIds, toggleSelectedProgram, personalPrograms } = useWorkoutStore();
   const [accountName, setAccountName] = useState<string | null>(null);
+  const [isSignedIn, setIsSignedIn] = useState(false);
   const [selectedMethodId, setSelectedMethodId] = useState("fixed");
   const [isSwitchingMethod, setIsSwitchingMethod] = useState(false);
   const [isCardioPickerOpen, setIsCardioPickerOpen] = useState(false);
@@ -126,24 +128,28 @@ export default function HomeScreen() {
     const updateAccountName = (session: Session | null) => {
       const user = session?.user;
       const metadataName = user?.user_metadata?.full_name ?? user?.user_metadata?.name;
-      const fallbackName = user?.email?.split("@")[0];
-      setAccountName(typeof metadataName === "string" && metadataName.trim() ? metadataName.trim() : fallbackName ?? null);
+      // Deliberately no email-derived fallback here: showing the local part
+      // of someone's email address (e.g. "dagayossi") reads as a leaked
+      // email fragment, not a friendly greeting - a generic "שלום!" is used
+      // instead when there is no real display name on the account.
+      setAccountName(typeof metadataName === "string" && metadataName.trim() ? metadataName.trim() : null);
+      setIsSignedIn(Boolean(user));
     };
     void supabase.auth.getSession().then(({ data }) => updateAccountName(data.session));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => updateAccountName(session));
     return () => listener.subscription.unsubscribe();
   }, []);
   const [todaySchedule, setTodaySchedule] = useState<TodaySchedule>({ status: "none" });
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      const [overrides, defaultTemplateId] = await Promise.all([readWorkoutScheduleOverrides(), readDefaultWorkoutTemplateId()]);
-      if (!active) return;
-      const allowed = getAllowedScheduleTemplates(templates, selectedProgramIds, defaultTemplateId, CARDIO_WORKOUT_TEMPLATE_IDS, personalPrograms);
-      setTodaySchedule(resolveTodaySchedule(overrides[localDateKey(new Date())], allowed));
-    })();
-    return () => { active = false; };
+  const refreshTodaySchedule = useCallback(async () => {
+    const [overrides, defaultTemplateId] = await Promise.all([readWorkoutScheduleOverrides(), readDefaultWorkoutTemplateId()]);
+    const allowed = getAllowedScheduleTemplates(templates, selectedProgramIds, defaultTemplateId, CARDIO_WORKOUT_TEMPLATE_IDS, personalPrograms);
+    setTodaySchedule(resolveTodaySchedule(overrides[localDateKey(new Date())], allowed));
   }, [templates, selectedProgramIds, personalPrograms]);
+  useEffect(() => { void refreshTodaySchedule(); }, [refreshTodaySchedule]);
+  // Tab screens stay mounted in the background, so assigning a workout on
+  // the schedule tab and switching back here would otherwise keep showing
+  // the stale "nothing scheduled" state from this screen's last mount.
+  useFocusEffect(useCallback(() => { void refreshTodaySchedule(); }, [refreshTodaySchedule]));
   const requestAccountSignOut = () => confirmSignOut(() => {
     void supabase?.auth.signOut().then(() => router.replace("/register" as never));
   });
@@ -447,15 +453,18 @@ export default function HomeScreen() {
     <ScreenContainer containerClassName="bg-background" className="px-5 pt-4">
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <View style={styles.headerActions}>
-            <Pressable onPress={() => router.push("/menu" as never)} style={styles.menuButton}><Text style={styles.menuText}>☰ תפריט</Text></Pressable>
-            <Pressable onPress={() => router.push("/(tabs)/meal-plan" as never)} style={styles.mealButton}><Text style={styles.mealButtonText}>הארוחות שלי</Text></Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={accountName ? "התנתקות מהחשבון המחובר" : "הרשמה או התחברות"} onPress={accountName ? requestAccountSignOut : () => router.push("/register" as never)} style={styles.accountButton}><Text style={styles.programAddSetButtonText}>{accountName ? `👤 ${accountName}` : "הרשמה / התחברות"}</Text></Pressable>
-          </View>
           <View style={styles.titleBlock}>
             <Text style={styles.eyebrow}>ProLifto</Text>
-            <Text style={styles.title} numberOfLines={1}>{accountName ? `שלום ${accountName}!` : "מוכנים לעבוד?"}</Text>
+            <Text style={styles.title} numberOfLines={1}>{accountName ? `שלום, ${accountName}!` : isSignedIn ? "שלום!" : "מוכנים לעבוד?"}</Text>
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isSignedIn ? "התנתקות מהחשבון המחובר" : "הרשמה או התחברות"}
+            onPress={isSignedIn ? requestAccountSignOut : () => router.push("/register" as never)}
+            style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.logoutButtonText}>{isSignedIn ? "התנתק" : "כניסה"}</Text>
+          </Pressable>
         </View>
         <HomeTimeWeatherWidget />
         <Pressable
@@ -808,13 +817,8 @@ const styles = StyleSheet.create({
   // that floats over every screen, so it never covers the greeting title.
   header: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 46 },
   titleBlock: { flex: 1, minWidth: 0, alignItems: "flex-end" },
-  headerActions: { alignItems: "flex-end", gap: 8 },
-  menuButton: { backgroundColor: "#253653", borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7 },
-  menuText: { color: "#F5B72C", fontSize: 11, fontWeight: "900" },
-  mealButton: { borderColor: "#3F76A7", borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7 },
-  mealButtonText: { color: "#F2D48A", fontSize: 10, fontWeight: "800" },
-  accountButton: { borderColor: "#F5B72C", borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: "#2A2413" },
-  accountButtonText: { color: "#F5B72C", fontSize: 10, fontWeight: "900" },
+  logoutButton: { borderColor: "#3F76A7", borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#16233A" },
+  logoutButtonText: { color: "#A9CFF2", fontSize: 12, fontWeight: "900" },
   eyebrow: { color: "#F5B72C", fontSize: 14, fontWeight: "700", textAlign: "right" },
   title: { color: "#F7F9FC", fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 4, textAlign: "right" },
   logoMark: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#F5B72C", alignItems: "center", justifyContent: "center" },
