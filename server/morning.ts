@@ -6,7 +6,7 @@ export async function createMorningPaymentForm(params: {
   name: string;
   amount: number;
   description: string;
-  userId: number;
+  userId: string;
   planType: "monthly" | "annual";
 }) {
   if (!ENV.morningApiKey || !ENV.morningApiSecret) {
@@ -86,7 +86,7 @@ export function verifyMorningWebhookSignature(
 export type MorningWebhookOutcome = {
   recognized: boolean;
   paid: boolean;
-  userId: number | null;
+  userId: string | null;
   planType: "monthly" | "annual" | null;
   eventId: string | null;
 };
@@ -114,12 +114,16 @@ export function parseMorningWebhookPayload(body: unknown): MorningWebhookOutcome
   const paid = explicitlyPaid || (!explicitlyFailed && PAID_STATUSES.has(rawStatus));
   const recognized = paid || explicitlyFailed || FAILED_STATUSES.has(rawStatus);
 
+  // The checkout link embeds whichever id shape was current when it was
+  // created: a legacy MySQL numeric id (stringified), or a Supabase Auth
+  // UUID once SUBSCRIPTION_SOURCE=supabase. Either way it round-trips back
+  // here as a plain string - the activation step below decides how to use it.
   const userIdRaw = customFields.userId;
   const userId =
     typeof userIdRaw === "number"
-      ? userIdRaw
-      : typeof userIdRaw === "string" && /^\d+$/.test(userIdRaw)
-        ? Number(userIdRaw)
+      ? String(userIdRaw)
+      : typeof userIdRaw === "string" && userIdRaw.length > 0
+        ? userIdRaw
         : null;
 
   const planTypeRaw = customFields.planType;

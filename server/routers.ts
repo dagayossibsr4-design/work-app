@@ -128,12 +128,13 @@ export const appRouter = router({
       }),
   }),
 
-  // נתיבי גרמין
+  // נתיבי גרמין - קוד מת מהצד של ה-UI (הטאב מוסתר), עדיין תלוי במזהה המספרי
+  // של MySQL; יימחק לגמרי במסגרת ניקוי המיגרציה מ-MySQL (ראה תוכנית המיגרציה).
   garmin: router({
-    status: protectedProcedure.query(({ ctx }) => getGarminStatus(ctx.user.id)),
-    beginConnection: protectedProcedure.mutation(({ ctx }) => beginGarminConnection(ctx.user.id)),
-    syncNow: activeSubscriptionProcedure.mutation(({ ctx }) => requestGarminSync(ctx.user!.id)),
-    disconnect: protectedProcedure.mutation(({ ctx }) => disconnectGarmin(ctx.user.id)),
+    status: protectedProcedure.query(({ ctx }) => getGarminStatus(Number(ctx.user.id))),
+    beginConnection: protectedProcedure.mutation(({ ctx }) => beginGarminConnection(Number(ctx.user.id))),
+    syncNow: activeSubscriptionProcedure.mutation(({ ctx }) => requestGarminSync(Number(ctx.user!.id))),
+    disconnect: protectedProcedure.mutation(({ ctx }) => disconnectGarmin(Number(ctx.user.id))),
   }),
 
   barcodeLookup: publicProcedure
@@ -221,9 +222,11 @@ export const appRouter = router({
       return parseFoodLabelResponse(content);
     }),
 
+  // ללא קריאות מהלקוח בפועל (הגיבוי בענן עובד דרך account_state ב-Supabase) -
+  // יימחק במסגרת ניקוי המיגרציה מ-MySQL (ראה תוכנית המיגרציה).
   appState: router({
-    get: protectedProcedure.query(({ ctx }) => getUserAppState(ctx.user.id)),
-    save: activeSubscriptionProcedure.input(z.object({ payload: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) => saveUserAppState(ctx.user!.id, input.payload)),
+    get: protectedProcedure.query(({ ctx }) => getUserAppState(Number(ctx.user.id))),
+    save: activeSubscriptionProcedure.input(z.object({ payload: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) => saveUserAppState(Number(ctx.user!.id), input.payload)),
   }),
 
   auth: router({

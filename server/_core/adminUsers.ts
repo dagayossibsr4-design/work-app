@@ -1,5 +1,7 @@
 import { getSupabaseAdminClient } from "./supabaseAdmin";
 import { listUsersForAdmin, SUPABASE_OPEN_ID_PREFIX } from "../db";
+import { listSupabaseSubscriptionStates } from "./subscriptionState";
+import { ENV } from "./env";
 
 export type AdminUserRow = {
   id: string;
@@ -33,21 +35,28 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
     throw new Error(error?.message ?? "Failed to list Supabase users.");
   }
 
-  // The legacy MySQL database holds subscription/trial state, but it is a
-  // separate system from Supabase Auth. If it is unreachable or misconfigured,
-  // that must not hide the real, authoritative Supabase user list - degrade to
-  // showing users without subscription/trial info instead of failing outright.
-  let mysqlUsers: Awaited<ReturnType<typeof listUsersForAdmin>> = [];
+  // Subscription/trial state lives in a separate system from Supabase Auth
+  // (the legacy MySQL database, or - once SUBSCRIPTION_SOURCE=supabase -
+  // public.subscription_state). If that lookup is unreachable or
+  // misconfigured, that must not hide the real, authoritative Supabase user
+  // list - degrade to showing users without subscription/trial info instead
+  // of failing outright.
+  let byOpenId = new Map<string, { subscriptionStatus: string | null; trialEndsAt: Date | null }>();
   try {
-    mysqlUsers = await listUsersForAdmin();
-  } catch (mysqlError) {
-    console.error("[adminUsers] Failed to read subscription data from the legacy database:", mysqlError);
+    if (ENV.subscriptionSource === "supabase") {
+      const byUserId = await listSupabaseSubscriptionStates();
+      byOpenId = new Map(Array.from(byUserId.entries()).map(([userId, state]) => [`${SUPABASE_OPEN_ID_PREFIX}${userId}`, state]));
+    } else {
+      const mysqlUsers = await listUsersForAdmin();
+      byOpenId = new Map(mysqlUsers.map((user) => [user.openId, user] as const));
+    }
+  } catch (subscriptionError) {
+    console.error("[adminUsers] Failed to read subscription data:", subscriptionError);
   }
-  const byOpenId = new Map(mysqlUsers.map((user) => [user.openId, user] as const));
 
   return data.users
     .map((user) => {
-      const mysqlUser = byOpenId.get(`${SUPABASE_OPEN_ID_PREFIX}${user.id}`);
+      const subscriptionState = byOpenId.get(`${SUPABASE_OPEN_ID_PREFIX}${user.id}`);
       const bannedUntil = user.banned_until ? new Date(user.banned_until) : null;
       return {
         id: user.id,
@@ -55,8 +64,8 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
         createdAt: user.created_at,
         lastSignInAt: user.last_sign_in_at ?? null,
         isSuspended: Boolean(bannedUntil && bannedUntil.getTime() > Date.now()),
-        subscriptionStatus: mysqlUser?.subscriptionStatus ?? null,
-        trialEndsAt: mysqlUser?.trialEndsAt ?? null,
+        subscriptionStatus: subscriptionState?.subscriptionStatus ?? null,
+        trialEndsAt: subscriptionState?.trialEndsAt ?? null,
       };
     })
     .sort((a, b) => new Date(b.lastSignInAt ?? b.createdAt).getTime() - new Date(a.lastSignInAt ?? a.createdAt).getTime());

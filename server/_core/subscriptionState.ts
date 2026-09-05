@@ -1,0 +1,113 @@
+import { getSupabaseAdminClient } from "./supabaseAdmin";
+import type { AppUser } from "./appUser";
+
+const TRIAL_DAYS = 14;
+
+type SubscriptionStateRow = {
+  subscription_status: AppUser["subscriptionStatus"];
+  trial_ends_at: string | null;
+  created_at: string;
+};
+
+/**
+ * The Supabase-backed replacement for `resolveUserFromSupabaseIdentity` in
+ * server/db.ts: reads role (public.user_roles) and subscription/trial state
+ * (public.subscription_state), provisioning a 14-day trial row on first
+ * sight - same default a brand new row gets today via `upsertUser`. Only
+ * used when ENV.subscriptionSource === "supabase" (see server/_core/context.ts).
+ */
+export async function ensureSubscriptionState(identity: {
+  id: string;
+  email: string | null;
+  name: string | null;
+}): Promise<AppUser | null> {
+  const admin = getSupabaseAdminClient();
+  if (!admin) return null;
+
+  const [{ data: roleRow }, { data: stateRow, error: stateError }] = await Promise.all([
+    admin.from("user_roles").select("role").eq("user_id", identity.id).maybeSingle(),
+    admin
+      .from("subscription_state")
+      .select("subscription_status, trial_ends_at, created_at")
+      .eq("user_id", identity.id)
+      .maybeSingle<SubscriptionStateRow>(),
+  ]);
+  if (stateError) throw new Error(stateError.message);
+
+  let state = stateRow;
+  if (!state) {
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
+    const { error: insertError } = await admin.from("subscription_state").insert({
+      user_id: identity.id,
+      subscription_status: "trialing",
+      trial_ends_at: trialEnd.toISOString(),
+    });
+    if (insertError) throw new Error(insertError.message);
+    state = { subscription_status: "trialing", trial_ends_at: trialEnd.toISOString(), created_at: new Date().toISOString() };
+  }
+
+  return {
+    id: identity.id,
+    openId: identity.id,
+    name: identity.name,
+    email: identity.email,
+    loginMethod: "supabase",
+    role: roleRow?.role === "admin" ? "admin" : "user",
+    subscriptionStatus: state.subscription_status,
+    trialEndsAt: state.trial_ends_at ? new Date(state.trial_ends_at) : null,
+    createdAt: new Date(state.created_at),
+    lastSignedIn: new Date(),
+  };
+}
+
+/**
+ * The Supabase-backed replacement for `activateUserSubscription` in
+ * server/db.ts. Only ever called after a Morning webhook signature has been
+ * verified - never from a client-trusted redirect.
+ */
+export async function activateSupabaseSubscription(userId: string, extendByDays: number): Promise<void> {
+  const admin = getSupabaseAdminClient();
+  if (!admin) throw new Error("Supabase admin client is not configured");
+
+  const { data: stateRow, error: readError } = await admin
+    .from("subscription_state")
+    .select("trial_ends_at")
+    .eq("user_id", userId)
+    .maybeSingle<Pick<SubscriptionStateRow, "trial_ends_at">>();
+  if (readError) throw new Error(readError.message);
+
+  const now = Date.now();
+  const currentEnd = stateRow?.trial_ends_at ? new Date(stateRow.trial_ends_at).getTime() : now;
+  const base = Number.isFinite(currentEnd) ? Math.max(currentEnd, now) : now;
+  const newEnd = new Date(base + extendByDays * 24 * 60 * 60 * 1000);
+
+  const { error } = await admin
+    .from("subscription_state")
+    .upsert({ user_id: userId, subscription_status: "active", trial_ends_at: newEnd.toISOString() });
+  if (error) throw new Error(error.message);
+}
+
+export type SupabaseSubscriptionByUser = Map<string, { subscriptionStatus: string; trialEndsAt: Date | null }>;
+
+/**
+ * For the admin dashboard: every known subscription_state row, keyed by the
+ * Supabase Auth user id, to merge into the Supabase Auth user list the same
+ * way listAdminUsers() merges in the legacy MySQL data today.
+ */
+export async function listSupabaseSubscriptionStates(): Promise<SupabaseSubscriptionByUser> {
+  const admin = getSupabaseAdminClient();
+  const byUser: SupabaseSubscriptionByUser = new Map();
+  if (!admin) return byUser;
+
+  const { data, error } = await admin.from("subscription_state").select("user_id, subscription_status, trial_ends_at");
+  if (error) throw new Error(error.message);
+
+  for (const row of data ?? []) {
+    byUser.set(row.user_id as string, {
+      subscriptionStatus: row.subscription_status as string,
+      trialEndsAt: row.trial_ends_at ? new Date(row.trial_ends_at as string) : null,
+    });
+  }
+  return byUser;
+}

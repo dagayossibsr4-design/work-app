@@ -1,6 +1,19 @@
 import type { Express, Request, Response } from "express";
 import { activateUserSubscription } from "./db";
+import { activateSupabaseSubscription } from "./_core/subscriptionState";
 import { parseMorningWebhookPayload, verifyMorningWebhookSignature } from "./morning";
+import { ENV } from "./_core/env";
+
+// Dispatches to whichever database currently backs subscription state (see
+// ENV.subscriptionSource). The checkout link that produced this userId was
+// created under the same flag value, so the id shape always matches.
+async function activateSubscription(userId: string, days: number): Promise<void> {
+  if (ENV.subscriptionSource === "supabase") {
+    await activateSupabaseSubscription(userId, days);
+    return;
+  }
+  await activateUserSubscription(Number(userId), days);
+}
 
 const PLAN_DURATION_DAYS: Record<"monthly" | "annual", number> = {
   monthly: 30,
@@ -65,7 +78,7 @@ export function registerMorningWebhookRoutes(app: Express) {
 
     try {
       const days = PLAN_DURATION_DAYS[outcome.planType ?? "monthly"];
-      await activateUserSubscription(outcome.userId, days);
+      await activateSubscription(outcome.userId, days);
       res.status(200).json({ ok: true });
     } catch (error) {
       console.error("[Morning webhook] Failed to activate subscription:", error);
