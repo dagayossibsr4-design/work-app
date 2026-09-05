@@ -45,19 +45,25 @@ async function resolveUser(req: CreateExpressContextOptions["req"]): Promise<App
         if (ENV.subscriptionSource === "supabase") {
           const user = await ensureSubscriptionState(identity);
           if (user) return user;
+          console.error("[Auth] ensureSubscriptionState returned null for a verified Supabase identity", { userId: identity.id });
         } else {
           const user = await resolveUserFromSupabaseIdentity(identity);
           if (user) return fromLegacyUser(user);
         }
+      } else {
+        console.warn("[Auth] Bearer token present but did not verify as a Supabase identity");
       }
-    } catch {
-      // Falls through to the legacy check below.
+    } catch (error) {
+      // Falls through to the legacy check below, but this is not expected
+      // to ever throw for a real Supabase-signed-in user, so log it.
+      console.error("[Auth] Supabase identity resolution threw:", error);
     }
   }
 
   try {
     return fromLegacyUser(await sdk.authenticateRequest(req));
-  } catch {
+  } catch (error) {
+    if (token) console.error("[Auth] Legacy session fallback also failed for a request carrying a Bearer token:", error instanceof Error ? error.message : error);
     return null;
   }
 }
