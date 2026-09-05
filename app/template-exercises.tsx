@@ -79,7 +79,7 @@ export default function TemplateExercisesScreen() {
                 />
                 <TextInput
                   value={set.restPause ?? ""}
-                  placeholder="Rest Pause (אופציונלי)"
+                  placeholder="Rest Pause"
                   placeholderTextColor="#7E8DA4"
                   onChangeText={(restPause) => updateExercise(id, exercise.id, { sets: exercise.sets.map((currentSet, currentIndex) => currentIndex === setIndex ? { ...currentSet, restPause: sanitizeNonNegativeDecimalInput(restPause) } : currentSet) })}
                   style={styles.setInput}
@@ -150,10 +150,10 @@ const styles = StyleSheet.create({
   setsHeader: { flexDirection: "row-reverse", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
   smallButton: { backgroundColor: "#253653", borderRadius: 9, paddingVertical: 7, paddingHorizontal: 10 },
   smallButtonText: { color: "#F7F9FC", fontSize: 11, fontWeight: "800" },
-  setRow: { flexDirection: "row-reverse", alignItems: "center", gap: 7 },
-  setInput: { flex: 1, minHeight: 38, backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 9, color: "#F7F9FC", paddingHorizontal: 8, textAlign: "right", fontSize: 11 },
-  setNumber: { color: "#AAB7C8", width: 35, fontSize: 10, textAlign: "right" },
-  removeSet: { width: 29, height: 30, borderRadius: 8, backgroundColor: "#432330", alignItems: "center", justifyContent: "center" },
+  setRow: { flexDirection: "row-reverse", alignItems: "center", gap: 7, minWidth: 0 },
+  setInput: { flex: 1, minWidth: 0, minHeight: 38, backgroundColor: "#0B1224", borderColor: "#2C3B55", borderWidth: 1, borderRadius: 9, color: "#F7F9FC", paddingHorizontal: 8, textAlign: "right", fontSize: 11 },
+  setNumber: { color: "#AAB7C8", width: 35, flexShrink: 0, fontSize: 10, textAlign: "right" },
+  removeSet: { width: 29, height: 30, flexShrink: 0, borderRadius: 8, backgroundColor: "#432330", alignItems: "center", justifyContent: "center" },
   removeText: { color: "#F16B7A", fontSize: 19 },
   deleteButton: { alignItems: "center", paddingTop: 5 },
   deleteText: { color: "#F16B7A", fontSize: 12, fontWeight: "800" },
