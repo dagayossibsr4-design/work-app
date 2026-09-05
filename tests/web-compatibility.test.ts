@@ -82,12 +82,12 @@ describe("תאימות Web ונתיבים", () => {
   });
 
   it("מציג בונה תוכנית מחולק לקטגוריות נפתחות", () => {
-    const home = readSource("app/(tabs)/index.tsx");
-    expect(home).toContain("exerciseCategoryList");
-    expect(home).toContain("exerciseCategorySection");
-    expect(home).toContain("builderSelectionBadge");
-    expect(home).toContain("toggleBuilderCategory");
-    expect(home).toContain("ללא שיוך מגדרי");
+    const builder = readSource("components/program-builder.tsx");
+    expect(builder).toContain("exerciseCategoryList");
+    expect(builder).toContain("exerciseCategorySection");
+    expect(builder).toContain("builderSelectionBadge");
+    expect(builder).toContain("toggleBuilderCategory");
+    expect(builder).toContain("ללא שיוך מגדרי");
   });
 
   it("מאפשר לבחור מאקרו חורג ולסנן את המלצת הקיצוץ", () => {

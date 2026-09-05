@@ -24,6 +24,7 @@ import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { ActionToast } from "@/components/action-toast";
 import { HomeTimeWeatherWidget } from "@/components/home-time-weather-widget";
 import { BrandMark } from "@/components/ui/brand-mark";
+import { ProgramBuilder } from "@/components/program-builder";
 import { supabase } from "@/lib/supabase";
 import { confirmSignOut } from "@/lib/confirm-sign-out";
 import { getAllowedScheduleTemplates, readDefaultWorkoutTemplateId, readWorkoutScheduleOverrides, resolveTodaySchedule, setDefaultWorkoutTemplateId, type TodaySchedule } from "@/lib/workout-schedule";
@@ -90,39 +91,15 @@ export default function HomeScreen() {
   const [selectedDayByMethod, setSelectedDayByMethod] = useState<Record<string, WorkoutId>>({});
   useEffect(() => { void AsyncStorage.getItem(selectedMethodStorageKey).then((stored) => { if (stored) setSelectedMethodId(stored); }); void AsyncStorage.getItem(selectedDayStorageKey).then((stored) => { if (stored) { try { setSelectedDayByMethod(JSON.parse(stored) as Record<string, WorkoutId>); } catch { /* נתון ישן או פגום — נשארים בברירת המחדל */ } } }); }, []);
   const [isCreatorOpen, setIsCreatorOpen] = useState(false);
-  const [isBuilderStarted, setIsBuilderStarted] = useState(false);
   const [isMyProgramsOpen, setIsMyProgramsOpen] = useState(false);
-  const [isCustomDefault, setIsCustomDefault] = useState(false);
+  const [builderTarget, setBuilderTarget] = useState<{ program: PersonalProgram; appendWorkout: boolean } | null>(null);
+  const [builderInstanceKey, setBuilderInstanceKey] = useState(0);
+  const [homeToastMessage, setHomeToastMessage] = useState<string | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<WorkoutTemplate | null>(null);
   const [isPreviewEditing, setIsPreviewEditing] = useState(false);
   const [editingExerciseIndex, setEditingExerciseIndex] = useState<number | null>(null);
   const [replacementSearch, setReplacementSearch] = useState("");
   const [autoProgressMessage, setAutoProgressMessage] = useState("");
-  const [customName, setCustomName] = useState("");
-  const [customSearch, setCustomSearch] = useState("");
-  const [customCategory, setCustomCategory] = useState("הכול");
-  const [builderSourceFilter, setBuilderSourceFilter] = useState<"all" | "catalog" | "personal">("all");
-  const [customIcon, setCustomIcon] = useState<IconSymbolName>("dumbbell.fill");
-  const [customColor, setCustomColor] = useState("#F5B72C");
-  const [selectedExerciseIds, setSelectedExerciseIds] = useState<string[]>([]);
-  const [customBuilderExercises, setCustomBuilderExercises] = useState<CreatorExercise[]>([]);
-  const [builderExerciseOverrides, setBuilderExerciseOverrides] = useState<Record<string, Partial<CreatorExercise>>>({});
-  const [customExerciseDraftName, setCustomExerciseDraftName] = useState("");
-  const [customExerciseDraftEnglishName, setCustomExerciseDraftEnglishName] = useState("");
-  const [creatorToastMessage, setCreatorToastMessage] = useState<string | null>(null);
-  const [editingCustomExerciseId, setEditingCustomExerciseId] = useState<string | null>(null);
-  const [workoutName, setWorkoutName] = useState("");
-  const [editingPersonalProgramId, setEditingPersonalProgramId] = useState<string | null>(null);
-  const [builderReturnToSchedule, setBuilderReturnToSchedule] = useState(false);
-  const [isBuilderReviewOpen, setIsBuilderReviewOpen] = useState(false);
-  const [isProgramNameConfirmed, setIsProgramNameConfirmed] = useState(false);
-  const [confirmedBuilderWorkoutIds, setConfirmedBuilderWorkoutIds] = useState<string[]>([]);
-  const [builderExerciseDrag, setBuilderExerciseDrag] = useState<{ workoutId: string; exerciseId: string; lastY: number } | null>(null);
-  const [pendingBuilderExercise, setPendingBuilderExercise] = useState<CreatorExercise | null>(null);
-  const [hiddenPersonalExerciseKeys, setHiddenPersonalExerciseKeys] = useState<string[]>([]);
-  const [builderWorkouts, setBuilderWorkouts] = useState<BuilderWorkoutDraft[]>([{ id: "draft-workout-1", name: "", exerciseIds: [] }]);
-  const [activeBuilderWorkoutId, setActiveBuilderWorkoutId] = useState("draft-workout-1");
-  const [expandedBuilderCategories, setExpandedBuilderCategories] = useState<string[]>([]);
   useEffect(() => {
     if (!supabase) return;
     const updateAccountName = (session: Session | null) => {
@@ -179,30 +156,7 @@ export default function HomeScreen() {
     };
   }).filter((item) => Boolean(item.template || item.program));
   const planMetrics = buildPlanMetrics(sessions, templates);
-  const allBuilderExercises = useMemo<CreatorExercise[]>(() => {
-    const templateExercises = templates.flatMap((template) => template.exercises.map((exercise) => ({ id: `template-${exercise.id}`, name: exercise.name, englishName: exercise.englishName ?? "", note: exercise.note, category: categoryForExercise(`${exercise.name} ${exercise.englishName ?? ""}`) ?? "כללי", defaultTarget: exercise.sets[0]?.target ?? "8–12" })));
-    const savedPersonalExercises = templates.flatMap((template) => template.exercises.filter((exercise) => exercise.note === "תרגיל מותאם אישית" || exercise.id.startsWith("custom-")).map((exercise) => ({ id: `saved-${exercise.id}`, name: exercise.name, englishName: exercise.englishName ?? "", note: exercise.note, category: categoryForExercise(`${exercise.name} ${exercise.englishName ?? ""}`) ?? "כללי", defaultTarget: exercise.sets[0]?.target ?? "8–12" })));
-    const merged = [...customBuilderExercises, ...savedPersonalExercises, ...exerciseLibrary, ...templateExercises].map((item) => builderExerciseOverrides[item.id] ? { ...item, ...builderExerciseOverrides[item.id] } : item);
-    const seen = new Set<string>();
-    return merged.filter((item) => { const key = "sourceExerciseId" in item && item.sourceExerciseId ? item.id : `${item.name.trim().toLowerCase()}|${item.englishName.trim().toLowerCase()}`; if (seen.has(key)) return false; seen.add(key); return Boolean(item.name.trim()); });
-  }, [builderExerciseOverrides, customBuilderExercises, templates]);
-  const builderCategories = useMemo(() => ["הכול", ...builderCategoryOrder.filter((category) => allBuilderExercises.some((item) => item.category === category)), ...Array.from(new Set(allBuilderExercises.map((item) => item.category))).filter((category) => !builderCategoryOrder.includes(category))], [allBuilderExercises]);
-  const builderMatchesSourceFilter = (exercise: CreatorExercise) => builderSourceFilter === "all" || (builderSourceFilter === "personal" ? isPersonalBuilderExercise(exercise) : !isPersonalBuilderExercise(exercise));
-  const filteredCustomExercises = allBuilderExercises.filter(builderMatchesSourceFilter).filter((item) => customCategory === "הכול" || item.category === customCategory).filter((item) => `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(customSearch.toLowerCase()));
-  const visibleBuilderCategories = builderCategories.filter((category) => category !== "הכול").map((category) => ({ category, exercises: filteredCustomExercises.filter((item) => item.category === category) })).filter(({ exercises }) => exercises.length > 0);
-  const myExercises = useMemo(() => {
-    const customFromTemplates = templates.flatMap((template) => template.exercises.filter((exercise) => exercise.note === "תרגיל מותאם אישית" || exercise.id.startsWith("custom-")).map((exercise) => ({ id: `saved-${exercise.id}`, name: exercise.name, englishName: exercise.englishName ?? "", category: categoryForExercise(`${exercise.name} ${exercise.englishName ?? ""}`) ?? "כללי", defaultTarget: exercise.sets[0]?.target ?? "8–12", note: exercise.note })));
-    const merged = [...customBuilderExercises, ...customFromTemplates];
-    const seen = new Set<string>();
-    return merged.filter((exercise) => { const key = `${exercise.name.trim().toLowerCase()}|${exercise.englishName.trim().toLowerCase()}`; if (seen.has(key) || hiddenPersonalExerciseKeys.includes(key)) return false; seen.add(key); return true; });
-  }, [customBuilderExercises, hiddenPersonalExerciseKeys, templates]);
   const filteredReplacementExercises = exerciseLibrary.filter((item) => `${item.name} ${item.englishName} ${(item.aliases ?? []).join(" ")}`.toLowerCase().includes(replacementSearch.toLowerCase())).slice(0, 8);
-  const selectedBuilderExerciseIdentities = new Set(selectedExerciseIds.map((id) => allBuilderExercises.find((exercise) => exercise.id === id)).filter((exercise): exercise is CreatorExercise => Boolean(exercise)).map(builderExerciseIdentity));
-  const isBuilderExerciseSelected = (exercise: CreatorExercise) => selectedExerciseIds.includes(exercise.id);
-  const isBuilderExerciseAlreadyChosen = (exercise: CreatorExercise) => isBuilderExerciseSelected(exercise) || selectedBuilderExerciseIdentities.has(builderExerciseIdentity(exercise));
-  const availableMyExercises = myExercises.filter((exercise) => !isBuilderExerciseAlreadyChosen(exercise));
-  const builderSourceCounts = { all: allBuilderExercises.length, catalog: allBuilderExercises.filter((exercise) => !isPersonalBuilderExercise(exercise)).length, personal: allBuilderExercises.filter((exercise) => isPersonalBuilderExercise(exercise)).length };
-  const builderDuplicateCount = selectedExerciseIds.length - new Set(selectedExerciseIds.map((id) => { const exercise = allBuilderExercises.find((item) => item.id === id); return exercise ? builderExerciseIdentity(exercise) : id; })).size;
   const last = useMemo(() => sortWorkoutSessionsNewestFirst(sessions)[0], [sessions]);
   const previousSessionForPreview = previewTemplate ? sessions.find((session) => session.templateId === previewTemplate.id && Boolean(session.finishedAt)) : undefined;
   const projectedPreviewVolume = previewTemplate ? calculateProjectedVolume(previewTemplate, previousSessionForPreview) : 0;
@@ -228,8 +182,6 @@ export default function HomeScreen() {
     setAutoProgressMessage(updatedSets ? `עודכנו ${updatedSets} סטים · ${weightSets} לפי משקל ו־${repSets} לפי חזרות` : "אין נתוני משקל או חזרות מהאימון הקודם לעדכון");
   };
   const finishPreview = (saveChanges: boolean) => { if (!previewTemplate) return; if (saveChanges) updateTemplate(previewTemplate.id, previewTemplate); startWorkoutFromTemplate(previewTemplate); router.push("/active-workout" as never); setPreviewTemplate(null); setIsPreviewEditing(false); setEditingExerciseIndex(null); };
-  const activeBuilderWorkout = builderWorkouts.find((workout) => workout.id === activeBuilderWorkoutId) ?? builderWorkouts[0];
-  const currentBuilderDrafts = () => builderWorkouts.map((workout) => workout.id === activeBuilderWorkoutId ? { ...workout, name: workoutName.trim(), exerciseIds: selectedExerciseIds } : workout);
   const confirmBuilderAction = (title: string, message: string, confirmText: string, onConfirm: () => void, destructive = false) => {
     if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.confirm === "function") { if (window.confirm(`${title}\n\n${message}`)) onConfirm(); return; }
     Alert.alert(title, message, [{ text: "ביטול", style: "cancel" }, { text: confirmText, style: destructive ? "destructive" : "default", onPress: onConfirm }]);
@@ -242,211 +194,22 @@ export default function HomeScreen() {
       () => {
         if (personalProgram) removePersonalProgram(personalProgram.id);
         else toggleSelectedProgram(id);
-        setCreatorToastMessage(`${title} הוסרה מהתוכניות שלי`);
+        setHomeToastMessage(`${title} הוסרה מהתוכניות שלי`);
       },
       true,
     );
   };
-  const setActiveBuilderExercises = (exerciseIds: string[]) => {
-    setSelectedExerciseIds(exerciseIds);
-    setBuilderWorkouts((current) => current.map((workout) => workout.id === activeBuilderWorkoutId ? { ...workout, exerciseIds } : workout));
-  };
-  const toggleCustomExercise = (id: string) => {
-    const exercise = allBuilderExercises.find((item) => item.id === id);
-    const selectedId = selectedExerciseIds.find((selected) => {
-      if (selected === id) return true;
-      if (!exercise) return false;
-      const selectedExercise = allBuilderExercises.find((item) => item.id === selected);
-      return selectedExercise ? builderExerciseIdentity(selectedExercise) === builderExerciseIdentity(exercise) : false;
-    });
-    const nextIds = selectedId ? selectedExerciseIds.filter((item) => item !== selectedId) : [...selectedExerciseIds, id];
-    setActiveBuilderExercises(nextIds);
-  };
-  const requestRemoveBuilderExercise = (id: string) => {
-    const exercise = allBuilderExercises.find((item) => item.id === id);
-    const selectedId = selectedExerciseIds.find((selected) => {
-      if (selected === id) return true;
-      if (!exercise) return false;
-      const selectedExercise = allBuilderExercises.find((item) => item.id === selected);
-      return selectedExercise ? builderExerciseIdentity(selectedExercise) === builderExerciseIdentity(exercise) : false;
-    });
-    if (!exercise || !selectedId) return;
-    confirmBuilderAction("הסרת תרגיל", `להסיר את „${exercise.name}” מהאימון הנוכחי?`, "הסר תרגיל", () => { toggleCustomExercise(selectedId); Keyboard.dismiss(); }, true);
-  };
-  const requestRemovePersonalBuilderExercise = (exercise: CreatorExercise) => {
-    confirmBuilderAction("הסרת תרגיל אישי", `להסיר את „${exercise.name}” מאזור התרגילים האישיים?`, "הסר מהרשימה", () => {
-      const identity = builderExerciseIdentity(exercise);
-      setHiddenPersonalExerciseKeys((current) => current.includes(identity) ? current : [...current, identity]);
-      setActiveBuilderExercises(selectedExerciseIds.filter((selectedId) => {
-        const selectedExercise = allBuilderExercises.find((item) => item.id === selectedId);
-        return !selectedExercise || builderExerciseIdentity(selectedExercise) !== identity;
-      }));
-      Keyboard.dismiss();
-      setCreatorToastMessage("התרגיל הוסר מרשימת התרגילים האישיים");
-    }, true);
-  };
-  const requestAddBuilderExercise = (id: string) => {
-    const exercise = allBuilderExercises.find((item) => item.id === id);
-    if (!exercise) return;
-    const alreadySelected = selectedExerciseIds.some((selected) => {
-      if (selected === id) return true;
-      const selectedExercise = allBuilderExercises.find((item) => item.id === selected);
-      return selectedExercise ? builderExerciseIdentity(selectedExercise) === builderExerciseIdentity(exercise) : false;
-    });
-    if (alreadySelected) { requestRemoveBuilderExercise(id); return; }
-    Keyboard.dismiss();
-    setPendingBuilderExercise(exercise);
-  };
-  const confirmPendingBuilderExercise = () => {
-    const exercise = pendingBuilderExercise;
-    if (!exercise) return;
-    const alreadySelected = selectedExerciseIds.some((selected) => {
-      if (selected === exercise.id) return true;
-      const selectedExercise = allBuilderExercises.find((item) => item.id === selected);
-      return selectedExercise ? builderExerciseIdentity(selectedExercise) === builderExerciseIdentity(exercise) : false;
-    });
-    if (!alreadySelected) setActiveBuilderExercises([...selectedExerciseIds, exercise.id]);
-    setPendingBuilderExercise(null);
-    Keyboard.dismiss();
-    setCreatorToastMessage(`נוסף לאימון: ${exercise.name}`);
-  };
-  const moveBuilderExercise = (workoutId: string, exerciseId: string, direction: "up" | "down") => {
-    const drafts = currentBuilderDrafts();
-    const draft = drafts.find((workout) => workout.id === workoutId);
-    if (!draft) return;
-    const currentIndex = draft.exerciseIds.indexOf(exerciseId);
-    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= draft.exerciseIds.length) return;
-    const nextExerciseIds = [...draft.exerciseIds];
-    [nextExerciseIds[currentIndex], nextExerciseIds[targetIndex]] = [nextExerciseIds[targetIndex], nextExerciseIds[currentIndex]];
-    setBuilderWorkouts(drafts.map((workout) => workout.id === workoutId ? { ...workout, exerciseIds: nextExerciseIds } : workout));
-    if (workoutId === activeBuilderWorkoutId) setSelectedExerciseIds(nextExerciseIds);
-  };
-  const updateBuilderExerciseNote = (exerciseId: string, note: string) => setBuilderExerciseOverrides((current) => ({ ...current, [exerciseId]: { ...current[exerciseId], note: note.trim() ? note : undefined } }));
-  const startBuilderExerciseDrag = (workoutId: string, exerciseId: string, event: GestureResponderEvent) => setBuilderExerciseDrag({ workoutId, exerciseId, lastY: event.nativeEvent.pageY });
-  const moveBuilderExerciseDrag = (event: GestureResponderEvent) => { const drag = builderExerciseDrag; if (!drag) return; const pageY = event.nativeEvent.pageY; if (Math.abs(pageY - drag.lastY) < 30) return; moveBuilderExercise(drag.workoutId, drag.exerciseId, pageY < drag.lastY ? "up" : "down"); setBuilderExerciseDrag({ ...drag, lastY: pageY }); };
-  const endBuilderExerciseDrag = () => setBuilderExerciseDrag(null);
-  const estimateWorkoutMinutes = (exerciseCount: number, setCount: number) => Math.max(5, Math.round((setCount * 2 + exerciseCount) / 5) * 5);
-  const updateBuilderWorkoutName = (name: string) => {
-    setWorkoutName(name);
-    setConfirmedBuilderWorkoutIds((current) => current.filter((id) => id !== activeBuilderWorkoutId));
-    setBuilderWorkouts((current) => current.map((workout) => workout.id === activeBuilderWorkoutId ? { ...workout, name } : workout));
-  };
-  const confirmProgramName = () => { if (customName.trim()) setIsProgramNameConfirmed(true); };
-  const confirmBuilderWorkout = () => { if (!workoutName.trim()) return; saveActiveBuilderWorkout(); setConfirmedBuilderWorkoutIds((current) => current.includes(activeBuilderWorkoutId) ? current : [...current, activeBuilderWorkoutId]); };
-  const saveActiveBuilderWorkout = () => setBuilderWorkouts(currentBuilderDrafts());
-  const selectBuilderWorkout = (id: string) => {
-    const drafts = currentBuilderDrafts();
-    setBuilderWorkouts(drafts);
-    const next = drafts.find((workout) => workout.id === id);
-    if (!next) return;
-    setActiveBuilderWorkoutId(id); setWorkoutName(next.name); setSelectedExerciseIds(next.exerciseIds);
-  };
-  const addAnotherBuilderWorkout = () => {
-    if (!isActiveBuilderWorkoutConfirmed) { setCreatorToastMessage("אשר קודם את האימון הנוכחי לפני הוספת אימון נוסף"); return; }
-    const createNextWorkout = () => {
-      const drafts = currentBuilderDrafts();
-      const nextId = `draft-workout-${Date.now()}`;
-      setBuilderWorkouts([...drafts, { id: nextId, name: "", exerciseIds: [] }]);
-      setActiveBuilderWorkoutId(nextId); setWorkoutName(""); setSelectedExerciseIds([]);
-      setConfirmedBuilderWorkoutIds((current) => current.filter((id) => id !== nextId));
-    };
-    const confirmationMessage = "האימון הנוכחי אושר. ליצור עכשיו אימון נוסף?";
-    if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.confirm === "function") { if (window.confirm(confirmationMessage)) createNextWorkout(); return; }
-    Alert.alert("הוספת אימון לתוכנית", confirmationMessage, [{ text: "ביטול", style: "cancel" }, { text: "אישור והוספה", onPress: createNextWorkout }]);
-  };
-  const isAppendingWorkoutToExistingProgram = Boolean(editingPersonalProgramId && builderReturnToSchedule);
-  const isBuilderProgramNameConfirmed = isProgramNameConfirmed || isAppendingWorkoutToExistingProgram;
-  const isActiveBuilderWorkoutConfirmed = isBuilderProgramNameConfirmed && confirmedBuilderWorkoutIds.includes(activeBuilderWorkoutId);
-  const canSaveCustomProgram = Boolean(customName.trim() && currentBuilderDrafts().every((workout) => workout.name.trim() && workout.exerciseIds.length > 0));
-  const builderSaveHint = !customName.trim() ? "הזן שם לתוכנית כדי להמשיך." : currentBuilderDrafts().some((workout) => !workout.name.trim()) ? "השלם שם לכל אימון לפני השמירה." : currentBuilderDrafts().some((workout) => workout.exerciseIds.length === 0) ? "הוסף לפחות תרגיל אחד לכל אימון." : "התוכנית מוכנה לשמירה ולהוספה לתוכנית האימונים שלי.";
-  const handleBuilderSavePress = () => {
-    if (!canSaveCustomProgram) { setCreatorToastMessage(builderSaveHint); return; }
-    Keyboard.dismiss();
-    openBuilderReview();
-  };
-  const addCustomBuilderExercise = () => {
-    const name = customExerciseDraftName.trim();
-    if (!name) return;
-    if (editingCustomExerciseId) {
-      setCustomBuilderExercises((current) => current.map((item) => item.id === editingCustomExerciseId ? { ...item, name, englishName: customExerciseDraftEnglishName.trim(), category: customCategory === "הכול" ? item.category : customCategory } : item));
-      setEditingCustomExerciseId(null); setCustomExerciseDraftName(""); setCustomExerciseDraftEnglishName(""); setCreatorToastMessage("התרגיל עודכן");
-      return;
-    }
-    const exercise: CreatorExercise = { id: `custom-builder-exercise-${Date.now()}`, name, englishName: customExerciseDraftEnglishName.trim(), category: customCategory === "הכול" ? "כללי" : customCategory, defaultTarget: "8–12", note: "תרגיל מותאם אישית" };
-    const addExercise = () => {
-      setCustomBuilderExercises((current) => [...current, exercise]);
-      const nextExerciseIds = selectedExerciseIds.includes(exercise.id) ? selectedExerciseIds : [...selectedExerciseIds, exercise.id];
-      setActiveBuilderExercises(nextExerciseIds);
-      setCustomExerciseDraftName(""); setCustomExerciseDraftEnglishName("");
-      setCreatorToastMessage("הועבר לתרגילים שלי");
-    };
-    confirmBuilderAction("אישור הוספת תרגיל אישי", `להוסיף את „${exercise.name}” לאימון הנוכחי?`, "הוסף תרגיל", () => { addExercise(); Keyboard.dismiss(); });
-  };
-  const beginEditBuilderExercise = (exercise: CreatorExercise) => {
-    if (!exercise.id.startsWith("custom-builder-exercise-")) { setCreatorToastMessage("תרגילי הקטלוג נשמרים כפי שהם; אפשר לערוך אותם במסך העבודה לאחר השמירה"); return; }
-    setEditingCustomExerciseId(exercise.id); setCustomExerciseDraftName(exercise.name); setCustomExerciseDraftEnglishName(exercise.englishName); setCustomCategory(exercise.category);
-  };
-  const toggleBuilderCategory = (category: string) => setExpandedBuilderCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category]);
   const switchMethod = (methodId: string) => { if (methodId === "muscle-gain-methods") { router.push("/muscle-gain-methods" as never); return; } if (methodId === "cardio") { setSelectedMethodId(methodId); void AsyncStorage.setItem(selectedMethodStorageKey, methodId); setIsCardioPickerOpen(true); return; } if (methodId === selectedMethodId) return; setIsSwitchingMethod(true); setSelectedMethodId(methodId); void AsyncStorage.setItem(selectedMethodStorageKey, methodId); setTimeout(() => setIsSwitchingMethod(false), 180); };
   const selectTrainingDay = (methodId: string, templateId: WorkoutId) => { setSelectedDayByMethod((current) => { const next = { ...current, [methodId]: templateId }; void AsyncStorage.setItem(selectedDayStorageKey, JSON.stringify(next)); return next; }); };
-  const resetCreatorDraft = () => {
-    const firstWorkoutId = `draft-workout-${Date.now()}`;
-    setEditingPersonalProgramId(null); setBuilderReturnToSchedule(false); setIsBuilderReviewOpen(false); setIsProgramNameConfirmed(false); setConfirmedBuilderWorkoutIds([]); setBuilderExerciseOverrides({}); setCustomName(""); setWorkoutName(""); setCustomSearch(""); setCustomCategory("הכול"); setBuilderSourceFilter("all"); setSelectedExerciseIds([]); setCustomBuilderExercises([]); setHiddenPersonalExerciseKeys([]); setPendingBuilderExercise(null); setIsBuilderStarted(false); setBuilderWorkouts([{ id: firstWorkoutId, name: "", exerciseIds: [] }]); setActiveBuilderWorkoutId(firstWorkoutId); setIsCustomDefault(false); setCustomExerciseDraftName(""); setCustomExerciseDraftEnglishName(""); setEditingCustomExerciseId(null);
-  };
-  const openCreator = () => { resetCreatorDraft(); setIsCreatorOpen(true); };
-  const openCreatorForProgram = (program: PersonalProgram, appendWorkout = false) => {
-    const programTemplates = program.workoutTemplateIds.map((templateId) => templates.find((template) => template.id === templateId) ?? getTemplate(templateId)).filter((template): template is WorkoutTemplate => Boolean(template));
-    const editorExercises: CreatorExercise[] = programTemplates.flatMap((template) => template.exercises.map((exercise) => ({ id: `existing-exercise-${template.id}-${exercise.id}`, name: exercise.name, englishName: exercise.englishName ?? "", note: exercise.note, category: categoryForExercise(`${exercise.name} ${exercise.englishName ?? ""}`) ?? "כללי", defaultTarget: exercise.sets[0]?.target ?? "8–12", sourceTemplateId: template.id, sourceExerciseId: exercise.id, sourceSetCount: exercise.sets.length })));
-    const drafts: BuilderWorkoutDraft[] = programTemplates.map((template) => ({ id: `existing-workout-${template.id}`, name: template.name, exerciseIds: editorExercises.filter((exercise) => exercise.sourceTemplateId === template.id).map((exercise) => exercise.id), sourceTemplateId: template.id }));
-    const firstWorkoutId = appendWorkout ? `draft-workout-${Date.now()}` : drafts[0]?.id ?? `draft-workout-${Date.now()}`;
-    const nextDrafts = appendWorkout || !drafts.length ? [...drafts, { id: firstWorkoutId, name: "", exerciseIds: [] }] : drafts;
-    const activeDraft = nextDrafts.find((draft) => draft.id === firstWorkoutId) ?? nextDrafts[0];
-    setEditingPersonalProgramId(program.id); setBuilderReturnToSchedule(appendWorkout); setIsBuilderReviewOpen(false); setIsProgramNameConfirmed(false); setConfirmedBuilderWorkoutIds(drafts.filter((draft) => Boolean(draft.name.trim())).map((draft) => draft.id)); setBuilderExerciseOverrides({}); setCustomName(program.name); setCustomColor(program.accent); setCustomIcon((program.icon as IconSymbolName) || "dumbbell.fill"); setCustomSearch(""); setCustomCategory("הכול"); setBuilderSourceFilter("all"); setCustomBuilderExercises(editorExercises); setHiddenPersonalExerciseKeys([]); setPendingBuilderExercise(null); setBuilderWorkouts(nextDrafts); setActiveBuilderWorkoutId(activeDraft.id); setWorkoutName(activeDraft.name); setSelectedExerciseIds(activeDraft.exerciseIds); setIsBuilderStarted(true); setIsCustomDefault(false); setIsCreatorOpen(true);
-  };
+  const openCreator = () => { setBuilderTarget(null); setBuilderInstanceKey((current) => current + 1); setIsCreatorOpen(true); };
+  const openCreatorForProgram = (program: PersonalProgram, appendWorkout = false) => { setBuilderTarget({ program, appendWorkout }); setBuilderInstanceKey((current) => current + 1); setIsCreatorOpen(true); };
   const editPersonalProgram = (program: PersonalProgram) => { setIsMyProgramsOpen(false); openCreatorForProgram(program, false); };
   const addWorkoutToPersonalProgram = (program: PersonalProgram) => { setIsMyProgramsOpen(false); openCreatorForProgram(program, true); };
   const editPersonalWorkout = (template: WorkoutTemplate) => { setIsMyProgramsOpen(false); router.push({ pathname: "/template-exercises" as never, params: { templateId: template.id } } as never); };
-  const builderPreviewWorkouts = currentBuilderDrafts().map((workout) => ({ ...workout, exercises: workout.exerciseIds.map((id) => allBuilderExercises.find((item) => item.id === id)).filter((exercise): exercise is CreatorExercise => Boolean(exercise)) }));
-  const builderPreviewExerciseTotal = builderPreviewWorkouts.reduce((total, workout) => total + workout.exercises.length, 0);
-  const builderPreviewSetTotal = builderPreviewWorkouts.reduce((total, workout) => total + workout.exercises.reduce((sets, exercise) => sets + (exercise.sourceSetCount ?? 2), 0), 0);
-  const builderPreviewWorkoutMinutes = builderPreviewWorkouts.map((workout) => estimateWorkoutMinutes(workout.exercises.length, workout.exercises.reduce((total, exercise) => total + (exercise.sourceSetCount ?? 2), 0)));
-  const builderPreviewTotalMinutes = builderPreviewWorkoutMinutes.reduce((total, minutes) => total + minutes, 0);
-  const openBuilderReview = () => { const drafts = currentBuilderDrafts(); if (!customName.trim() || drafts.some((workout) => !workout.name.trim() || workout.exerciseIds.length === 0)) return; setBuilderWorkouts(drafts); setIsBuilderReviewOpen(true); };
-  const createCustomWorkout = async () => {
-    const programName = customName.trim();
-    const drafts = currentBuilderDrafts();
-    if (!programName || drafts.some((workout) => !workout.name.trim() || workout.exerciseIds.length === 0)) return;
-    const stamp = Date.now();
-    const isEditingProgram = Boolean(editingPersonalProgramId);
-    const editingProgram = editingPersonalProgramId ? personalPrograms.find((program) => program.id === editingPersonalProgramId) : undefined;
-    let savedProgramId: string | null = null;
-    const createdTemplates = drafts.map((workout, index) => {
-      const existingTemplate = workout.sourceTemplateId ? templates.find((template) => template.id === workout.sourceTemplateId) : undefined;
-      const exercises = workout.exerciseIds.map((id) => allBuilderExercises.find((item) => item.id === id)).filter((item): item is CreatorExercise => Boolean(item)).map((item, exerciseIndex) => {
-        const sourceExercise = existingTemplate && item.sourceTemplateId === existingTemplate.id && item.sourceExerciseId ? existingTemplate.exercises.find((exercise) => exercise.id === item.sourceExerciseId) : undefined;
-        return sourceExercise ? { ...sourceExercise, name: item.name, englishName: item.englishName || undefined, note: item.note } : { id: `${item.id}-personal-${stamp}-${index}-${exerciseIndex}`, name: item.name, englishName: item.englishName || undefined, note: item.note, sets: [{ target: item.defaultTarget }, { target: item.defaultTarget }] };
-      });
-      return { ...(existingTemplate ?? {}), id: existingTemplate?.id ?? `custom-personal-${stamp}-${index}`, name: workout.name.trim(), focus: exercises.map((exercise) => exercise.name).slice(0, 3).join(" · "), accent: customColor, icon: customIcon, exercises } satisfies WorkoutTemplate;
-    });
-    if (isEditingProgram && editingProgram) {
-      savedProgramId = editingProgram.id;
-      createdTemplates.forEach((template) => { if (templates.some((candidate) => candidate.id === template.id)) updateTemplate(template.id, template); else addCustomTemplate(template); });
-      updatePersonalProgram(editingProgram.id, { name: programName, accent: customColor, icon: customIcon, workoutTemplateIds: createdTemplates.map((template) => template.id) });
-      if (isCustomDefault && createdTemplates[0]) await setDefaultWorkoutTemplateId(createdTemplates[0].id);
-    } else {
-      createdTemplates.forEach(addCustomTemplate);
-      const programId = `personal-program-${stamp}`;
-      savedProgramId = programId;
-      addPersonalProgram({ id: programId, name: programName, workoutTemplateIds: createdTemplates.map((template) => template.id), accent: customColor, icon: customIcon, createdAt: new Date().toISOString() });
-      if (isCustomDefault && createdTemplates[0]) await setDefaultWorkoutTemplateId(createdTemplates[0].id);
-      setSelectedMethodId(createdTemplates[0]?.id ?? selectedMethodId);
-    }
-    const shouldAutoSelectProgram = Boolean(savedProgramId) && (!isEditingProgram || builderReturnToSchedule);
-    const selectionResult = shouldAutoSelectProgram && savedProgramId && !selectedProgramIds.includes(savedProgramId) ? toggleSelectedProgram(savedProgramId) : { selected: Boolean(savedProgramId), limitReached: false };
-    const shouldGoToSchedule = shouldAutoSelectProgram && Boolean(savedProgramId) && !selectionResult.limitReached;
-    if (shouldAutoSelectProgram && selectionResult.limitReached) Alert.alert("האימון נשמר", "התוכנית נשמרה, אך לא ניתן להוסיף אותה ללוח כי כבר נבחרו 5 תוכניות. הסר תוכנית קיימת כדי להוסיף אותה.");
-    setCustomName(""); setCustomSearch(""); setCustomCategory("הכול"); setSelectedExerciseIds([]); setWorkoutName(""); setIsBuilderStarted(false); setEditingPersonalProgramId(null); setBuilderReturnToSchedule(false); setIsBuilderReviewOpen(false); setIsProgramNameConfirmed(false); setConfirmedBuilderWorkoutIds([]); setBuilderExerciseOverrides({}); const resetWorkoutId = `draft-workout-${Date.now()}`; setBuilderWorkouts([{ id: resetWorkoutId, name: "", exerciseIds: [] }]); setActiveBuilderWorkoutId(resetWorkoutId); setIsCustomDefault(false); setIsCreatorOpen(false); if (shouldGoToSchedule) { setIsMyProgramsOpen(false); router.push("/(tabs)/schedule" as never); } else { setIsMyProgramsOpen(true); }
+  const handleBuilderDone = ({ shouldGoToSchedule, isEditingProgram, firstTemplateId }: { shouldGoToSchedule: boolean; isEditingProgram: boolean; firstTemplateId: string | null }) => {
+    setIsCreatorOpen(false);
+    if (!isEditingProgram && firstTemplateId) setSelectedMethodId(firstTemplateId);
+    if (shouldGoToSchedule) { setIsMyProgramsOpen(false); router.push("/(tabs)/schedule" as never); } else { setIsMyProgramsOpen(true); }
   };
   return (
     <ScreenContainer containerClassName="bg-background" className="px-5 pt-4">
@@ -509,6 +272,7 @@ export default function HomeScreen() {
           ].map((item) => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={item.title} onPress={() => { if (item.id === "onboarding") router.push("/onboarding" as never); else if (item.id === "meals") router.push("/(tabs)/meal-plan" as never); else if (item.id === "programs") setIsMyProgramsOpen(true); else if (item.id === "builder") openCreator(); else if (item.id === "progress") router.push("/(tabs)/profile" as never); else if (item.id === "muscle-methods") router.push("/muscle-gain-methods" as never); else router.push("/(tabs)/recovery" as never); }} style={({ pressed }) => [styles.personalProfileRow, pressed && styles.pressed]}><View style={styles.personalProfileArrow}><Text style={styles.personalProfileArrowText}>‹</Text></View><View style={styles.personalProfileRowText}><Text style={styles.personalProfileRowTitle}>{item.title}</Text><Text style={styles.personalProfileRowDescription}>{item.description}</Text></View></Pressable>)}</View>
         </View>
         <View style={styles.personalProgramsPanel}><View style={styles.personalProgramsHeader}><Text style={styles.sectionTitle}>התוכניות שלי · {selectedPersonalPrograms.length}/5</Text><Pressable accessibilityRole="button" onPress={() => setIsMyProgramsOpen(true)} style={styles.personalProgramsLink}><Text style={styles.personalProgramsLinkText}>פתיחה ושיבוץ ›</Text></Pressable></View>{selectedPersonalPrograms.length ? selectedPersonalPrograms.map(({ id, template, templates: programTemplates, personalProgram, program }) => { const title = personalProgram?.name ?? program?.title ?? template?.name ?? id; const accent = personalProgram?.accent ?? template?.accent ?? "#F5B72C"; return <View key={`personal-${id}`} style={styles.personalProgramBlock}><Pressable accessibilityRole="button" onPress={() => template ? openPreview(template.id) : router.push({ pathname: "/(tabs)/workouts" as never, params: { category: program?.categoryId ?? "bodybuilding" } } as never)} style={({ pressed }) => [styles.personalProgramRow, { borderColor: `${accent}99` }, pressed && styles.pressed]}><Text style={styles.personalProgramRowTitle}>{title}</Text><Text style={styles.personalProgramRowMeta}>{personalProgram || program ? `${programTemplates?.length ?? 0} אימונים · ${programTemplates?.reduce((total, item) => total + item.exercises.length, 0) ?? 0} תרגילים` : template ? `${template.exercises.length} תרגילים · ${template.focus}` : ""}</Text></Pressable><View style={styles.personalProgramActions}>{personalProgram ? <Pressable accessibilityRole="button" onPress={() => editPersonalProgram(personalProgram)} style={({ pressed }) => [styles.personalProgramActionButton, pressed && styles.pressed]}><Text style={styles.personalProgramActionText}>עריכת תוכנית</Text></Pressable> : null}<Pressable accessibilityRole="button" accessibilityLabel={`הסר את ${title} מהתוכניות שלי`} onPress={() => requestRemoveSelectedProgram(id, title, personalProgram)} style={({ pressed }) => [styles.removeProgramButton, pressed && styles.pressed]}><Text style={styles.removeProgramButtonText}>הסר</Text></Pressable></View></View>; }) : <Text style={styles.personalProgramsEmpty}>עדיין לא נבחרו תוכניות. פתח את הבחירה והוסף עד 5 תוכניות מוכנות או אישיות.</Text>}</View>
+        <ActionToast message={homeToastMessage} />
         <WorkoutCategoryMenu templates={templates} selectedProgramIds={selectedProgramIds} selectedCount={selectedPersonalPrograms.length} onToggleSelected={toggleSelectedProgram} onOpenTemplate={openPreview} onEditTemplate={(template) => router.push({ pathname: "/template-exercises" as never, params: { templateId: template.id } } as never)} onStartTemplate={startTemplateFromFolder} />
         {Platform.OS === "web" && isCardioPickerOpen ? <View style={styles.webCardioPicker}><View style={styles.modalHeader}><View><Text style={styles.modalTitle}>בחר סוג אירובי</Text><Text style={styles.previewSubtitle}>בחר פעילות כדי להתחיל מיד ולשמור את הנתונים בניתוח</Text></View><Pressable accessibilityRole="button" accessibilityLabel="סגור בחירת אירובי" onPress={() => setIsCardioPickerOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable></View>{["cardio", "cycling", "elliptical", "stairs", "treadmill", "outdoor-run", "walking", "rowing", "swimming", "hiit"].map((id) => { const template = templates.find((item) => item.id === id) ?? getTemplate(id); if (!template) return null; return <Pressable key={`web-${id}`} accessibilityRole="button" accessibilityLabel={`בחר ${template.name}`} onPress={() => { selectTrainingDay("cardio", template.id); setIsCardioPickerOpen(false); openPreview(template.id); }} style={({ pressed }) => [styles.cardioOption, { borderColor: `${template.accent}99` }, pressed && styles.pressed]}><View style={[styles.cardioOptionIcon, { backgroundColor: `${template.accent}24`, borderColor: template.accent }]}><IconSymbol name="figure.run" size={26} color={template.accent} /></View><View style={styles.cardioOptionText}><Text style={styles.cardioOptionTitle}>{template.name}</Text><Text style={styles.cardioOptionSubtitle}>{template.focus}</Text><Text style={[styles.cardioOptionAction, { color: template.accent }]}>הגדר והתחל ›</Text></View></Pressable>; })}</View> : null}
       </ScrollView>
@@ -528,41 +292,7 @@ export default function HomeScreen() {
         </ScrollView></View></View>
       </Modal>
       <Modal visible={isCreatorOpen} animationType="slide" transparent onRequestClose={() => setIsCreatorOpen(false)}>
-        <View style={styles.modalBackdrop}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 18 : 0} style={styles.keyboardAvoidingView}><View style={styles.creatorModal}><ScrollView style={styles.creatorScroll} nestedScrollEnabled keyboardShouldPersistTaps="always" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={styles.creatorContent}>
-          <View style={styles.modalHeader}><View><Text style={styles.modalTitle}>{editingPersonalProgramId ? "עריכת תוכנית אישית" : "צור תוכנית אישית"}</Text><Text style={styles.previewSubtitle}>{editingPersonalProgramId ? "ערוך את התוכנית והאימונים הקיימים, או הוסף אימון חדש" : "שלושה שלבים פשוטים: תוכנית, אימון ותרגילים"}</Text></View><Pressable onPress={() => setIsCreatorOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable></View>
-          <Pressable accessibilityRole="button" onPress={() => setIsBuilderStarted(true)} style={({ pressed }) => [styles.creatorBanner, styles.creatorBannerCentered, pressed && styles.pressed]}><Text style={styles.creatorBannerTitle}>{editingPersonalProgramId ? "ערוך את התוכנית" : "בנה תוכנית אישית"}</Text><Text style={styles.creatorBannerText}>{editingPersonalProgramId ? "עדכן את האימונים והתרגילים במקום אחד" : "לחץ כדי להתחיל: שם תוכנית, אימונים ותרגילים"}</Text></Pressable>
-          {isBuilderStarted ? <><View style={styles.builderFlowSteps}><Text style={[styles.builderFlowStep, isBuilderProgramNameConfirmed ? styles.builderFlowStepActive : null]}>1 · {editingPersonalProgramId ? "עריכת תוכנית" : "צור תוכנית"}</Text><Text style={styles.builderFlowArrow}>‹</Text><Text style={[styles.builderFlowStep, isActiveBuilderWorkoutConfirmed ? styles.builderFlowStepActive : null]}>2 · צור אימון</Text><Text style={styles.builderFlowArrow}>‹</Text><Text style={[styles.builderFlowStep, isActiveBuilderWorkoutConfirmed && selectedExerciseIds.length ? styles.builderFlowStepActive : null]}>3 · הוסף תרגילים</Text></View><View style={styles.builderStageBlock}><View style={styles.builderStageHeader}><Text style={styles.fieldLabel}>שלב 1 · שם התוכנית</Text><Text style={[styles.builderSavedStatus, isBuilderProgramNameConfirmed && styles.builderSavedStatusActive]}>{isAppendingWorkoutToExistingProgram ? "✓ התוכנית הקיימת מאושרת" : isProgramNameConfirmed ? "✓ נשמר" : "טרם אושר"}</Text></View><TextInput value={customName} editable={!isAppendingWorkoutToExistingProgram} onChangeText={(value) => { setCustomName(value); setIsProgramNameConfirmed(false); }} onSubmitEditing={() => Keyboard.dismiss()} returnKeyType="done" placeholder="לדוגמה: התוכנית של ליהוא" placeholderTextColor="#718096" style={[styles.creatorInput, isAppendingWorkoutToExistingProgram && styles.creatorInputReadonly]} textAlign="right" />{isAppendingWorkoutToExistingProgram ? <View style={styles.builderExistingProgramApproved}><Text style={styles.builderExistingProgramApprovedText}>✓ התוכנית הקיימת מאושרת — ממשיכים לאימון החדש</Text></View> : <Pressable accessibilityRole="button" disabled={!customName.trim()} onPress={() => setIsProgramNameConfirmed((current) => !current)} style={({ pressed }) => [styles.builderConfirmButton, isProgramNameConfirmed && styles.builderConfirmButtonActive, !customName.trim() && styles.disabledButton, pressed && styles.pressed]}><Text style={styles.builderConfirmText}>{isProgramNameConfirmed ? "✓ שם התוכנית אושר · ערוך" : "אשר שם התוכנית"}</Text></Pressable>}</View>
-          <View style={styles.builderWorkoutTabs}><Text style={styles.fieldLabel}>שלב 2 · האימונים בתוכנית</Text><Text style={styles.builderSectionHint}>צור אימון ראשון, ולאחר מכן הוסף אימונים נוספים לאותה תוכנית</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.builderWorkoutTabRow}>{builderWorkouts.map((workout, index) => <Pressable key={workout.id} accessibilityRole="button" accessibilityState={{ selected: activeBuilderWorkoutId === workout.id }} onPress={() => selectBuilderWorkout(workout.id)} style={[styles.builderWorkoutTab, activeBuilderWorkoutId === workout.id && { backgroundColor: customColor, borderColor: customColor }]}><Text style={[styles.builderWorkoutTabText, activeBuilderWorkoutId === workout.id && styles.builderWorkoutTabTextActive]}>{workout.name || `אימון ${index + 1}`}</Text></Pressable>)}<Pressable accessibilityRole="button" onPress={addAnotherBuilderWorkout} style={styles.addWorkoutTab}><Text style={styles.addWorkoutTabText}>{builderWorkouts.length > 1 ? "＋ צור אימון נוסף" : "＋ צור אימון"}</Text></Pressable></ScrollView></View>
-          <View style={styles.builderStageBlock}><View style={styles.builderStageHeader}><Text style={styles.fieldLabel}>שלב 2 · שם האימון הנוכחי</Text><Text style={[styles.builderSavedStatus, isActiveBuilderWorkoutConfirmed && styles.builderSavedStatusActive]}>{isActiveBuilderWorkoutConfirmed ? "✓ נשמר" : "טרם אושר"}</Text></View><TextInput value={workoutName} onChangeText={updateBuilderWorkoutName} onSubmitEditing={() => Keyboard.dismiss()} returnKeyType="done" placeholder="לדוגמה: אימון ידיים" placeholderTextColor="#718096" style={styles.creatorInput} textAlign="right" /><Pressable accessibilityRole="button" disabled={!workoutName.trim()} onPress={() => { if (isActiveBuilderWorkoutConfirmed) setConfirmedBuilderWorkoutIds((current) => current.filter((id) => id !== activeBuilderWorkoutId)); else confirmBuilderWorkout(); }} style={({ pressed }) => [styles.builderConfirmButton, isActiveBuilderWorkoutConfirmed && styles.builderConfirmButtonActive, !workoutName.trim() && styles.disabledButton, pressed && styles.pressed]}><Text style={styles.builderConfirmText}>{isActiveBuilderWorkoutConfirmed ? "✓ האימון אושר · ערוך" : "אשר את האימון והמשך לתרגילים"}</Text></Pressable></View>
-          <View style={styles.builderOptionHeader}><View><Text style={styles.fieldLabel}>בחר אייקון אישי לתוכנית</Text><Text style={styles.builderSelectionHint}>התאם את הסמל למטרה ולסגנון שלך</Text></View><Text style={styles.builderOptionCount}>{builderIconOptions.length} אייקונים זמינים</Text></View><View style={styles.optionRow}>{builderIconOptions.map((icon) => <Pressable key={icon} accessibilityRole="button" accessibilityLabel={`בחר אייקון ${icon}`} onPress={() => setCustomIcon(icon)} style={[styles.iconChoice, customIcon === icon && styles.selectedIconChoice]}><IconSymbol name={icon} size={26} color={customIcon === icon ? "#0B1224" : "#F7F9FC"} /></Pressable>)}</View>
-          <View style={styles.builderOptionHeader}><Text style={styles.fieldLabel}>בחר צבע לתוכנית</Text><Text style={styles.builderOptionCount}>{builderColorOptions.length} צבעים זמינים</Text></View><View style={styles.optionRow}>{builderColorOptions.map((color) => <Pressable key={color} accessibilityRole="button" accessibilityLabel={`בחר צבע ${color}`} onPress={() => setCustomColor(color)} style={[styles.colorChoice, { backgroundColor: color }, customColor === color && styles.selectedColorChoice]} />)}</View>
-          <View style={styles.builderSelectionHeader}><View><Text style={styles.fieldLabel}>שלב 3 · הוסף תרגילים לאימון</Text><Text style={styles.builderSelectionHint}>כל התרגילים זמינים לבחירה, ללא שיוך מגדרי</Text><Text style={[styles.builderSavedStatus, isActiveBuilderWorkoutConfirmed && styles.builderSavedStatusActive]}>{isActiveBuilderWorkoutConfirmed ? "✓ האימון נשמר ומוכן לבחירת תרגילים" : "אשר את האימון כדי להשלים את השלב"}</Text></View><View style={[styles.builderSelectionBadge, { borderColor: customColor }]}><Text style={[styles.builderSelectionBadgeValue, { color: customColor }]}>{selectedExerciseIds.length}</Text><Text style={styles.builderSelectionBadgeLabel}>נבחרו</Text></View></View>
-          <TextInput value={customSearch} onChangeText={setCustomSearch} onSubmitEditing={() => Keyboard.dismiss()} returnKeyType="search" placeholder="חפש תרגיל בעברית, באנגלית או בכינוי" placeholderTextColor="#718096" style={styles.creatorInput} textAlign="right" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.creatorCategoryRow}>{builderCategories.map((category) => <Pressable key={category} accessibilityRole="button" accessibilityState={{ selected: customCategory === category }} onPress={() => setCustomCategory(category)} style={[styles.creatorCategory, customCategory === category && { backgroundColor: customColor, borderColor: customColor }]}><Text style={[styles.creatorCategoryText, customCategory === category && styles.creatorCategoryTextActive]}>{category === "הכול" ? "כל הקטגוריות" : category}</Text></Pressable>)}</ScrollView>
-          <View style={styles.exerciseSourceRow}><View style={styles.exerciseSourceTitle}><Text style={styles.fieldLabel}>הוסף תרגילים לאימון</Text><Text style={styles.builderSelectionHint}>בחר מהקטלוג הקיים או צור תרגיל אישי — הכול נכנס לטבלה אחת</Text></View><View style={styles.exerciseSourceBadge}><Text style={styles.exerciseSourceBadgeText}>{selectedExerciseIds.length} נבחרו</Text></View></View>
-          <View style={styles.builderSourceFilterRow}>{(["all", "catalog", "personal"] as const).map((filter) => <Pressable key={filter} accessibilityRole="button" accessibilityState={{ selected: builderSourceFilter === filter }} onPress={() => setBuilderSourceFilter(filter)} style={[styles.builderSourceFilter, builderSourceFilter === filter && { backgroundColor: customColor, borderColor: customColor }]}><Text style={[styles.builderSourceFilterText, builderSourceFilter === filter && styles.builderSourceFilterTextActive]}>{builderSourceLabels[filter]} · {builderSourceCounts[filter]}</Text></Pressable>)}</View>
-          <View style={styles.customExerciseBox}><Text style={styles.customExerciseTitle}>{editingCustomExerciseId ? "✎ ערוך תרגיל אישי" : "＋ צור תרגיל אישי"}</Text><TextInput value={customExerciseDraftName} onChangeText={setCustomExerciseDraftName} onSubmitEditing={() => Keyboard.dismiss()} returnKeyType="done" placeholder="שם תרגיל בעברית" placeholderTextColor="#718096" style={styles.creatorInput} textAlign="right" /><TextInput value={customExerciseDraftEnglishName} onChangeText={setCustomExerciseDraftEnglishName} onSubmitEditing={() => Keyboard.dismiss()} returnKeyType="done" placeholder="שם באנגלית (אופציונלי)" placeholderTextColor="#718096" style={styles.creatorInput} textAlign="right" /><Pressable accessibilityRole="button" disabled={!customExerciseDraftName.trim()} onPress={addCustomBuilderExercise} style={({ pressed }) => [styles.addCustomExerciseButton, !customExerciseDraftName.trim() && styles.disabledButton, pressed && styles.pressed]}><Text style={styles.addCustomExerciseButtonText}>{editingCustomExerciseId ? "שמור שינוי בתרגיל" : "הוסף תרגיל אישי לאימון"}</Text></Pressable>{editingCustomExerciseId ? <Pressable accessibilityRole="button" onPress={() => { setEditingCustomExerciseId(null); setCustomExerciseDraftName(""); setCustomExerciseDraftEnglishName(""); }} style={styles.cancelEditButton}><Text style={styles.cancelEditText}>בטל עריכה</Text></Pressable> : null}</View>
-          <Text style={styles.creatorResultCount}>{filteredCustomExercises.length} תרגילים מוצגים · בחר תרגילים מהקטלוג הקיים</Text>
-          <View style={styles.exerciseCategoryList}>{visibleBuilderCategories.map(({ category, exercises }) => { const meta = builderCategoryMeta[category] ?? builderCategoryMeta["כללי"]; const expanded = customCategory !== "הכול" || expandedBuilderCategories.includes(category); return <View key={category} style={[styles.exerciseCategorySection, { borderColor: `${meta.accent}88` }]}><Pressable accessibilityRole="button" accessibilityState={{ expanded }} accessibilityLabel={`${expanded ? "סגור" : "פתח"} קטגוריית ${category}`} onPress={() => { setCustomCategory("הכול"); toggleBuilderCategory(category); }} style={({ pressed }) => [styles.exerciseCategoryHeader, pressed && styles.pressed]}><View style={[styles.exerciseCategoryIcon, { backgroundColor: `${meta.accent}22`, borderColor: meta.accent }]}><IconSymbol name={meta.icon} size={20} color={meta.accent} /></View><View style={styles.exerciseCategoryHeaderCopy}><Text style={styles.exerciseCategoryTitle}>{category}</Text><Text style={styles.exerciseCategorySubtitle}>{meta.subtitle}</Text></View><View style={styles.exerciseCategoryCount}><Text style={[styles.exerciseCategoryCountValue, { color: meta.accent }]}>{exercises.length}</Text><Text style={styles.exerciseCategoryCountLabel}>תרגילים</Text></View><Text style={styles.exerciseCategoryChevron}>{expanded ? "⌃" : "⌄"}</Text></Pressable>{expanded && <View style={styles.exerciseCategoryExercises}>{exercises.map((exercise) => { const selected = isBuilderExerciseSelected(exercise); const alreadyChosen = isBuilderExerciseAlreadyChosen(exercise); return <Pressable key={exercise.id} accessibilityRole="button" accessibilityState={{ selected, disabled: alreadyChosen && !selected }} disabled={alreadyChosen && !selected} onPress={() => requestAddBuilderExercise(exercise.id)} style={({ pressed }) => [styles.exerciseChoice, selected && { borderColor: customColor, backgroundColor: `${customColor}18` }, alreadyChosen && !selected && styles.exerciseChoiceDisabled, pressed && styles.pressed]}><View style={[styles.checkCircle, selected && { backgroundColor: customColor }]}><Text style={styles.checkText}>{selected ? "✓" : ""}</Text></View><View style={styles.exerciseChoiceText}><Text style={styles.exerciseName}>{exercise.name}</Text><Text style={styles.exerciseCategory}>{exercise.category} · יעד {exercise.defaultTarget}{exercise.englishName ? ` · ${exercise.englishName}` : ""}</Text><Text style={[styles.builderExerciseSourceTag, isPersonalBuilderExercise(exercise) ? styles.builderExerciseSourceTagPersonal : styles.builderExerciseSourceTagCatalog]}>{isPersonalBuilderExercise(exercise) ? "אישי" : "קטלוג"}</Text></View></Pressable>; })}</View>}</View>; })}</View>
-          <View style={styles.builderReviewSection}><View style={styles.builderReviewHeader}><View><Text style={styles.builderReviewTitle}>תרגילי האימון הנוכחי</Text><Text style={styles.builderReviewHint}>בדוק, הסר וערוך את הבחירה לפני השמירה</Text><Text style={[styles.builderDuplicateStatus, builderDuplicateCount > 0 ? styles.builderDuplicateStatusWarning : styles.builderDuplicateStatusClear]}>{builderDuplicateCount > 0 ? `זוהו ${builderDuplicateCount} כפילויות — יש להסיר לפני השמירה` : "✓ אין כפילויות בתרגילים שנבחרו"}</Text></View><View style={[styles.builderReviewBadge, { borderColor: customColor }]}><Text style={[styles.builderReviewBadgeText, { color: customColor }]}>{selectedExerciseIds.length}</Text></View></View>{selectedExerciseIds.length ? selectedExerciseIds.map((id) => { const exercise = allBuilderExercises.find((item) => item.id === id); if (!exercise) return null; return <View key={`builder-review-${id}`} style={[styles.builderReviewRow, { borderColor: `${customColor}66` }]}><Pressable accessibilityRole="button" accessibilityLabel={`הסר ${exercise.name} מהאימון`} onPress={() => requestRemoveBuilderExercise(id)} style={styles.builderReviewRemove}><Text style={styles.builderReviewRemoveText}>×</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`ערוך ${exercise.name}`} onPress={() => beginEditBuilderExercise(exercise)} style={styles.builderReviewEdit}><Text style={styles.builderReviewEditText}>עריכה</Text></Pressable><View style={styles.builderReviewCopy}><Text style={styles.builderReviewName}>{exercise.name}</Text><Text style={styles.builderReviewMeta}>{exercise.category} · {exercise.defaultTarget} · {exercise.note ?? "מתוך הקטלוג"}</Text><Text style={[styles.builderReviewSourceTag, isPersonalBuilderExercise(exercise) ? styles.builderReviewSourceTagPersonal : styles.builderReviewSourceTagCatalog]}>{isPersonalBuilderExercise(exercise) ? "מקור: אישי" : "מקור: קטלוג"}</Text></View><View style={[styles.builderReviewIcon, { backgroundColor: `${customColor}22`, borderColor: customColor }]}><IconSymbol name={builderCategoryMeta[exercise.category]?.icon ?? "dumbbell.fill"} size={18} color={customColor} /></View></View>; }) : <Text style={styles.builderReviewEmpty}>עדיין לא נבחרו תרגילים. בחר מהרשימה או צור תרגיל אישי.</Text>}</View>
-          {availableMyExercises.length ? <View style={styles.myExercisesSection}><View style={styles.myExercisesHeader}><View><Text style={styles.myExercisesTitle}>התרגילים שלי לבחירה</Text><Text style={styles.myExercisesHint}>מקור בחירה בלבד · אפשר להוסיף או להסיר כל תרגיל מהרשימה</Text></View><View style={styles.myExercisesIcon}><IconSymbol name="star.fill" size={18} color="#F5B72C" /></View></View>{availableMyExercises.map((exercise) => <View key={`my-exercise-${exercise.id}`} style={styles.myExerciseRow}><View style={styles.myExerciseActions}><Pressable accessibilityRole="button" accessibilityLabel={`הוסף את ${exercise.name} לאימון`} onPress={() => requestAddBuilderExercise(exercise.id)} style={({ pressed }) => [styles.myExerciseAdd, pressed && styles.pressed]}><Text style={styles.myExerciseAddText}>+</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`הסר את ${exercise.name} מרשימת התרגילים האישיים`} onPress={() => requestRemovePersonalBuilderExercise(exercise)} style={({ pressed }) => [styles.myExerciseRemove, pressed && styles.pressed]}><Text style={styles.myExerciseRemoveText}>×</Text></Pressable></View><View style={styles.myExerciseCopy}><Text style={styles.myExerciseName}>{exercise.name}</Text><Text style={styles.myExerciseMeta}>{exercise.category} · {exercise.defaultTarget}</Text></View></View>)}</View> : null}
-          <ActionToast message={creatorToastMessage} />
-          <Pressable accessibilityRole="switch" accessibilityState={{ checked: isCustomDefault }} onPress={() => setIsCustomDefault((current) => !current)} style={({ pressed }) => [styles.defaultProgramRow, isCustomDefault && styles.defaultProgramRowActive, pressed && styles.pressed]}><View style={[styles.defaultProgramCheck, isCustomDefault && styles.defaultProgramCheckActive]}><Text style={styles.defaultProgramCheckText}>{isCustomDefault ? "✓" : ""}</Text></View><View style={styles.defaultProgramCopy}><Text style={styles.defaultProgramTitle}>הפוך לברירת מחדל בלוח האימונים</Text><Text style={styles.defaultProgramDescription}>התוכנית תופיע בלוח גם אם אינה אחת מחמש התוכניות שנבחרו.</Text></View></Pressable>
-                    <View style={styles.finalBuilderCta}><Text style={styles.finalBuilderCtaHint}>{builderSaveHint}</Text><Pressable accessibilityRole="button" accessibilityLabel="הוסף לתוכנית שלי" onPress={handleBuilderSavePress} style={({ pressed }) => [styles.saveCreatorButton, { backgroundColor: canSaveCustomProgram ? customColor : "#334155" }, pressed && styles.pressed]}><Text style={[styles.saveCreatorText, !canSaveCustomProgram && styles.saveCreatorTextDisabled]}>הוסף לתוכנית שלי</Text></Pressable></View>
-</> : null}
-        </ScrollView>{pendingBuilderExercise ? <View accessibilityRole="alert" style={styles.builderExerciseConfirmBanner}><View style={styles.builderExerciseConfirmCopy}><Text style={styles.builderExerciseConfirmTitle}>אישור הוספת תרגיל</Text><Text style={styles.builderExerciseConfirmText}>להוסיף את „{pendingBuilderExercise.name}” לאימון הנוכחי?</Text></View><View style={styles.builderExerciseConfirmActions}><Pressable accessibilityRole="button" onPress={() => setPendingBuilderExercise(null)} style={({ pressed }) => [styles.builderExerciseCancelButton, pressed && styles.pressed]}><Text style={styles.builderExerciseCancelText}>ביטול</Text></Pressable><Pressable accessibilityRole="button" onPress={confirmPendingBuilderExercise} style={({ pressed }) => [styles.builderExerciseConfirmButton, pressed && styles.pressed]}><Text style={styles.builderExerciseConfirmButtonText}>אישור הוספה</Text></Pressable></View></View> : null}</View></KeyboardAvoidingView></View>
-      </Modal>
-      <Modal visible={isBuilderReviewOpen} animationType="slide" transparent onRequestClose={() => setIsBuilderReviewOpen(false)}>
-        <View style={styles.modalBackdrop}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 18 : 0} style={styles.keyboardAvoidingView}><View style={styles.builderReviewModal}><ScrollView style={styles.builderReviewScroll} nestedScrollEnabled keyboardShouldPersistTaps="always" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={styles.builderReviewContent}>
-          <View style={styles.modalHeader}><View><Text style={styles.modalTitle}>תצוגה מקדימה לפני שמירה</Text><Text style={styles.previewSubtitle}>בדוק את כל התוכנית, האימונים והתרגילים לפני האישור הסופי</Text></View><Pressable accessibilityRole="button" accessibilityLabel="סגור תצוגה מקדימה" onPress={() => setIsBuilderReviewOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable></View>
-          <View style={[styles.builderPreviewHero, { borderColor: customColor }]}><View style={[styles.builderPreviewIcon, { backgroundColor: `${customColor}22`, borderColor: customColor }]}><IconSymbol name={customIcon} size={25} color={customColor} /></View><View style={styles.builderPreviewHeroCopy}><Text style={styles.builderPreviewTitle}>{customName.trim()}</Text><Text style={styles.builderPreviewSubtitle}>תוכנית אימונים אישית · מוכנה לאישור</Text></View></View>
-          <View style={styles.builderPreviewStats}><View style={styles.builderPreviewStat}><Text style={[styles.builderPreviewStatValue, { color: customColor }]}>{builderPreviewWorkouts.length}</Text><Text style={styles.builderPreviewStatLabel}>אימונים</Text></View><View style={styles.builderPreviewStat}><Text style={[styles.builderPreviewStatValue, { color: customColor }]}>{builderPreviewExerciseTotal}</Text><Text style={styles.builderPreviewStatLabel}>תרגילים</Text></View><View style={styles.builderPreviewStat}><Text style={[styles.builderPreviewStatValue, { color: customColor }]}>{builderPreviewSetTotal}</Text><Text style={styles.builderPreviewStatLabel}>סטים</Text></View></View>
-          <View style={styles.builderPreviewSummary}><Text style={styles.builderPreviewSummaryTitle}>סיכום לפני שמירה</Text><Text style={styles.builderPreviewSummaryText}>התוכנית „{customName.trim()}” תישמר עם {builderPreviewWorkouts.length} אימונים, {builderPreviewExerciseTotal} תרגילים ו־{builderPreviewSetTotal} סטים. זמן כולל משוער: כ־{builderPreviewTotalMinutes} דקות. אפשר לחזור לעריכה לפני האישור הסופי.</Text></View>
-          <Text style={styles.builderPreviewSectionTitle}>כל התוכן בתוכנית</Text>
-          <View style={styles.builderPreviewWorkoutList}>{builderPreviewWorkouts.map((workout, workoutIndex) => <View key={`builder-preview-${workout.id}`} style={[styles.builderPreviewWorkout, { borderColor: `${customColor}66` }]}><View style={styles.builderPreviewWorkoutHeader}><View style={[styles.builderPreviewWorkoutNumber, { backgroundColor: customColor }]}><Text style={styles.builderPreviewWorkoutNumberText}>{workoutIndex + 1}</Text></View><View style={styles.builderPreviewWorkoutCopy}><Text style={styles.builderPreviewWorkoutTitle}>{workout.name}</Text><Text style={styles.builderPreviewWorkoutMeta}>{workout.exercises.length} תרגילים · {workout.exercises.reduce((total, exercise) => total + (exercise.sourceSetCount ?? 2), 0)} סטים · כ־{estimateWorkoutMinutes(workout.exercises.length, workout.exercises.reduce((total, exercise) => total + (exercise.sourceSetCount ?? 2), 0))} דק׳</Text></View></View><View style={styles.builderPreviewExerciseList}>{workout.exercises.map((exercise, exerciseIndex) => { const isFirst = exerciseIndex === 0; const isLast = exerciseIndex === workout.exercises.length - 1; return <View key={`builder-preview-${workout.id}-${exercise.id}`} onTouchStart={(event) => startBuilderExerciseDrag(workout.id, exercise.id, event)} onTouchMove={moveBuilderExerciseDrag} onTouchEnd={endBuilderExerciseDrag} onTouchCancel={endBuilderExerciseDrag} style={[styles.builderPreviewExercise, builderExerciseDrag?.workoutId === workout.id && builderExerciseDrag.exerciseId === exercise.id && styles.builderPreviewExerciseDragging]}><View style={styles.builderPreviewExerciseOrder}><Pressable accessibilityRole="button" accessibilityLabel={`העבר את ${exercise.name} למעלה`} disabled={isFirst} onPress={() => moveBuilderExercise(workout.id, exercise.id, "up")} style={({ pressed }) => [styles.builderPreviewOrderButton, isFirst && styles.builderPreviewOrderDisabled, pressed && styles.pressed]}><Text style={styles.builderPreviewOrderText}>↑</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`העבר את ${exercise.name} למטה`} disabled={isLast} onPress={() => moveBuilderExercise(workout.id, exercise.id, "down")} style={({ pressed }) => [styles.builderPreviewOrderButton, isLast && styles.builderPreviewOrderDisabled, pressed && styles.pressed]}><Text style={styles.builderPreviewOrderText}>↓</Text></Pressable></View><Text style={styles.builderPreviewExerciseIndex}>{exerciseIndex + 1}</Text><View style={styles.builderPreviewExerciseCopy}><Text style={styles.builderPreviewExerciseName}>{exercise.name}</Text><Text style={styles.builderPreviewExerciseMeta}>{exercise.englishName ? `${exercise.englishName} · ` : ""}{exercise.defaultTarget} · {exercise.sourceSetCount ?? 2} סטים</Text><TextInput accessibilityLabel={`הערה עבור ${exercise.name}`} placeholder="הוסף הערה לתרגיל" placeholderTextColor="#7E8DA4" value={exercise.note ?? ""} onChangeText={(note) => updateBuilderExerciseNote(exercise.id, note)} multiline returnKeyType="done" style={styles.builderPreviewExerciseNoteInput} /></View></View>; })}</View></View>)}</View>
-          <View style={styles.builderPreviewNotice}><Text style={styles.builderPreviewNoticeText}>{builderReturnToSchedule ? "לאחר האישור האימון יישמר בתוך התוכנית, יתווסף ל„התוכנית שלי” וייפתח בלוח האימונים לשיבוץ." : "לאחר האישור התוכנית תישמר תחת „התוכניות שלי”, ותוכל להוסיף אותה למסך הבית ולתוכנית האימונים."}</Text></View>
-          <View style={styles.builderPreviewActions}><Pressable accessibilityRole="button" onPress={() => setIsBuilderReviewOpen(false)} style={({ pressed }) => [styles.builderPreviewBackButton, pressed && styles.pressed]}><Text style={styles.builderPreviewBackText}>חזרה לעריכה</Text></Pressable><Pressable accessibilityRole="button" onPress={() => void createCustomWorkout()} style={({ pressed }) => [styles.builderPreviewConfirmButton, { backgroundColor: customColor }, pressed && styles.pressed]}><Text style={styles.builderPreviewConfirmText}>{builderReturnToSchedule ? "הוסף לתוכנית האימון שלי" : editingPersonalProgramId ? "אשר ושמור שינויים" : "אשר ושמור לתוכנית שלי"}</Text></Pressable></View>
-        </ScrollView></View></KeyboardAvoidingView></View>
+        <ProgramBuilder key={builderInstanceKey} initialProgram={builderTarget?.program} appendWorkout={builderTarget?.appendWorkout ?? false} onDone={handleBuilderDone} onCancel={() => setIsCreatorOpen(false)} />
       </Modal>
     </ScreenContainer>
   );
