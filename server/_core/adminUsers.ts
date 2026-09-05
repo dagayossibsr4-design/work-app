@@ -33,7 +33,16 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
     throw new Error(error?.message ?? "Failed to list Supabase users.");
   }
 
-  const mysqlUsers = await listUsersForAdmin();
+  // The legacy MySQL database holds subscription/trial state, but it is a
+  // separate system from Supabase Auth. If it is unreachable or misconfigured,
+  // that must not hide the real, authoritative Supabase user list - degrade to
+  // showing users without subscription/trial info instead of failing outright.
+  let mysqlUsers: Awaited<ReturnType<typeof listUsersForAdmin>> = [];
+  try {
+    mysqlUsers = await listUsersForAdmin();
+  } catch (mysqlError) {
+    console.error("[adminUsers] Failed to read subscription data from the legacy database:", mysqlError);
+  }
   const byOpenId = new Map(mysqlUsers.map((user) => [user.openId, user] as const));
 
   return data.users
